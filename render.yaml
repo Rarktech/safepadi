@@ -8,12 +8,9 @@ services:
     buildCommand: npm install
     startCommand: npm start
     envVars:
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_ANON_KEY
-        fromGroup: safeeely-common
       - key: REVIEWS_URL
         value: https://yourdomain.com # Set this to your Vercel URL
+      - fromGroup: safeeely-common
 
   # Telegram Bot
   - type: web
@@ -47,6 +44,8 @@ envVarGroups:
       - key: NODE_ENV
         value: production
       - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
