@@ -1,0 +1,18 @@
+[
+  {
+    "id": "e63a14d5-89f4-4b53-8324-af8dbdfab4c0",
+    "name": "Super Admin",
+    "email": "admin@safepadi.com",
+    "role": "SUPER_ADMIN",
+    "status": "ACTIVE",
+    "created_at": "2026-03-19T20:00:00.000Z"
+  },
+  {
+    "id": "da413c37-0b53-4b90-95f1-4906ace306f7",
+    "name": "kkkk",
+    "email": "dfdfd@safeeely.com",
+    "role": "DISPUTER",
+    "status": "ACTIVE",
+    "created_at": "2026-03-19T22:16:53.692Z"
+  }
+]

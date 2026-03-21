@@ -1,0 +1,205 @@
+import { Router } from 'express';
+import { createClient } from '@supabase/supabase-js';
+import * as dotenv from 'dotenv';
+import path from 'path';
+import puppeteer, { Browser } from 'puppeteer';
+import { generateReferralTemplate } from '../templates/referralTemplate';
+
+dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
+
+const router = Router();
+const supabase = createClient(process.env.SUPABASE_URL || '', process.env.SUPABASE_SERVICE_ROLE_KEY || '');
+
+// Browser instance manager
+let browserPromise: Promise<Browser> | null = null;
+
+async function getBrowser() {
+    if (!browserPromise) {
+        browserPromise = puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu']
+        });
+    }
+    try {
+        const browser = await browserPromise;
+        if (!browser.isConnected()) {
+            browserPromise = null;
+            return getBrowser();
+        }
+        return browser;
+    } catch (e) {
+        browserPromise = null;
+        throw e;
+    }
+}
+
+router.get('/:safetag/stats', async (req, res) => {
+    try {
+        const { safetag } = req.params;
+        const normalizedSafetag = safetag.startsWith('@') ? safetag : `@${safetag}`;
+
+        // 1. Get profile ID
+        const { data: profile, error: profileErr } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('safetag', normalizedSafetag)
+            .single();
+
+        if (profileErr || !profile) {
+            return res.status(404).json({ error: 'Profile not found' });
+        }
+
+        const profileId = profile.id;
+
+        // 2. Counts
+        // Tier 1 users
+        const { count: tier1Count } = await supabase
+            .from('profiles')
+            .select('id', { count: 'exact', head: true })
+            .eq('referred_by_id', profileId);
+
+        // Tier 2 users
+        let tier2Count = 0;
+        const { data: tier1Profiles } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('referred_by_id', profileId);
+
+        if (tier1Profiles && tier1Profiles.length > 0) {
+            const t1Ids = tier1Profiles.map(p => p.id);
+            const { count } = await supabase
+                .from('profiles')
+                .select('id', { count: 'exact', head: true })
+                .in('referred_by_id', t1Ids);
+            tier2Count = count || 0;
+        }
+
+        // 3. Commissions data
+        const { data: commissions, error: commErr } = await supabase
+            .from('referral_commissions')
+            .select(`
+                id,
+                amount,
+                currency,
+                tier,
+                status,
+                created_at,
+                txn_id,
+                transactions ( txn_code, product_name ),
+                referred_id,
+                profiles!referral_commissions_referred_id_fkey ( safetag, first_name, email )
+            `)
+            .eq('referrer_id', profileId)
+            .order('created_at', { ascending: false });
+
+        if (commErr) throw commErr;
+
+        let totalEarned = 0;
+        const recentActivity: any[] = [];
+        const leaderboardMap = new Map();
+
+        if (commissions) {
+            commissions.forEach((c: any) => {
+                if (c.status === 'COMPLETED') {
+                    totalEarned += Number(c.amount);
+                }
+
+                // Push to recent activity
+                recentActivity.push({
+                    id: c.id,
+                    type: c.tier === 1 ? 'tier1' : 'tier2',
+                    amount: Number(c.amount),
+                    currency: c.currency,
+                    user: c.profiles?.safetag || 'Unknown',
+                    email: c.profiles?.email || '',
+                    product: c.transactions?.product_name || 'N/A',
+                    txn_code: c.transactions?.txn_code || 'N/A',
+                    date: c.created_at,
+                    status: c.status
+                });
+
+                // Leaderboard grouping
+                const refId = c.referred_id;
+                const earnedFromThisRef = c.status === 'COMPLETED' ? Number(c.amount) : 0;
+
+                if (!leaderboardMap.has(refId)) {
+                    leaderboardMap.set(refId, {
+                        user: c.profiles?.safetag || 'Unknown',
+                        name: c.profiles?.first_name || 'User',
+                        totalEarned: earnedFromThisRef,
+                        tier: c.tier
+                    });
+                } else {
+                    const existing = leaderboardMap.get(refId);
+                    existing.totalEarned += earnedFromThisRef;
+                }
+            });
+        }
+
+        // Available Commission (Mocked to be the same as totalEarned until withdrawals are decoupled)
+        const availableCommission = totalEarned;
+
+        // Process Leaderboard: sort by highest earnings
+        const leaderboard = Array.from(leaderboardMap.values())
+            .sort((a, b) => b.totalEarned - a.totalEarned)
+            .slice(0, 10); // Top 10
+
+        res.json({
+            totalEarned,
+            availableCommission,
+            tier1Count: tier1Count || 0,
+            tier2Count,
+            recentActivity,
+            leaderboard
+        });
+
+    } catch (err: any) {
+        console.error('Referral Stats Error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/:safetag/card', async (req, res) => {
+    try {
+        const { safetag } = req.params;
+        const cleanSafetag = safetag.replace(/^@/, '');
+        const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
+        const referralLink = `${reviewsUrl}/@${cleanSafetag}`;
+
+        const htmlContent = generateReferralTemplate({ 
+            safetag: cleanSafetag, 
+            referralLink 
+        });
+
+        // Render HTML to PNG using Puppeteer
+        const browser = await getBrowser();
+        const page = await browser.newPage();
+        
+        try {
+            await page.setViewport({ width: 1000, height: 1150 });
+            await page.setContent(htmlContent, { waitUntil: 'networkidle0', timeout: 30000 });
+
+            const element = await page.$('.canvas');
+            if (!element) {
+                throw new Error("Failed to find canvas element in the template");
+            }
+
+            const screenshot = await element.screenshot({ type: 'png' });
+            await page.close();
+
+            // Serve image
+            res.setHeader('Content-Type', 'image/png');
+            res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+            res.send(screenshot);
+        } catch (err) {
+            await page.close().catch(() => {});
+            throw err;
+        }
+
+    } catch (err: any) {
+        console.error('Failed to generate referral card:', err);
+        res.status(500).send('Internal Server Error');
+    }
+});
+
+export default router;

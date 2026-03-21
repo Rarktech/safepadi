@@ -1,0 +1,10 @@
+{
+    "name": "@safepal/discord",
+    "version": "1.0.0",
+    "main": "dist/bot.js",
+    "scripts": {
+        "start": "ts-node -r tsconfig-paths/register src/bot.ts",
+        "dev": "nodemon -r tsconfig-paths/register src/bot.ts",
+        "build": "tsc"
+    }
+}
