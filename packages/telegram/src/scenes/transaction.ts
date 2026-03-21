@@ -178,21 +178,31 @@ export const transactionScene = new Scenes.WizardScene(
             const verifiedEmoji = isVerified ? '✅🪪' : '❌🪪';
             const verifiedLabel = `${verifiedEmoji} Verified ${role === 'buyer' ? 'Seller' : 'Buyer'}`;
 
+            const buttons: any[] = [
+                [{ text: '✅ Yes, Continue', callback_data: 'profile_confirm' }],
+                [{ text: '❌ No, Change', callback_data: 'profile_back' }]
+            ];
+
+            // Only add the reviews button if we have a real production URL (Telegram rejects localhost)
+            if (reviewsUrl && !reviewsUrl.includes('localhost') && reviewsUrl.startsWith('http')) {
+                buttons.push([{ text: '⭐ View Reviews', url: reviewsUrl }]);
+            }
+
             await ctx.reply(`👤 <b>${role === 'buyer' ? 'Seller' : 'Buyer'} Profile</b>\n\n<code>${profile.safetag}</code>\n⭐ Rating: ${ratingStr} ${ratingSuffix}\n${verifiedLabel}\n\nContinue with this ${role === 'buyer' ? 'seller' : 'buyer'}?`, {
                 parse_mode: 'HTML',
                 disable_web_page_preview: true,
                 reply_markup: {
-                    inline_keyboard: [
-                        [{ text: '✅ Yes, Continue', callback_data: 'profile_confirm' }],
-                        [{ text: '❌ No, Change', callback_data: 'profile_back' }],
-                        [{ text: '⭐ View Reviews', url: reviewsUrl }]
-                    ]
+                    inline_keyboard: buttons as any
                 }
             });
             return ctx.wizard.next();
         } catch (err: any) {
             console.error(`Profile lookup error for ${otherSafetag}:`, err.message);
-            ctx.reply(`❌ <b>${role === 'buyer' ? 'Seller' : 'Buyer'} not found</b>\n\nThe Safetag "<code>${otherSafetag}</code>" doesn't exist.\n\nPlease check and try again:`, { parse_mode: 'HTML' });
+            if (err.response?.status === 404) {
+                 ctx.reply(`❌ <b>${role === 'buyer' ? 'Seller' : 'Buyer'} not found</b>\n\nThe Safetag "<code>${otherSafetag}</code>" doesn't exist.\n\nPlease check and try again:`, { parse_mode: 'HTML' });
+            } else {
+                 ctx.reply(`❌ <b>Service Error</b>\n\nAn unexpected error occurred while communicating with the server.\n\nError: ${err.message}`, { parse_mode: 'HTML' });
+            }
             return; // Stay on this step
         }
     },
