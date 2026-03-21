@@ -798,3 +798,14 @@ client.on('interactionCreate', async (interaction) => {
 client.login(process.env.DISCORD_BOT_TOKEN).catch(err => {
     console.error('❌ Failed to login to Discord:', err.message);
 });
+
+// ⚓ Dummy HTTP Server to satisfy Render "Web Service" port check
+import http from 'http';
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Safeeely Discord Bot is Healthy\n');
+});
+const PORT = process.env.PORT || 10000;
+server.listen(PORT, () => {
+    console.log(`Discord Bot Health-Check server is listening on port ${PORT}`);
+});

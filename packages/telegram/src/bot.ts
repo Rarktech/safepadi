@@ -521,3 +521,14 @@ console.log('Safeeely Telegram Bot is running...');
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
+// ⚓ Dummy HTTP Server to satisfy Render "Web Service" port check
+import http from 'http';
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Safeeely Bot is Healthy\n');
+});
+const PORT = process.env.PORT || 10000;
+server.listen(PORT, () => {
+    console.log(`Telegram Bot Health-Check server is listening on port ${PORT}`);
+});

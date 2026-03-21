@@ -14,13 +14,12 @@
   "author": "",
   "license": "ISC",
   "description": "",
-  "devDependencies": {
+  "devDependencies": {},
+  "dependencies": {
     "@types/body-parser": "^1.19.6",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
-    "@types/node": "^25.3.0"
-  },
-  "dependencies": {
+    "@types/node": "^25.3.0",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
