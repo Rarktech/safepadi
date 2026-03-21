@@ -1,0 +1,184 @@
+import { Router } from 'express';
+import { supabase } from '@safepal/shared';
+import { z } from 'zod';
+
+const router = Router();
+
+const CreateReviewSchema = z.object({
+    transaction_id: z.string(),
+    reviewer_safetag: z.string(),
+    reviewee_safetag: z.string(),
+    rating: z.number().min(1).max(5),
+    comment: z.string().optional(),
+    proof_url: z.string().optional()
+});
+
+router.post('/create', async (req, res) => {
+    try {
+        const data = CreateReviewSchema.parse(req.body);
+
+        // Get IDs
+        const { data: reviewer } = await supabase.from('profiles').select('id').eq('safetag', data.reviewer_safetag).single();
+        const { data: reviewee } = await supabase.from('profiles').select('id').eq('safetag', data.reviewee_safetag).single();
+
+        if (!reviewer || !reviewee) {
+            return res.status(400).json({ error: 'Reviewer or Reviewee not found' });
+        }
+
+        const { data: review, error } = await supabase
+            .from('reviews')
+            .insert({
+                transaction_id: data.transaction_id,
+                reviewer_id: reviewer.id,
+                reviewee_id: reviewee.id,
+                rating: data.rating,
+                comment: data.comment,
+                proof_url: data.proof_url
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        res.status(201).json(review);
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+router.get('/stats/:safetag', async (req, res) => {
+    try {
+        const { safetag } = req.params;
+        const withAt = safetag.startsWith('@') ? safetag : `@${safetag}`;
+        const withoutAt = safetag.startsWith('@') ? safetag.slice(1) : safetag;
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('id')
+            .or(`safetag.ilike.${withAt},safetag.ilike.${withoutAt}`)
+            .maybeSingle();
+
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+        const { data, error } = await supabase
+            .from('reviews')
+            .select('rating')
+            .eq('reviewee_id', profile.id);
+
+        if (error) throw error;
+
+        const count = data.length;
+        const avg = count > 0 ? data.reduce((acc, curr) => acc + curr.rating, 0) / count : 0;
+
+        res.json({ average_rating: avg, review_count: count });
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+router.get('/user/:safetag', async (req, res) => {
+    try {
+        const { safetag } = req.params;
+        const { data: profile } = await supabase.from('profiles').select('id, safetag, first_name, last_name').eq('safetag', safetag).single();
+
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+        // Fetch reviews with reviewer details
+        const { data: reviews, error } = await supabase
+            .from('reviews')
+            .select(`
+                *,
+                reviewer:profiles!reviewer_id (safetag, first_name, last_name)
+            `)
+            .eq('reviewee_id', profile.id)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        // Fetch replies for these reviews
+        const reviewIds = reviews.map(r => r.id);
+        const { data: replies } = await supabase
+            .from('review_replies')
+            .select(`
+                *,
+                responder:profiles!responder_id (safetag, first_name, last_name)
+            `)
+            .in('review_id', reviewIds);
+
+        // Fetch votes for these reviews
+        const { data: votes } = await supabase
+            .from('review_votes')
+            .select('*')
+            .in('review_id', reviewIds);
+
+        // Map everything together
+        const detailedReviews = reviews.map(r => {
+            const rReplies = (replies || []).filter(rep => rep.review_id === r.id);
+            const rVotes = (votes || []).filter(v => v.review_id === r.id);
+            const upvotes = rVotes.filter(v => v.vote_type === 'upvote').length;
+            const downvotes = rVotes.filter(v => v.vote_type === 'downvote').length;
+
+            return {
+                ...r,
+                replies: rReplies,
+                upvotes,
+                downvotes
+            };
+        });
+
+        res.json({
+            profile,
+            reviews: detailedReviews
+        });
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+router.post('/reply', async (req, res) => {
+    try {
+        const { review_id, responder_safetag, comment } = req.body;
+        const { data: profile } = await supabase.from('profiles').select('id').eq('safetag', responder_safetag).single();
+        if (!profile) return res.status(404).json({ error: 'Responder not found' });
+
+        const { data: reply, error } = await supabase
+            .from('review_replies')
+            .insert({
+                review_id,
+                responder_id: profile.id,
+                comment
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.status(201).json(reply);
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+router.post('/vote', async (req, res) => {
+    try {
+        const { review_id, voter_safetag, vote_type } = req.body;
+        const { data: profile } = await supabase.from('profiles').select('id').eq('safetag', voter_safetag).single();
+        if (!profile) return res.status(404).json({ error: 'Voter not found' });
+
+        const { data: vote, error } = await supabase
+            .from('review_votes')
+            .upsert({
+                review_id,
+                voter_id: profile.id,
+                vote_type
+            }, { onConflict: 'review_id,voter_id' })
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.json(vote);
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+export default router;

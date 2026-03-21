@@ -1,0 +1,2 @@
+frontend=https://francene-gleg-molecularly.ngrok-free.dev
+api=https://francene-gleg-molecularly.ngrok-free.dev

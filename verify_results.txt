@@ -1,0 +1,30 @@
+Test 1: Regular admin message
+Msg: 💬 **New Message from Support**
+
+**Sarah**: Hello, I am looking into this.
+
+**Case Context:**
+📦 iPhone 15 Pro
+💰 1500 USD
+🆔 #SAF-9988
+
+Test 2: Attachment only message
+Msg: 📎 **Admin added an attachment**
+
+**Mike** just added a file to your case context.
+
+**Case Context:**
+📦 iPhone 15 Pro
+💰 1500 USD
+🆔 #SAF-9988
+
+Test 3: Join announcement
+Msg: 🛡️ **Human Support Joined**
+
+Support agent **System Admin** has joined the conversation to resolve this dispute personally. AI Mediation is now on standby.
+
+**Case Context:**
+📦 iPhone 15 Pro
+💰 1500 USD
+🆔 #SAF-9988
+

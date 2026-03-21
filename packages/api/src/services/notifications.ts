@@ -1,0 +1,197 @@
+import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
+
+const LOG_FILE = 'c:\\Users\\user\\Desktop\\safepadi\\debug_notification.log';
+
+function log(msg: string) {
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(LOG_FILE, `[${timestamp}] ${msg}\n`);
+    console.log(`[Notification Engine] ${msg}`);
+}
+
+export async function sendNotification(platform: string, platformId: string, message: string, options?: { label: string, customId?: string, url?: string }[], imageUrl?: string) {
+    const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+    const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
+
+    if (platform === 'telegram' && TELEGRAM_BOT_TOKEN) {
+        try {
+            // If an image/video is provided, upload it first
+            if (imageUrl) {
+                log(`Sending to telegram (${platformId}) with mediaUrl: ${imageUrl}`);
+                
+                const extMatch = typeof imageUrl === 'string' ? imageUrl.match(/\.(png|jpe?g|gif|webp|mp4|mov|webm)(\?|$)/i) : null;
+                const ext = extMatch ? extMatch[1].toLowerCase() : 'png';
+                const isVideo = ['mp4', 'mov', 'webm'].includes(ext);
+
+                try {
+                    log(`Attempting to download media for Telegram: ${imageUrl}`);
+                    const response = await axios.get(imageUrl, {
+                        responseType: 'arraybuffer',
+                        headers: { 'ngrok-skip-browser-warning': '1' }
+                    });
+                    
+                    const form = new FormData();
+                    form.append('chat_id', platformId);
+
+                    if (isVideo) {
+                        form.append('video', new Blob([response.data], { type: `video/${ext}` }), `video.${ext}`);
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendVideo`, form, {
+                            headers: { 'Content-Type': 'multipart/form-data' }
+                        });
+                    } else {
+                        form.append('photo', new Blob([response.data], { type: `image/${ext === 'jpg' ? 'jpeg' : ext}` }), `image.${ext}`);
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, form, {
+                            headers: { 'Content-Type': 'multipart/form-data' }
+                        });
+                    }
+                    log(`✅ [Telegram Notification] Media Sent to ${platformId}`);
+                } catch (err: any) {
+                    console.error('Failed to upload Telegram Media:', err.message);
+                }
+            }
+
+            // Convert Markdown bold (**text**) to HTML (<b>text</b>) for Telegram
+            const formattedMsg = message.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+
+            const payload: any = {
+                chat_id: platformId,
+                text: formattedMsg,
+                parse_mode: 'HTML'
+            };
+
+            if (options && options.length > 0) {
+                payload.reply_markup = {
+                    inline_keyboard: options.map(opt => [
+                        opt.url ? { 
+                            text: opt.label, 
+                            // Open as WebApp if the URL points to our app (kyc/payout/etc)
+                            web_app: { url: opt.url } 
+                        } : { 
+                            text: opt.label, 
+                            callback_data: opt.customId 
+                        }
+                    ])
+                };
+            }
+
+            await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, payload);
+            log(`✅ [Telegram Notification] Message Sent to ${platformId}`);
+        } catch (err: any) {
+            const errorMsg = `❌ Telegram Error for ${platformId}: ${err.response?.data ? JSON.stringify(err.response.data) : err.message}`;
+            log(errorMsg);
+            console.error(errorMsg);
+        }
+    } else if (platform === 'discord' && DISCORD_BOT_TOKEN) {
+        try {
+            const dmChannel = await axios.post(
+                'https://discord.com/api/v10/users/@me/channels',
+                { recipient_id: platformId },
+                {
+                    headers: {
+                        Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
+                        'Content-Type': 'application/json',
+                    },
+                }
+            );
+
+            const channelId = dmChannel.data.id;
+
+            // Discord doesn't support HTML tags, convert to Markdown
+            let formattedMessage = message
+                .replace(/<a href="([^"]+)">([^<]+)<\/a>/g, '$2: $1') // Convert <a href="URL">TEXT</a> to TEXT: URL
+                .replace(/<b>/g, '**').replace(/<\/b>/g, '**')
+                .replace(/<code>/g, '`').replace(/<\/code>/g, '`')
+                .replace(/<i>/g, '*').replace(/<\/i>/g, '*');
+
+            if (formattedMessage.length > 2000) {
+                formattedMessage = formattedMessage.substring(0, 1997) + '...';
+            }
+
+            log(`Sending to discord (${platformId}) with mediaUrl: ${imageUrl || 'none'}`);
+            // If imageUrl is provided, we need to handle it natively
+            let payload: any = { content: formattedMessage };
+            let form: FormData | null = null;
+
+            if (imageUrl) {
+                const extMatch = typeof imageUrl === 'string' ? imageUrl.match(/\.(png|jpe?g|gif|webp|mp4|mov|webm)(\?|$)/i) : null;
+                const ext = extMatch ? extMatch[1].toLowerCase() : 'png';
+                const isVideo = ['mp4', 'mov', 'webm'].includes(ext);
+
+                if (isVideo) {
+                    // Discord auto embeds video links cleanly
+                    payload.content = `${imageUrl}\n\n${formattedMessage}`;
+                } else {
+                    try {
+                        log(`Attempting to download image for Discord: ${imageUrl}`);
+                        const response = await axios.get(imageUrl, {
+                            responseType: 'arraybuffer',
+                            headers: { 'ngrok-skip-browser-warning': '1' }
+                        });
+                        
+                        form = new FormData();
+                        form.append('payload_json', JSON.stringify(payload));
+                        form.append('files[0]', new Blob([response.data], { type: `image/${ext === 'jpg' ? 'jpeg' : ext}` }), `image.${ext}`);
+
+                        payload = form; // override payload to send as multipart form later
+                    } catch (err: any) {
+                        console.error('Failed to prepare Discord Photo File:', err.message);
+                    }
+                }
+            }
+
+            // Append components if present
+            if (options && options.length > 0) {
+                const componentsObj = [
+                    {
+                        type: 1,
+                        components: options.map(opt => {
+                            if (opt.url) {
+                                return {
+                                    type: 2,
+                                    label: opt.label,
+                                    style: 5,
+                                    url: opt.url
+                                };
+                            }
+                            return {
+                                type: 2,
+                                label: opt.label,
+                                style: opt.customId!.includes('accept') || opt.customId!.includes('confirm') ? 3 : (opt.customId!.includes('decline') || opt.customId!.includes('cancel') || opt.customId!.includes('dispute') ? 4 : 2),
+                                custom_id: opt.customId
+                            };
+                        })
+                    }
+                ];
+
+                if (form) {
+                    // Update the payload_json field in the form
+                    const currentPayload = JSON.parse(form.get('payload_json') as string);
+                    currentPayload.components = componentsObj;
+                    form.set('payload_json', JSON.stringify(currentPayload));
+                } else {
+                    payload.components = componentsObj;
+                }
+            }
+
+            const headers: any = {
+                Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
+            };
+
+            if (!form) {
+                headers['Content-Type'] = 'application/json';
+            }
+
+            await axios.post(
+                `https://discord.com/api/v10/channels/${channelId}/messages`,
+                payload,
+                { headers }
+            );
+            log(`✅ [Discord Notification] Sent to ${platformId}`);
+        } catch (err: any) {
+            const errorMsg = `❌ Discord Error for ${platformId}: ${err.response?.data ? JSON.stringify(err.response.data) : err.message}`;
+            log(errorMsg);
+            console.error(errorMsg);
+        }
+    }
+}

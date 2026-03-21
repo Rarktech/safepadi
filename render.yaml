@@ -1,0 +1,66 @@
+services:
+  # API / Backend
+  - type: web
+    name: safeeely-api
+    env: node
+    plan: free
+    rootDir: packages/api
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        fromGroup: safeeely-common
+      - key: REVIEWS_URL
+        value: https://safeeely-frontend.onrender.com
+
+  # Frontend (Next.js)
+  - type: web
+    name: safeeely-frontend
+    env: node
+    plan: free
+    rootDir: packages/frontend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: API_URL
+        value: https://safeeely-api.onrender.com/api
+      - key: REVIEWS_URL
+        value: https://safeeely-frontend.onrender.com
+
+  # Telegram Bot (Free Tier Webhook Mode recommended)
+  - type: web
+    name: safeeely-telegram
+    env: node
+    plan: free
+    rootDir: packages/telegram
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - fromGroup: safeeely-common
+
+  # Discord Bot (Free Tier Interaction Endpoint recommended)
+  - type: web
+    name: safeeely-discord
+    env: node
+    plan: free
+    rootDir: packages/discord
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - fromGroup: safeeely-common
+
+envGroups:
+  - name: safeeely-common
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false

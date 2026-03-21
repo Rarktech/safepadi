@@ -1,0 +1,12 @@
+[
+  {
+    "id": "dcb5013a-55f6-4ba8-bd18-c767340c8864",
+    "transaction_id": "821043a2-dd9e-45d9-92d1-580d41ad7a7b",
+    "raised_by": "568d3158-bebe-457c-8d31-0e0cdf04fab6",
+    "reason": "I just want a refund",
+    "status": "OPEN",
+    "resolution": null,
+    "created_at": "2026-03-02T15:55:31.377721+00:00",
+    "resolved_at": null
+  }
+]
