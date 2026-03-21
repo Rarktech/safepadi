@@ -13,23 +13,9 @@ services:
       - key: SUPABASE_ANON_KEY
         fromGroup: safeeely-common
       - key: REVIEWS_URL
-        value: https://safeeely-frontend.onrender.com
+        value: https://yourdomain.com # Set this to your Vercel URL
 
-  # Frontend (Next.js)
-  - type: web
-    name: safeeely-frontend
-    env: node
-    plan: free
-    rootDir: packages/frontend
-    buildCommand: npm install && npm run build
-    startCommand: npm start
-    envVars:
-      - key: API_URL
-        value: https://safeeely-api.onrender.com/api
-      - key: REVIEWS_URL
-        value: https://safeeely-frontend.onrender.com
-
-  # Telegram Bot (Free Tier Webhook Mode recommended)
+  # Telegram Bot
   - type: web
     name: safeeely-telegram
     env: node
@@ -42,7 +28,7 @@ services:
         sync: false
       - fromGroup: safeeely-common
 
-  # Discord Bot (Free Tier Interaction Endpoint recommended)
+  # Discord Bot
   - type: web
     name: safeeely-discord
     env: node
@@ -55,7 +41,7 @@ services:
         sync: false
       - fromGroup: safeeely-common
 
-envGroups:
+envVarGroups:
   - name: safeeely-common
     envVars:
       - key: NODE_ENV
