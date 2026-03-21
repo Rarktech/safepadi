@@ -73,13 +73,18 @@ const data = {
 }
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
-  currentView: 'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details'
-  setCurrentView: (view: 'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details') => void
+  currentView?: 'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details'
+  setCurrentView?: (view: 'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details') => void
   userName?: string
   userEmail?: string
 }
 
-export function AppSidebar({ currentView, setCurrentView, userName, userEmail, ...props }: AppSidebarProps) {
+export function AppSidebar({ currentView: propCurrentView, setCurrentView: propSetCurrentView, userName, userEmail, ...props }: AppSidebarProps) {
+  const [internalView, setInternalView] = React.useState<'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details'>('dashboard');
+
+  const currentView = propCurrentView || internalView;
+  const setCurrentView = propSetCurrentView || setInternalView;
+
   const user = {
     name: userName || data.user.name,
     email: userEmail || data.user.email,
