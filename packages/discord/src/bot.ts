@@ -3,7 +3,9 @@ import * as dotenv from 'dotenv';
 import axios from 'axios';
 import path from 'path';
 
-dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+if (process.env.NODE_ENV !== 'production') {
+    dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+}
 
 const API_URL = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
 const REVIEWS_URL = process.env.REVIEWS_URL || 'http://localhost:3001';
