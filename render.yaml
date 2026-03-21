@@ -4,12 +4,10 @@ services:
     name: safeeely-api
     env: node
     plan: free
-    rootDir: . # Use root to get access to all tools
+    rootDir: .
     buildCommand: npm install
     startCommand: npm start -w packages/api
     envVars:
-      - key: REVIEWS_URL
-        value: https://yourdomain.com # Replace with your Vercel URL
       - fromGroup: safeeely-common
 
   # Telegram Bot
@@ -17,7 +15,7 @@ services:
     name: safeeely-telegram
     env: node
     plan: free
-    rootDir: . # Use root to get access to all tools
+    rootDir: .
     buildCommand: npm install
     startCommand: npm start -w packages/telegram
     envVars:
@@ -30,7 +28,7 @@ services:
     name: safeeely-discord
     env: node
     plan: free
-    rootDir: . # Use root to get access to all tools
+    rootDir: .
     buildCommand: npm install
     startCommand: npm start -w packages/discord
     envVars:
@@ -49,3 +47,9 @@ envVarGroups:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: API_URL
+        sync: false # Set this to https://your-api-url.onrender.com/api
+      - key: REVIEWS_URL
+        sync: false # Set this to your Vercel URL
+      - key: JWT_SECRET
+        value: safepadi_admin_super_secret # Change this for production security
