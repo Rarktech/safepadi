@@ -3,8 +3,8 @@
     "version": "1.0.0",
     "main": "dist/server.js",
     "scripts": {
-        "start": "ts-node src/server.ts",
-        "dev": "ts-node-dev src/server.ts",
+        "start": "npx ts-node src/server.ts",
+        "dev": "npx ts-node-dev src/server.ts",
         "build": "tsc"
     },
     "dependencies": {
