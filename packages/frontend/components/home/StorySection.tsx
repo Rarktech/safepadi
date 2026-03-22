@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef } from "react";
+import Link from "next/link";
 import { Mic, Video, ClosedCaption, Play, Pause, MonitorUp, MoreHorizontal, ScreenShare } from "lucide-react";
 
 const PARTICIPANTS = [
@@ -124,10 +125,12 @@ export function StorySection() {
                     </div>
 
                     {/* Join For Free CTA (Reference Position) */}
-                    <div className="mt-16 text-center">
-                        <button className="px-10 py-5 bg-slate-900 text-white rounded-full font-black text-lg hover:bg-emerald-600 hover:scale-105 active:scale-95 transition-all shadow-2xl shadow-slate-900/20">
-                            Join for free →
-                        </button>
+                    <div className="mt-12 text-center">
+                        <Link href="/pay">
+                            <button className="px-8 py-4 bg-slate-900 text-white rounded-full font-black text-base hover:bg-emerald-600 hover:scale-105 active:scale-95 transition-all shadow-xl shadow-slate-900/10">
+                                Join for free →
+                            </button>
+                        </Link>
                     </div>
                 </div>
             </div>
