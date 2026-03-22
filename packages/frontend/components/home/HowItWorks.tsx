@@ -62,7 +62,7 @@ export function HowItWorks() {
                                 <img 
                                     src={step.image} 
                                     alt={step.title}
-                                    className={`w-full h-full object-contain ${i === 0 ? 'object-top' : 'object-bottom'}`}
+                                    className={`w-full h-full object-contain ${(i === 0 || i === 2) ? 'object-top' : 'object-bottom'}`}
                                 />
                             </div>
 
