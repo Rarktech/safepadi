@@ -52,12 +52,12 @@ export function Hero() {
             </div>
 
             {/* Hero Image Asset - Grounded at bottom */}
-            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[140%] md:w-[120vw] h-[45vh] md:h-[45vh] lg:h-[45vh] z-0 overflow-hidden">
+            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[800px] h-[55vh] md:h-[65vh] lg:h-[75vh] z-0 px-4">
                 <Image
                     src="/assets/images/hero-asset.png"
-                    alt="Safeeely Hero Asset"
+                    alt="Safeeely Phone Mockup"
                     fill
-                    className="object-cover object-top transition-all duration-700 hover:scale-[1.05]"
+                    className="object-contain object-bottom transition-all duration-700 hover:scale-[1.05]"
                     priority
                 />
             </div>
