@@ -96,6 +96,8 @@ const sendMainMenu = async (messageOrInteraction: any) => {
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
+    console.log(`💬 Discord msg from ${message.author.tag}: ${message.content}`);
+
     // Handle Image Proof Uploads (Delivery or Review)
     if (message.attachments.size > 0) {
         try {
