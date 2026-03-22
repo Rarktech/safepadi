@@ -5,7 +5,8 @@
     "scripts": {
         "start": "npx ts-node --transpile-only -r tsconfig-paths/register src/server.ts",
         "dev": "npx ts-node-dev -r tsconfig-paths/register src/server.ts",
-        "build": "tsc"
+        "build": "tsc",
+        "postinstall": "npx puppeteer browsers install chrome"
     },
     "dependencies": {
         "@google/generative-ai": "^0.24.1",

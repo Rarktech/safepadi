@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
 import path from 'path';
-import puppeteer, { Browser } from 'puppeteer';
+import { Browser } from 'puppeteer';
+import { getBrowser } from '../services/puppeteer';
 import { generateReferralTemplate } from '../templates/referralTemplate';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
@@ -11,27 +12,7 @@ const router = Router();
 const supabase = createClient(process.env.SUPABASE_URL || '', process.env.SUPABASE_SERVICE_ROLE_KEY || '');
 
 // Browser instance manager
-let browserPromise: Promise<Browser> | null = null;
-
-async function getBrowser() {
-    if (!browserPromise) {
-        browserPromise = puppeteer.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu']
-        });
-    }
-    try {
-        const browser = await browserPromise;
-        if (!browser.isConnected()) {
-            browserPromise = null;
-            return getBrowser();
-        }
-        return browser;
-    } catch (e) {
-        browserPromise = null;
-        throw e;
-    }
-}
+// Browser instance manager removed - handled by service
 
 router.get('/:safetag/stats', async (req, res) => {
     try {

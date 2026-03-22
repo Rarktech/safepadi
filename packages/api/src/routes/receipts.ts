@@ -1,31 +1,12 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
-import puppeteer, { Browser } from 'puppeteer';
+import { Browser } from 'puppeteer';
+import { getBrowser } from '../services/puppeteer';
 import { generateReceiptTemplate } from '../templates/receiptTemplate';
 
 const router = Router();
 
-let browserPromise: Promise<Browser> | null = null;
-
-async function getBrowser() {
-    if (!browserPromise) {
-        browserPromise = puppeteer.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu']
-        });
-    }
-    try {
-        const browser = await browserPromise;
-        if (!browser.isConnected()) {
-            browserPromise = null;
-            return getBrowser();
-        }
-        return browser;
-    } catch (e) {
-        browserPromise = null;
-        throw e;
-    }
-}
+// getBrowser removed and replaced by shared service
 
 router.get('/:txnCode.png', async (req, res) => {
     try {
