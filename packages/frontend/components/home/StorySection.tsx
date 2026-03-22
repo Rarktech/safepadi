@@ -40,10 +40,10 @@ export function StorySection() {
                 </div>
 
                 {/* Video Call Interface Container */}
-                <div className="relative max-w-6xl mx-auto px-4">
+                <div className="relative max-w-6xl mx-auto px-4 md:px-0">
                     
                     {/* The Full White Container (Reference Style) */}
-                    <div className="bg-white p-4 md:p-6 rounded-[2.5rem] shadow-[0_32px_120px_-20px_rgba(0,0,0,0.15)] border border-slate-100 flex flex-col md:flex-row gap-4 relative">
+                    <div className="bg-white p-2.5 md:p-6 rounded-[2.5rem] shadow-[0_32px_120px_-20px_rgba(0,0,0,0.15)] border border-slate-100 flex flex-col md:flex-row gap-4 relative">
                         
                         {/* Floating "Jay" (Reference Style) */}
                         <div className="absolute top-1/2 -left-8 -translate-y-1/2 hidden lg:block w-40 aspect-[4/3] bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden transform -rotate-6 z-50">
@@ -54,7 +54,7 @@ export function StorySection() {
                         </div>
 
                         {/* Main Video (Reference Size) */}
-                        <div className="flex-grow relative aspect-[16/10] bg-slate-900 rounded-[2rem] overflow-hidden group">
+                        <div className="flex-grow relative aspect-video md:aspect-[16/10] bg-slate-900 rounded-[1.75rem] md:rounded-[2rem] overflow-hidden group">
                             <video 
                                 ref={videoRef}
                                 className="w-full h-full object-cover opacity-90"
@@ -105,8 +105,8 @@ export function StorySection() {
                             </div>
                         </div>
 
-                        {/* Sidebar (Reference Style) */}
-                        <div className="w-full md:w-48 lg:w-56 flex flex-col gap-3 h-auto">
+                        {/* Sidebar (Reference Style) - Hidden on mobile */}
+                        <div className="hidden md:flex w-full md:w-48 lg:w-56 flex-col gap-3 h-auto">
                             {PARTICIPANTS.map((user, i) => (
                                 <div key={i} className="relative aspect-[4/3] bg-slate-100 rounded-2xl overflow-hidden border border-slate-100 group/child flex-grow h-0 min-h-[80px]">
                                     <img src={user.avatar} className="w-full h-full object-cover transition-transform duration-700 group-hover/child:scale-110" alt={user.name} />
