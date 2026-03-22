@@ -170,7 +170,7 @@ export function ReviewSection() {
                 {/* Review Gallery */}
                 <div className="relative h-[700px] overflow-hidden">
                     {/* Top Fade Gradient */}
-                    <div className="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-white via-white to-transparent z-20 pointer-events-none" />
+                    <div className="absolute -top-1 inset-x-0 h-40 bg-gradient-to-b from-white via-white to-transparent z-20 pointer-events-none" />
                     
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8 h-full">
                         {/* Column 1 - Fast */}
@@ -198,7 +198,7 @@ export function ReviewSection() {
                     </div>
 
                     {/* Bottom Fade Gradient */}
-                    <div className="absolute bottom-0 inset-x-0 h-32 bg-gradient-to-t from-white via-white to-transparent z-20 pointer-events-none" />
+                    <div className="absolute -bottom-1 inset-x-0 h-40 bg-gradient-to-t from-white via-white to-transparent z-20 pointer-events-none" />
                 </div>
 
                 {/* Statistics Footer */}
