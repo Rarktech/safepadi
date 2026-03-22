@@ -6,35 +6,35 @@ const USERS = [
     {
         name: "James",
         avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop",
-        pos: "top-[2%] left-[2%] md:top-[8%] md:left-[5%] lg:left-[5%]",
+        pos: "top-[-15%] left-[40%] md:top-[-20%] md:left-[45%] lg:left-[48%]",
         bubble: "Verified Merchant",
         animation: "animate-float-slow"
     },
     {
         name: "Sarah",
         avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&h=150&fit=crop",
-        pos: "top-[2%] right-[2%] md:top-[15%] md:right-[0%] lg:right-[3%]",
+        pos: "top-[10%] right-[5%] md:top-[12%] md:right-[5%] lg:right-[8%]",
         bubble: "Just secured a $5k deal!",
         animation: "animate-float"
     },
     {
         name: "Michael",
         avatar: "https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=150&h=150&fit=crop",
-        pos: "bottom-[5%] left-[2%] md:bottom-[10%] md:left-[3%] lg:left-[5%]",
+        pos: "bottom-[-10%] left-[20%] md:bottom-[-25%] md:left-[25%] lg:left-[30%]",
         bubble: "Safeeely is a lifesaver",
         animation: "animate-float-slow"
     },
     {
         name: "Elena",
         avatar: "https://images.unsplash.com/photo-1580489944761-15a19d654956?w=150&h=150&fit=crop",
-        pos: "bottom-[2%] right-[2%] md:bottom-[10%] md:right-[0%] lg:right-[3%]",
+        pos: "bottom-[-5%] right-[20%] md:bottom-[-20%] md:right-[30%] lg:right-[35%]",
         bubble: "Payment received in seconds",
         animation: "animate-float"
     },
     {
         name: "David",
         avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop",
-        pos: "top-[40%] left-[-4%] md:top-[40%] md:left-[0%] lg:left-[2%]",
+        pos: "top-[40%] left-[-2%] md:top-[45%] md:left-[0%] lg:left-[3%]",
         bubble: "",
         animation: "animate-float-slow"
     }
@@ -42,16 +42,16 @@ const USERS = [
 
 export function TrustSection() {
     return (
-        <section className="py-32 md:py-48 lg:py-72 bg-white overflow-hidden relative min-h-[700px] flex items-center">
+        <section className="py-24 md:py-48 lg:py-64 bg-white overflow-hidden relative min-h-[600px] flex items-center">
             {/* Protective Container for Headings - Ensures horizontal space is reserved */}
             <div className="container mx-auto px-6 relative">
 
                 {/* Floating Elements - Z-INDEX 20 to be in FRONT of text */}
-                <div className="absolute inset-x-0 inset-y-[-10%] pointer-events-none z-30">
+                <div className="absolute inset-x-0 inset-y-[-15%] pointer-events-none z-30">
                     {USERS.map((user, idx) => (
                         <div
                             key={idx}
-                            className={`absolute ${user.pos} ${user.animation} flex items-center gap-3 transition-all duration-1000 group scale-[0.6] sm:scale-[0.8] md:scale-100`}
+                            className={`absolute ${user.pos} ${user.animation} flex items-center gap-3 transition-all duration-1000 group scale-[0.5] sm:scale-[0.7] md:scale-100`}
                         >
                             <div className="relative">
                                 <div className="w-14 h-14 md:w-20 md:h-20 rounded-full border-4 border-white shadow-2xl overflow-hidden relative z-20">
@@ -78,7 +78,7 @@ export function TrustSection() {
 
                 {/* Main Heading Content - Z-INDEX 10 to be BEHIND avatars */}
                 <div className="max-w-4xl mx-auto text-center relative z-10 px-6 md:px-0">
-                    <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-7xl font-black text-slate-900 leading-[1.1] tracking-tight">
+                    <h2 className="text-2xl sm:text-3xl md:text-5xl lg:text-6xl font-black text-slate-900 leading-[1.1] tracking-tight">
                         Because we know how <br className="lg:block" />
                         important to <span className="text-emerald-500 italic relative inline-block">
                             safeeely
