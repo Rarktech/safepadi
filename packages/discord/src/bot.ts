@@ -2,7 +2,6 @@ import { Client, GatewayIntentBits, Partials, Collection, InteractionReplyOption
 import * as dotenv from 'dotenv';
 import axios from 'axios';
 import path from 'path';
-import express from 'express';
 
 if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
@@ -24,13 +23,6 @@ const client = new Client({
 client.on('ready', () => {
     console.log(`✅ Safeeely Discord Bot is logged in as ${client.user?.tag} (PID: ${process.pid})`);
 });
-
-// Health check server for Render (Prevents bot from being killed)
-const app = express();
-const port = process.env.PORT || 3002;
-app.get('/health', (req, res) => res.send('OK'));
-app.get('/', (req, res) => res.send('Bot is running'));
-app.listen(port, () => console.log(`📡 Health-check server listening on port ${port}`));
 
 process.on('unhandledRejection', (error) => {
     console.error('Unhandled promise rejection:', error);
