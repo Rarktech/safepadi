@@ -23,11 +23,8 @@ pnpm-lock.yaml
 .ngrok/
 ngrok.yml
 debug_notification.log
-*.png
-*.jpg
-*.jpeg
-*.gif
-*.webp
+# Keep images and assets
+# (User: I removed the global *.png, *.jpg etc from here)
 temp/
 tmp/
 brain/
