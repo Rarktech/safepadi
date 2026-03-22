@@ -158,7 +158,10 @@ router.get('/:safetag/card', async (req, res) => {
         
         try {
             await page.setViewport({ width: 1000, height: 1150 });
-            await page.setContent(htmlContent, { waitUntil: 'networkidle0', timeout: 30000 });
+            await page.setContent(htmlContent, { waitUntil: 'networkidle2', timeout: 50000 });
+
+            // Allow time for Google Fonts and QRCode script to execute
+            await new Promise(r => setTimeout(r, 3000));
 
             const element = await page.$('.canvas');
             if (!element) {

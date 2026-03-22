@@ -80,7 +80,10 @@ router.get('/:txnCode.png', async (req, res) => {
         
         try {
             await page.setViewport({ width: 600, height: 800 });
-            await page.setContent(htmlContent, { waitUntil: 'networkidle0', timeout: 30000 });
+            await page.setContent(htmlContent, { waitUntil: 'networkidle2', timeout: 45000 });
+
+            // Small wait for any remaining font/image rendering
+            await new Promise(r => setTimeout(r, 2000));
 
             // Take screenshot of the exact content size (body)
             const element = await page.$('body');
