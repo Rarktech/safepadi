@@ -1,6 +1,7 @@
 import { Navbar } from "@/components/Navbar";
 import { Hero } from "@/components/home/Hero";
 import { BrandSlider } from "@/components/home/BrandSlider";
+import { StorySection } from "@/components/home/StorySection";
 import { TrustSection } from "@/components/home/TrustSection";
 import { FeaturesBento } from "@/components/home/FeaturesBento";
 import { HowItWorks } from "@/components/home/HowItWorks";
@@ -15,6 +16,7 @@ export default function Home() {
       <Navbar />
       <Hero />
       <BrandSlider />
+      <StorySection />
       <TrustSection />
       <FeaturesBento />
       <HowItWorks />

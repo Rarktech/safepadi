@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import { Mic, Video, ClosedCaption, PhoneOff, Play, Pause, MonitorUp, MoreHorizontal, ScreenShare } from "lucide-react";
+import { Mic, Video, ClosedCaption, Play, Pause, MonitorUp, MoreHorizontal, ScreenShare } from "lucide-react";
 
 const PARTICIPANTS = [
     { name: "Sarah J.", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=150&h=150" },
@@ -45,7 +45,7 @@ export function StorySection() {
                     {/* The Full White Container (Reference Style) */}
                     <div className="bg-white p-2.5 md:p-6 rounded-[2.5rem] shadow-[0_32px_120px_-20px_rgba(0,0,0,0.15)] border border-slate-100 flex flex-col md:flex-row gap-4 relative">
                         
-                        {/* Floating "Jay" (Reference Style) */}
+                        {/* Floating "Jay" (Reference Style) - Hidden on mobile */}
                         <div className="absolute top-1/2 -left-8 -translate-y-1/2 hidden lg:block w-40 aspect-[4/3] bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden transform -rotate-6 z-50">
                             <div className="relative w-full h-full">
                                 <img src="https://images.unsplash.com/photo-1531384441138-2736e62e0919?auto=format&fit=crop&q=80&w=300&h=200" className="w-full h-full object-cover" alt="Jay" />
@@ -57,7 +57,7 @@ export function StorySection() {
                         <div className="flex-grow relative aspect-video md:aspect-[16/10] bg-slate-900 rounded-[1.75rem] md:rounded-[2rem] overflow-hidden group">
                             <video 
                                 ref={videoRef}
-                                className="w-full h-full object-cover opacity-90"
+                                className="w-full h-full object-cover opacity-90 transition-opacity duration-700"
                                 muted={isMuted}
                                 loop
                                 playsInline
@@ -67,46 +67,46 @@ export function StorySection() {
                             </video>
 
                             {/* Label */}
-                            <div className="absolute top-4 left-4 text-white/60 text-[10px] font-bold uppercase tracking-widest bg-black/20 backdrop-blur-sm px-3 py-1 rounded-md mb-2">
+                            <div className="absolute top-4 left-4 text-white/60 text-[8px] md:text-[10px] font-bold uppercase tracking-widest bg-black/20 backdrop-blur-sm px-3 py-1 rounded-md mb-2">
                                 Safeeely Founder Presenting
                             </div>
 
                             {/* Center Play/Pause Indicator (Overlay) */}
                             {!isPlaying && (
                                 <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-[2px] z-20">
-                                    <div className="w-20 h-20 bg-white/10 backdrop-blur-xl border border-white/20 rounded-full flex items-center justify-center text-white">
-                                        <Play className="w-8 h-8 fill-current ml-1" />
+                                    <div className="w-16 h-16 md:w-20 md:h-20 bg-white/10 backdrop-blur-xl border border-white/20 rounded-full flex items-center justify-center text-white">
+                                        <Play className="w-6 h-6 md:w-8 md:h-8 fill-current ml-1" />
                                     </div>
                                 </div>
                             )}
 
                             {/* Controls Bar (Reference Style) */}
-                            <div className="absolute inset-x-0 bottom-8 flex justify-center items-center z-30 transition-all duration-500 group-hover:translate-y-0 translate-y-2 opacity-0 group-hover:opacity-100">
-                                <div className="flex items-center gap-3 bg-slate-900/80 backdrop-blur-2xl px-8 py-3.5 rounded-full border border-white/10 shadow-2xl scale-90 md:scale-100">
-                                    <button onClick={() => setIsMuted(!isMuted)} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${!isMuted ? 'bg-emerald-500' : 'bg-white/10 hover:bg-white/20'} text-white`}>
-                                        <Mic className="w-5 h-5" />
+                            <div className="absolute inset-x-0 bottom-4 md:bottom-8 flex justify-center items-center z-30 transition-all duration-500 group-hover:translate-y-0 translate-y-2 opacity-100 md:opacity-0 group-hover:opacity-100">
+                                <div className="flex items-center gap-1.5 md:gap-3 bg-slate-900/80 backdrop-blur-2xl px-4 py-2 md:px-8 md:py-3.5 rounded-full border border-white/10 shadow-2xl scale-75 md:scale-100 origin-bottom">
+                                    <button onClick={() => setIsMuted(!isMuted)} className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center transition-all ${!isMuted ? 'bg-emerald-500' : 'bg-white/10 hover:bg-white/20'} text-white`}>
+                                        <Mic className="w-4 h-4 md:w-5 md:h-5" />
                                     </button>
-                                    <button className="w-10 h-10 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all">
-                                        <Video className="w-5 h-5" />
+                                    <button className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all">
+                                        <Video className="w-4 h-4 md:w-5 md:h-5" />
                                     </button>
-                                    <button className="w-10 h-10 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all">
-                                        <ClosedCaption className="w-5 h-5" />
+                                    <button className="hidden sm:flex w-8 h-8 md:w-10 md:h-10 rounded-full bg-white/10 text-white items-center justify-center hover:bg-white/20 transition-all">
+                                        <ClosedCaption className="w-4 h-4 md:w-5 md:h-5" />
                                     </button>
-                                    <button className="w-10 h-10 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all">
-                                        <ScreenShare className="w-5 h-5" />
+                                    <button className="hidden sm:flex w-8 h-8 md:w-10 md:h-10 rounded-full bg-white/10 text-white items-center justify-center hover:bg-white/20 transition-all">
+                                        <ScreenShare className="w-4 h-4 md:w-5 md:h-5" />
                                     </button>
-                                    <button onClick={togglePlay} className="w-14 h-14 rounded-full bg-rose-500 text-white flex items-center justify-center hover:bg-rose-600 transition-all shadow-xl -mx-2 border-4 border-slate-900/50">
-                                        <PhoneOff className="w-6 h-6" />
+                                    <button onClick={togglePlay} className="w-11 h-11 md:w-14 md:h-14 rounded-full bg-rose-500 text-white flex items-center justify-center hover:bg-rose-600 transition-all shadow-xl -mx-1 md:-mx-2 border-2 md:border-4 border-slate-900/50">
+                                        {isPlaying ? <Pause className="w-5 h-5 md:w-6 md:h-6 fill-current" /> : <Play className="w-5 h-5 md:w-6 md:h-6 fill-current ml-0.5" />}
                                     </button>
-                                    <button className="w-10 h-10 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all">
-                                        <MoreHorizontal className="w-5 h-5" />
+                                    <button className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all">
+                                        <MoreHorizontal className="w-4 h-4 md:w-5 md:h-5" />
                                     </button>
                                 </div>
                             </div>
                         </div>
 
                         {/* Sidebar (Reference Style) - Hidden on mobile */}
-                        <div className="hidden md:flex w-full md:w-48 lg:w-56 flex-col gap-3 h-auto">
+                        <div className="hidden md:flex w-full md:w-48 lg:w-56 flex flex-col gap-3 h-auto">
                             {PARTICIPANTS.map((user, i) => (
                                 <div key={i} className="relative aspect-[4/3] bg-slate-100 rounded-2xl overflow-hidden border border-slate-100 group/child flex-grow h-0 min-h-[80px]">
                                     <img src={user.avatar} className="w-full h-full object-cover transition-transform duration-700 group-hover/child:scale-110" alt={user.name} />
@@ -131,12 +131,6 @@ export function StorySection() {
                     </div>
                 </div>
             </div>
-
-            <style jsx global>{`
-                .aspect-[16/10] {
-                    aspect-ratio: 16 / 10;
-                }
-            `}</style>
         </section>
     );
 }
