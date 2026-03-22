@@ -1,126 +1,30 @@
 "use client";
 
 import React from "react";
-import { MessageSquare, Link as LinkIcon, ShieldCheck, CheckCircle2, Zap } from "lucide-react";
 
 const STEPS = [
     {
         title: "Agreement",
         description: "Buyers and sellers agree on deal terms within our secure interface or preferred platform.",
-        mockup: (
-            <div className="relative w-full h-full bg-slate-50 flex items-center justify-center p-6 overflow-hidden">
-                {/* Grid Pattern Background */}
-                <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(#e2e8f0 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
-
-                {/* Chat Illustration */}
-                <div className="relative w-full max-w-[140px] space-y-3 z-10">
-                    <div className="bg-white rounded-2xl p-3 shadow-xl border border-slate-100 transform -rotate-6 transition-transform hover:rotate-0">
-                        <div className="w-12 h-1.5 bg-slate-100 rounded mb-2" />
-                        <div className="w-8 h-1 bg-emerald-500 rounded" />
-                    </div>
-                    <div className="bg-emerald-500 rounded-2xl p-3 shadow-xl transform rotate-3 ml-auto transition-transform hover:rotate-0 translate-x-4">
-                        <div className="w-16 h-1.5 bg-white/20 rounded mb-2" />
-                        <div className="w-10 h-1 bg-white/40 rounded" />
-                    </div>
-                    <div className="absolute -top-4 -right-2 bg-white rounded-full px-3 py-1 shadow-lg border border-slate-100 text-[10px] font-bold text-emerald-600 flex items-center gap-1">
-                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        Terms Agreed
-                    </div>
-                </div>
-            </div>
-        )
+        image: "/assets/images/agreement.png"
     },
     {
         title: "Initiation",
         description: "The seller creates a unique Safeeely secure transaction link and shares it with the buyer.",
-        mockup: (
-            <div className="relative w-full h-full bg-slate-50 flex items-center justify-center p-6 overflow-hidden">
-                <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(#e2e8f0 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
-
-                <div className="relative flex flex-col items-center">
-                    {/* Link Ring Animation */}
-                    <div className="absolute inset-0 bg-blue-500/10 rounded-full scale-150 blur-2xl" />
-                    <div className="w-40 bg-white rounded-2xl shadow-2xl border border-slate-100 p-4 z-10">
-                        <div className="flex items-center gap-2 mb-3">
-                            <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center">
-                                <LinkIcon className="w-4 h-4 text-blue-500" />
-                            </div>
-                            <div className="space-y-1">
-                                <div className="w-12 h-1.5 bg-slate-100 rounded" />
-                                <div className="w-8 h-1 bg-slate-50 rounded" />
-                            </div>
-                        </div>
-                        <div className="w-full h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-                            <div className="w-20 h-1.5 bg-white/30 rounded" />
-                        </div>
-                    </div>
-                    {/* Tooltip */}
-                    <div className="absolute -bottom-2 -left-4 bg-white rounded-lg p-2 shadow-xl border border-slate-100 flex items-center gap-2 z-20">
-                        <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                        </div>
-                        <div className="w-12 h-1 bg-slate-200 rounded" />
-                    </div>
-                </div>
-            </div>
-        )
+        image: "/assets/images/initiation.png"
     },
     {
         title: "Escrow Hold",
         description: "Buyer makes payment; Safeeely locks the funds in a secure, AI-monitored smart vault.",
-        mockup: (
-            <div className="relative w-full h-full bg-slate-50 flex items-center justify-center p-6 overflow-hidden">
-                <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(#e2e8f0 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
-
-                <div className="relative">
-                    <div className="w-24 h-24 bg-white rounded-[2rem] shadow-2xl border border-slate-100 flex flex-col items-center justify-center relative overflow-hidden group">
-                        <div className="absolute inset-0 bg-blue-600/5 group-hover:bg-blue-600/10 transition-colors" />
-                        <ShieldCheck className="w-10 h-10 text-blue-600 mb-2 relative z-10" />
-                        <div className="w-12 h-1.5 bg-blue-600/20 rounded-full relative z-10 overflow-hidden">
-                            <div className="absolute inset-y-0 left-0 w-2/3 bg-blue-600 animate-pulse" />
-                        </div>
-                    </div>
-                    {/* Status Tags */}
-                    <div className="absolute -top-4 -right-8 bg-slate-900 text-white rounded-full px-4 py-1.5 shadow-xl text-[10px] font-black tracking-widest uppercase z-20">
-                        $12,452.91
-                    </div>
-                    <div className="absolute -bottom-4 -left-8 bg-white text-emerald-600 rounded-full px-4 py-1.5 shadow-xl border border-slate-50 text-[10px] font-black uppercase z-20 flex items-center gap-1">
-                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        Locked
-                    </div>
-                </div>
-            </div>
-        )
+        image: "/assets/images/escrow hold.png"
     },
     {
         title: "Payment Release",
         description: "Once delivery is confirmed, funds are instantly released to the seller's wallet.",
-        mockup: (
-            <div className="relative w-full h-full bg-slate-50 flex items-center justify-center p-6 overflow-hidden">
-                <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(#e2e8f0 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
-
-                <div className="relative w-full max-w-[150px]">
-                    <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 p-4 space-y-4">
-                        <div className="flex items-center justify-between">
-                            <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center">
-                                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                            </div>
-                            <div className="text-right">
-                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Released</div>
-                                <div className="text-sm font-black text-slate-900">$2,500</div>
-                            </div>
-                        </div>
-                        <div className="w-full h-10 bg-slate-900 rounded-xl flex items-center justify-center group overflow-hidden relative">
-                            <div className="relative z-10 text-white text-[10px] font-black uppercase tracking-widest group-hover:scale-110 transition-transform">Withdraw Funds</div>
-                        </div>
-                    </div>
-                    {/* Success Particle */}
-                    <div className="absolute -top-4 -left-2 w-8 h-8 rounded-full bg-emerald-400 blur-2xl opacity-50" />
-                </div>
-            </div>
-        )
+        image: "/assets/images/payment release.png"
     }
 ];
+
 
 const STATS = [
     { label: "Faster Launch", value: "4x", color: "bg-blue-600" },
@@ -154,8 +58,12 @@ export function HowItWorks() {
                             className="bg-white rounded-[32px] overflow-hidden shadow-lg border border-white flex flex-col transition-all duration-500 hover:shadow-xl hover:-translate-y-1 group"
                         >
                             {/* Mockup Area */}
-                            <div className="h-44 relative border-b border-slate-50 overflow-hidden">
-                                {step.mockup}
+                            <div className="h-44 relative bg-slate-50 border-b border-slate-50 overflow-hidden">
+                                <img 
+                                    src={step.image} 
+                                    alt={step.title}
+                                    className="w-full h-full object-contain"
+                                />
                             </div>
 
                             {/* Content Area */}
