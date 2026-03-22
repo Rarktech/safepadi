@@ -17,7 +17,7 @@ export function Hero() {
             {/* Content Container */}
             <div className="container relative mx-auto px-6 text-center z-10 pb-4 md:pb-8">
                 {/* Badge */}
-                <div className="inline-flex items-center self-center gap-2 px-4 py-2 rounded-full bg-slate-50 border border-slate-100 text-slate-600 text-[10px] font-semibold mb-4 md:mb-6 shadow-sm">
+                <div className="inline-flex items-center self-center gap-2 px-4 py-2 rounded-full bg-slate-50 border border-slate-100 text-slate-600 text-[10px] font-semibold mb-4 md:mb-6 mt-10 md:mt-0 shadow-sm">
                     <Sparkles className="w-3 h-3 text-emerald-500" />
                     <span>The #1 Trusted Escrow Service</span>
                 </div>
