@@ -33,7 +33,7 @@ export function StorySection() {
                 {/* Header */}
                 <div className="text-center max-w-4xl mx-auto mb-16">
                     <h2 className="text-4xl md:text-5xl lg:text-5xl font-black text-slate-900 tracking-tight leading-[1.1] mb-6">
-                        I was scammed online— <span className="text-emerald-500 italic block mt-1">real story on why i built safely....</span>
+                        I was scammed online— <span className="text-emerald-500 italic block mt-1 text-2xl md:text-3xl lg:text-3xl font-bold">A true story from 2019 why i built safeeely</span>
                     </h2>
                     <p className="text-lg text-slate-400 font-medium leading-relaxed max-w-2xl mx-auto">
                         I built Safeeely because I lost money to a scammer on social media. This is more than just an app; it's a mission to make sure no one else goes through that frustration.

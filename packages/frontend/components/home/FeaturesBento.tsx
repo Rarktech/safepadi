@@ -5,8 +5,8 @@ export const FeaturesBento = () => {
     return (
         <section className="py-24 bg-slate-50 relative overflow-hidden">
             <div className="max-w-[1200px] mx-auto px-6 relative z-10">
-                <div className="text-center max-w-2xl mx-auto mb-16">
-                    <h2 className="text-4xl md:text-5xl font-medium tracking-tight text-slate-900 mb-6 font-['Inter']">
+                <div className="text-center max-w-3xl mx-auto mb-16">
+                    <h2 className="text-[30px] md:text-5xl lg:text-6xl font-black tracking-tight text-slate-900 mb-6 leading-[1.05]">
                         Secure Exchanges for<br />Those Who Expect More
                     </h2>
                 </div>
