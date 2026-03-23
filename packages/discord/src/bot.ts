@@ -17,6 +17,18 @@ console.log(`📡 API_URL: ${API_URL}`);
 console.log(`🔗 REVIEWS_URL: ${REVIEWS_URL}`);
 console.log(`🔑 Token Preview: ${BOT_TOKEN ? BOT_TOKEN.substring(0, 10) + '...' + BOT_TOKEN.substring(BOT_TOKEN.length - 4) : 'MISSING'}`);
 
+// 🔍 Network Diagnostics
+import dns from 'dns';
+dns.lookup('gateway.discord.gg', (err, address) => {
+    console.log(`🌐 DNS Lookup (gateway.discord.gg): ${address || 'FAILED'} ${err ? '('+err.message+')' : ''}`);
+});
+
+axios.get('https://discord.com/api/v10/gateway').then(res => {
+    console.log(`🌍 Discord API Gateway reachable: ${JSON.stringify(res.data)}`);
+}).catch(err => {
+    console.error(`🌍 Discord API Gateway UNREACHABLE: ${err.message}`);
+});
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -839,9 +851,17 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 console.log('⏳ Attempting to login to Discord...');
+
+const loginTimeout = setTimeout(() => {
+    console.error('❌ DISCORD LOGIN WATCHDOG: Login took too long (>45s). Forcing process exit to restart.');
+    process.exit(1);
+}, 45000);
+
 client.login(process.env.DISCORD_BOT_TOKEN).then(() => {
+    clearTimeout(loginTimeout);
     console.log('🛰️ Discord Login Promise resolved.');
 }).catch(err => {
+    clearTimeout(loginTimeout);
     console.error('❌ Failed to login to Discord:', err.message);
     process.exit(1);
 });
