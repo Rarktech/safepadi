@@ -3,7 +3,7 @@
     "version": "1.0.0",
     "main": "dist/bot.js",
     "scripts": {
-        "start": "npx ts-node -r tsconfig-paths/register src/bot.ts",
+        "start": "npx ts-node --transpile-only -r tsconfig-paths/register src/bot.ts",
         "dev": "npx nodemon -r tsconfig-paths/register src/bot.ts",
         "build": "tsc"
     }

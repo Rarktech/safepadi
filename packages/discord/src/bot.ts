@@ -31,6 +31,18 @@ client.on('ready', () => {
     console.log(`✅ Safeeely Discord Bot is logged in as ${client.user?.tag} (PID: ${process.pid})`);
 });
 
+client.on('debug', (info) => {
+    console.log(`🔍 [Discord Debug]: ${info}`);
+});
+
+client.on('error', (error) => {
+    console.error('❌ [Discord Error]:', error);
+});
+
+client.on('shardError', (error) => {
+    console.error('❌ [Discord Shard Error]:', error);
+});
+
 process.on('unhandledRejection', (error) => {
     console.error('Unhandled promise rejection:', error);
 });
