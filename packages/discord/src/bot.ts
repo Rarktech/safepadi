@@ -11,6 +11,10 @@ if (process.env.NODE_ENV !== 'production') {
 const API_URL = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
 const REVIEWS_URL = process.env.REVIEWS_URL || 'http://localhost:3001';
 
+console.log(`🤖 Bot Startup Configuration:`);
+console.log(`📡 API_URL: ${API_URL}`);
+console.log(`🔗 REVIEWS_URL: ${REVIEWS_URL}`);
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -208,8 +212,13 @@ client.on('messageCreate', async (message) => {
                     ]
                 });
             } else {
-                console.error('❌ API Error in messageCreate:', err.message);
-                message.reply('❌ An error occurred while connecting to Safeeely services.');
+                console.error(`❌ API Error in messageCreate (${API_URL}):`, {
+                    message: err.message,
+                    code: err.code,
+                    status: err.response?.status,
+                    data: err.response?.data
+                });
+                message.reply(`❌ An error occurred while connecting to Safeeely services. (Error: ${err.message})`);
             }
         }
     }
@@ -790,7 +799,12 @@ client.on('interactionCreate', async (interaction) => {
             }
         }
     } catch (err: any) {
-        console.error('❌ Interaction Error:', err.message);
+        console.error(`❌ Interaction Error (${API_URL}):`, {
+            message: err.message,
+            code: err.code,
+            status: err.response?.status,
+            data: err.response?.data
+        });
         if (interaction.isRepliable()) {
             try {
                 if (interaction.replied || interaction.deferred) await interaction.followUp({ content: `❌ Error: ${err.message}`, ephemeral: true });
