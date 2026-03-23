@@ -31,12 +31,12 @@ client.on('ready', () => {
     console.log(`✅ Safeeely Discord Bot is logged in as ${client.user?.tag} (PID: ${process.pid})`);
 });
 
-client.on('debug', (info) => {
-    console.log(`🔍 [Discord Debug]: ${info}`);
+client.on('shardReady', (id) => {
+    console.log(`🛰️ Shard ${id} is Ready.`);
 });
 
 client.on('error', (error) => {
-    console.error('❌ [Discord Error]:', error);
+    console.error('❌ [Discord Error]:', (error as any).message || error);
 });
 
 client.on('shardError', (error) => {
@@ -828,6 +828,13 @@ client.on('interactionCreate', async (interaction) => {
     }
 });
 
+console.log('⏳ Attempting to login to Discord...');
+client.login(process.env.DISCORD_BOT_TOKEN).then(() => {
+    console.log('🛰️ Discord Login Promise resolved.');
+}).catch(err => {
+    console.error('❌ Failed to login to Discord:', err.message);
+});
+
 // ⚓ Dummy HTTP Server to satisfy Render "Web Service" port check
 const port = process.env.PORT || 3002;
 http.createServer((req, res) => {
@@ -835,11 +842,4 @@ http.createServer((req, res) => {
     res.end('Safeeely Discord Bot is Healthy\n');
 }).listen(port, () => {
     console.log(`🌐 Health-Check server is listening on port ${port}`);
-});
-
-console.log('⏳ Attempting to login to Discord...');
-client.login(process.env.DISCORD_BOT_TOKEN).then(() => {
-    console.log('🛰️ Discord Login Promise resolved.');
-}).catch(err => {
-    console.error('❌ Failed to login to Discord:', err.message);
 });
