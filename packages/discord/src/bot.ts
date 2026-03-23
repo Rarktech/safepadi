@@ -29,6 +29,16 @@ const client = new Client({
 
 client.on('ready', () => {
     console.log(`✅ Safeeely Discord Bot is logged in as ${client.user?.tag} (PID: ${process.pid})`);
+
+    // ⚓ Dummy HTTP Server to satisfy Render "Web Service" port check
+    // ONLY starts after Discord is ready
+    const port = process.env.PORT || 3002;
+    http.createServer((req, res) => {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('Safeeely Discord Bot is Healthy\n');
+    }).listen(port, () => {
+        console.log(`🌐 Health-Check server is listening on port ${port}`);
+    });
 });
 
 client.on('shardReady', (id) => {
@@ -833,13 +843,5 @@ client.login(process.env.DISCORD_BOT_TOKEN).then(() => {
     console.log('🛰️ Discord Login Promise resolved.');
 }).catch(err => {
     console.error('❌ Failed to login to Discord:', err.message);
-});
-
-// ⚓ Dummy HTTP Server to satisfy Render "Web Service" port check
-const port = process.env.PORT || 3002;
-http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Safeeely Discord Bot is Healthy\n');
-}).listen(port, () => {
-    console.log(`🌐 Health-Check server is listening on port ${port}`);
+    process.exit(1);
 });
