@@ -29,6 +29,10 @@ import axios from 'axios';
 const API_URL = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
 const REVIEWS_URL = process.env.REVIEWS_URL || 'http://localhost:3001';
 
+console.log(`🚀 Telegram Bot Starting:`);
+console.log(`📡 API_URL: ${API_URL}`);
+console.log(`🔗 REVIEWS_URL: ${REVIEWS_URL}`);
+
 const showMainMenu = (ctx: any) => {
     return ctx.reply('🏠 <b>Main Menu</b>\n\nWhat would you like to do today?', {
         parse_mode: 'HTML',

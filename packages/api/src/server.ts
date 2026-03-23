@@ -5,6 +5,10 @@ if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 }
 
+console.log(`📡 API Starting up...`);
+console.log(`🔗 API_URL: ${process.env.API_URL || 'Not Set'}`);
+console.log(`🔗 DATABASE_URL: ${process.env.SUPABASE_URL || 'Not Set'}`);
+
 import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
@@ -67,6 +71,11 @@ app.use('/api/disputes', disputeRoutes);
 app.use('/api/waitlist', waitlistRoutes);
 app.use('/api/receipts', receiptRoutes);
 app.use('/api/admin', adminRoutes);
+
+// 🔍 Health Check & Diagnostics
+app.get('/api/ping', (req, res) => {
+    res.json({ status: 'ok', time: new Date().toISOString() });
+});
 app.use('/api/auth', authRoutes);
 
 // Global error handler

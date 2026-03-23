@@ -1,23 +1,24 @@
 services:
   # API / Backend
   - type: web
-    name: safeeely-api
+    name: safeeely-api-iyb3
     env: node
     plan: free
     rootDir: .
     buildCommand: npm install && npm run build -w packages/api
-    startCommand: node packages/api/dist/server.js
+    startCommand: npm start -w packages/api
+    healthCheckPath: /api/ping
     envVars:
       - fromGroup: safeeely-common-iyb3
 
   # Telegram Bot
   - type: web
-    name: safeeely-telegram
+    name: safeeely-telegram-iyb3
     env: node
     plan: free
     rootDir: .
-    buildCommand: npm install && npm run build -w packages/telegram
-    startCommand: node packages/telegram/dist/bot.js
+    buildCommand: npm install
+    startCommand: npm start -w packages/telegram
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
@@ -25,12 +26,12 @@ services:
 
   # Discord Bot
   - type: web
-    name: safeeely-discord
+    name: safeeely-discord-iyb3
     env: node
     plan: free
     rootDir: .
-    buildCommand: npm install && npm run build -w packages/discord
-    startCommand: node packages/discord/dist/bot.js
+    buildCommand: npm install
+    startCommand: npm start -w packages/discord
     envVars:
       - key: DISCORD_BOT_TOKEN
         sync: false
