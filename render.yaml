@@ -5,10 +5,10 @@ services:
     env: node
     plan: free
     rootDir: .
-    buildCommand: npm install
-    startCommand: npm start -w packages/api
+    buildCommand: npm install && npm run build -w packages/api
+    startCommand: node packages/api/dist/server.js
     envVars:
-      - fromGroup: safeeely-common
+      - fromGroup: safeeely-common-iyb3
 
   # Telegram Bot
   - type: web
@@ -16,12 +16,12 @@ services:
     env: node
     plan: free
     rootDir: .
-    buildCommand: npm install
-    startCommand: npm start -w packages/telegram
+    buildCommand: npm install && npm run build -w packages/telegram
+    startCommand: node packages/telegram/dist/bot.js
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
-      - fromGroup: safeeely-common
+      - fromGroup: safeeely-common-iyb3
 
   # Discord Bot
   - type: web
@@ -29,12 +29,12 @@ services:
     env: node
     plan: free
     rootDir: .
-    buildCommand: npm install
-    startCommand: npm start -w packages/discord
+    buildCommand: npm install && npm run build -w packages/discord
+    startCommand: node packages/discord/dist/bot.js
     envVars:
       - key: DISCORD_BOT_TOKEN
         sync: false
-      - fromGroup: safeeely-common
+      - fromGroup: safeeely-common-iyb3
 
 envVarGroups:
   - name: safeeely-common

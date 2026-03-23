@@ -1,35 +1,15 @@
-const { supabase } = require('./packages/shared/dist');
-
-async function setup() {
-    console.log('🔍 Checking database tables...');
-    
-    // Check auth_otps
-    try {
-        const { error } = await supabase.from('auth_otps').select('id').limit(1);
-        if (error && error.code === 'PGRST116') {
-            console.log('✅ auth_otps table exists (empty).');
-        } else if (error && error.message.includes('does not exist')) {
-            console.log('❌ auth_otps mapping missing. Please ensure the table exists in Supabase.');
-            console.log('Required columns for auth_otps: id (uuid), profile_id (uuid), platform (text), platform_id (text), code (text), expires_at (timestamp)');
+const { createClient } = require('@supabase/supabase-js');
+require('dotenv').config();
+const s = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+async function run() {
+    const ts = ['profiles', 'admin_users', 'withdrawals', 'disputes', 'referral_commissions', 'kyc_submissions', 'transaction_proofs', 'auth_otps', 'binding_bans', 'payout_methods', 'transactions', 'reviews', 'review_replies', 'review_votes', 'admin_notifications', 'dispute_messages'];
+    for (const t of ts) {
+        const { error } = await s.from(t).select('id').limit(1);
+        if (error) {
+            console.log(`Table ${t}: Missing (${error.message})`);
         } else {
-            console.log('✅ auth_otps table verified.');
+            console.log(`Table ${t}: Exists`);
         }
-    } catch (e) {
-        console.error('Error checking auth_otps:', e.message);
-    }
-
-    // Check binding_bans
-    try {
-        const { error } = await supabase.from('binding_bans').select('id').limit(1);
-        if (error && error.message.includes('does not exist')) {
-             console.log('❌ binding_bans mapping missing. Please ensure the table exists in Supabase.');
-             console.log('Required columns for binding_bans: id (uuid), profile_id (uuid), platform_id (text), created_at (timestamp)');
-        } else {
-            console.log('✅ binding_bans table verified.');
-        }
-    } catch (e) {
-        console.error('Error checking binding_bans:', e.message);
     }
 }
-
-setup();
+run();
