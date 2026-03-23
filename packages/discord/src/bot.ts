@@ -10,10 +10,12 @@ if (process.env.NODE_ENV !== 'production') {
 
 const API_URL = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
 const REVIEWS_URL = process.env.REVIEWS_URL || 'http://localhost:3001';
+const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
 console.log(`🤖 Bot Startup Configuration:`);
 console.log(`📡 API_URL: ${API_URL}`);
 console.log(`🔗 REVIEWS_URL: ${REVIEWS_URL}`);
+console.log(`🔑 Token Preview: ${BOT_TOKEN ? BOT_TOKEN.substring(0, 10) + '...' + BOT_TOKEN.substring(BOT_TOKEN.length - 4) : 'MISSING'}`);
 
 const client = new Client({
     intents: [
@@ -823,6 +825,9 @@ http.createServer((req, res) => {
     console.log(`🌐 Health-Check server is listening on port ${port}`);
 });
 
-client.login(process.env.DISCORD_BOT_TOKEN).catch(err => {
+console.log('⏳ Attempting to login to Discord...');
+client.login(process.env.DISCORD_BOT_TOKEN).then(() => {
+    console.log('🛰️ Discord Login Promise resolved.');
+}).catch(err => {
     console.error('❌ Failed to login to Discord:', err.message);
 });
