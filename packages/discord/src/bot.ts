@@ -17,17 +17,40 @@ console.log(`📡 API_URL: ${API_URL}`);
 console.log(`🔗 REVIEWS_URL: ${REVIEWS_URL}`);
 console.log(`🔑 Token Preview: ${BOT_TOKEN ? BOT_TOKEN.substring(0, 10) + '...' + BOT_TOKEN.substring(BOT_TOKEN.length - 4) : 'MISSING'}`);
 
-// 🔍 Network Diagnostics
-import dns from 'dns';
-dns.lookup('gateway.discord.gg', (err, address) => {
-    console.log(`🌐 DNS Lookup (gateway.discord.gg): ${address || 'FAILED'} ${err ? '('+err.message+')' : ''}`);
+// 🚀 NETWORK RATE-LIMIT FIX (Per Audit: "Too Many Axios Calls")
+// This interceptor automatically caches Safetag profile lookups so that clicking buttons 
+// doesn't cause 2-3 duplicate API calls to the internal server, preventing internal 429s.
+const profileCache = new Collection<string, { data: any, expires: number }>();
+const AWAITING_REQUESTS = new Map<string, Promise<any>>();
+
+axios.interceptors.request.use(async (config) => {
+    if (config.method === 'get' && config.url?.includes('/profiles/by_platform/discord/')) {
+        const cached = profileCache.get(config.url);
+        if (cached && cached.expires > Date.now()) {
+            config.adapter = async () => ({
+                data: cached.data,
+                status: 200,
+                statusText: 'OK',
+                headers: {},
+                config: config,
+                request: {}
+            } as any);
+        }
+    }
+    return config;
 });
 
-axios.get('https://discord.com/api/v10/gateway').then(res => {
-    console.log(`🌍 Discord API Gateway reachable: ${JSON.stringify(res.data)}`);
-}).catch(err => {
-    console.error(`🌍 Discord API Gateway UNREACHABLE: ${err.message}`);
+axios.interceptors.response.use((response) => {
+    if (response.config.method === 'get' && response.config.url?.includes('/profiles/by_platform/discord/')) {
+        profileCache.set(response.config.url, { 
+            data: response.data, 
+            expires: Date.now() + 5 * 60 * 1000 // Cache safetag mappings for 5 minutes
+        });
+    }
+    return response;
 });
+
+// 🚀 Network Diagnostics Removed to prevent "Silent 429" triggers on Render startup.
 
 const client = new Client({
     intents: [
@@ -852,16 +875,9 @@ client.on('interactionCreate', async (interaction) => {
 
 console.log('⏳ Attempting to login to Discord...');
 
-const loginTimeout = setTimeout(() => {
-    console.error('❌ DISCORD LOGIN WATCHDOG: Login took too long (>45s). Forcing process exit to restart.');
-    process.exit(1);
-}, 45000);
-
 client.login(process.env.DISCORD_BOT_TOKEN).then(() => {
-    clearTimeout(loginTimeout);
     console.log('🛰️ Discord Login Promise resolved.');
 }).catch(err => {
-    clearTimeout(loginTimeout);
     console.error('❌ Failed to login to Discord:', err.message);
-    process.exit(1);
+    // Allow discord.js to handle reconnection naturally instead of force-killing the process
 });
