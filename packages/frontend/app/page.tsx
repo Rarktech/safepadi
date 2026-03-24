@@ -5,6 +5,7 @@ import { StorySection } from "@/components/home/StorySection";
 import { TrustSection } from "@/components/home/TrustSection";
 import { FeaturesBento } from "@/components/home/FeaturesBento";
 import { HowItWorks } from "@/components/home/HowItWorks";
+import { UseCasesSection } from "@/components/home/UseCasesSection";
 import { ReviewSection } from "@/components/home/ReviewSection";
 import { FaqSection } from "@/components/home/Faq";
 import { CtaSection } from "@/components/home/CtaSection";
@@ -20,6 +21,7 @@ export default function Home() {
       <TrustSection />
       <FeaturesBento />
       <HowItWorks />
+      <UseCasesSection />
       <ReviewSection />
       <FaqSection />
       <CtaSection />
