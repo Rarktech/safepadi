@@ -531,12 +531,14 @@ router.patch('/:id/status', async (req, res) => {
                     { label: '🔙 Main Menu', customId: 'main_menu' }
                 ];
                 // Role-based receipt for seller (Standard completion)
-                (txn as any).receiptUrl = `http://localhost:3000/api/receipts/${txn.txn_code}.png?type=completed&v=${Date.now()}`;
+                const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
+                (txn as any).receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png?type=completed&v=${Date.now()}`;
             }
 
             if (msg) {
                 const isFinalReceipt = status === 'confirm_receipt';
-                const receiptUrl = isFinalReceipt ? `http://localhost:3000/api/receipts/${(txn as any).txn_code}.png?type=completed` : undefined;
+                const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
+                const receiptUrl = isFinalReceipt ? `${apiBaseUrl}/receipts/${(txn as any).txn_code}.png?type=completed` : undefined;
 
                 if (isFinalReceipt) {
                     console.log(`[Transactions] Finalized Receipt URL: ${receiptUrl}`);
@@ -600,7 +602,8 @@ router.patch('/:id/status', async (req, res) => {
                 { label: '🔙 Main Menu', customId: 'main_menu' }
             ];
             // Role-based receipt for buyer (Marketing loop)
-            const receiptUrl = `http://localhost:3000/api/receipts/${txn.txn_code}.png?type=completed&role=buyer&v=${Date.now()}`;
+            const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
+            const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png?type=completed&role=buyer&v=${Date.now()}`;
             
             return res.json({
                 success: true,
