@@ -301,7 +301,7 @@ client.on('interactionCreate', async (interaction) => {
                     const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: act, updater_safetag: profileRes.data.safetag });
                     const dat = res.data;
 
-                    await interaction.editReply({
+                    const payload: any = {
                         content: formatMessageForDiscord(dat.follow_up_msg),
                         components: dat.follow_up_options ? [{
                             type: 1,
@@ -312,7 +312,20 @@ client.on('interactionCreate', async (interaction) => {
                                 ...(o.url ? { url: o.url } : { custom_id: o.customId })
                             }))
                         }] : []
-                    });
+                    };
+
+                    if (dat.follow_up_receipt_url) {
+                        try {
+                            const internalApiBase = (process.env.API_URL || process.env.INTERNAL_API_URL || 'http://localhost:3000/api').replace('/api', '');
+                            const fetchUrl = dat.follow_up_receipt_url.replace(/.*(?=\/api\/receipts)/, internalApiBase);
+                            const imgRes = await axios.get(fetchUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                            payload.files = [{ attachment: Buffer.from(imgRes.data), name: 'receipt.png' }];
+                        } catch (imgErr: any) {
+                            console.error('Failed to attach receipt to Discord action:', imgErr.message);
+                        }
+                    }
+
+                    await interaction.editReply(payload);
                     return; // ⚡ Correct: Handled
                 } catch (err: any) {
                     console.error('Action processing failed:', err.message);

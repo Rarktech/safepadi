@@ -26,7 +26,7 @@ bot.use(stage.middleware());
 
 import axios from 'axios';
 
-const API_URL = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
+const API_URL = process.env.API_URL || process.env.INTERNAL_API_URL || 'http://localhost:3000/api';
 const REVIEWS_URL = process.env.REVIEWS_URL || 'http://localhost:3001';
 
 console.log(`🚀 Telegram Bot Starting:`);
@@ -409,7 +409,7 @@ bot.action(/^txn_action_(.+)$/, async (ctx) => {
         if (statusRes.data.follow_up_receipt_url) {
             try {
                 // Robust regex: Find /api/receipts/... and replace everything BEFORE it with the local API base
-                const internalApiBase = (process.env.INTERNAL_API_URL || 'http://localhost:3000/api').replace('/api', '');
+                const internalApiBase = (process.env.API_URL || process.env.INTERNAL_API_URL || 'http://localhost:3000/api').replace('/api', '');
                 const fetchUrl = statusRes.data.follow_up_receipt_url.replace(/.*(?=\/api\/receipts)/, internalApiBase);
                 
                 console.log(`📸 Telegram Fetching receipt from: ${fetchUrl}`);

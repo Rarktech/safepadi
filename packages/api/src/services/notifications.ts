@@ -16,67 +16,39 @@ export async function sendNotification(platform: string, platformId: string, mes
 
     if (platform === 'telegram' && TELEGRAM_BOT_TOKEN) {
         try {
-            // If an image/video is provided, upload it first
-            if (imageUrl) {
-                log(`Sending to telegram (${platformId}) with mediaUrl: ${imageUrl}`);
-                
-                const extMatch = typeof imageUrl === 'string' ? imageUrl.match(/\.(png|jpe?g|gif|webp|mp4|mov|webm)(\?|$)/i) : null;
-                const ext = extMatch ? extMatch[1].toLowerCase() : 'png';
-                const isVideo = ['mp4', 'mov', 'webm'].includes(ext);
-
-                try {
-                    log(`Attempting to download media for Telegram: ${imageUrl}`);
-                    const response = await axios.get(imageUrl, {
-                        responseType: 'arraybuffer',
-                        headers: { 'ngrok-skip-browser-warning': '1' }
-                    });
-                    
-                    const form = new FormData();
-                    form.append('chat_id', platformId);
-
-                    if (isVideo) {
-                        form.append('video', new Blob([response.data], { type: `video/${ext}` }), `video.${ext}`);
-                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendVideo`, form, {
-                            headers: { 'Content-Type': 'multipart/form-data' }
-                        });
-                    } else {
-                        form.append('photo', new Blob([response.data], { type: `image/${ext === 'jpg' ? 'jpeg' : ext}` }), `image.${ext}`);
-                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, form, {
-                            headers: { 'Content-Type': 'multipart/form-data' }
-                        });
-                    }
-                    log(`✅ [Telegram Notification] Media Sent to ${platformId}`);
-                } catch (err: any) {
-                    console.error('Failed to upload Telegram Media:', err.message);
-                }
-            }
-
             // Convert Markdown bold (**text**) to HTML (<b>text</b>) for Telegram
             const formattedMsg = message.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
 
             const payload: any = {
                 chat_id: platformId,
-                text: formattedMsg,
                 parse_mode: 'HTML'
             };
 
             if (options && options.length > 0) {
                 payload.reply_markup = {
                     inline_keyboard: options.map(opt => [
-                        opt.url ? { 
-                            text: opt.label, 
-                            // Open as WebApp if the URL points to our app (kyc/payout/etc)
-                            web_app: { url: opt.url } 
-                        } : { 
-                            text: opt.label, 
-                            callback_data: opt.customId 
-                        }
+                        opt.url ? { text: opt.label, web_app: { url: opt.url } } : { text: opt.label, callback_data: opt.customId }
                     ])
                 };
             }
 
-            await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, payload);
-            log(`✅ [Telegram Notification] Message Sent to ${platformId}`);
+            if (imageUrl) {
+                log(`Sending to telegram (${platformId}) with mediaUrl: ${imageUrl}`);
+                const extMatch = typeof imageUrl === 'string' ? imageUrl.match(/\.(mp4|mov|webm)(\?|$)/i) : null;
+                const isVideo = !!extMatch;
+
+                // Send Photo/Video by letting Telegram API pull the URL directly (avoids Node Blob/FormData bugs)
+                payload[isVideo ? 'video' : 'photo'] = imageUrl;
+                payload.caption = formattedMsg; // Attach text to media
+
+                const endpoint = isVideo ? 'sendVideo' : 'sendPhoto';
+                await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/${endpoint}`, payload);
+                log(`✅ [Telegram Notification] Media+Caption Sent to ${platformId}`);
+            } else {
+                payload.text = formattedMsg;
+                await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, payload);
+                log(`✅ [Telegram Notification] Text Message Sent to ${platformId}`);
+            }
         } catch (err: any) {
             const errorMsg = `❌ Telegram Error for ${platformId}: ${err.response?.data ? JSON.stringify(err.response.data) : err.message}`;
             log(errorMsg);

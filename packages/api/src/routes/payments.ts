@@ -43,7 +43,8 @@ router.post('/opay/webhook', async (req, res) => {
 
                 console.log(`✅ [OPay Webhook] Transaction ${txnCode} marked as PAID`);
 
-                const receiptUrl = `http://localhost:3000/api/receipts/${txn.txn_code}.png`;
+                const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
+                const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
 
                 // Notify Buyer
                 const { data: buyerLinked } = await supabase
@@ -118,7 +119,8 @@ router.post('/airwallex/webhook', async (req, res) => {
 
                 console.log(`✅ [Airwallex Webhook] Transaction ${txnCode} marked as PAID`);
 
-                const receiptUrl = `http://localhost:3000/api/receipts/${txn.txn_code}.png`;
+                const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
+                const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
 
                 // Notify Buyer
                 const { data: buyerLinked } = await supabase
@@ -218,7 +220,8 @@ router.post('/flutterwave/webhook', async (req, res) => {
 
                 console.log(`✅ [Flutterwave Webhook] Transaction ${txnCode} marked as PAID`);
 
-                const receiptUrl = `http://localhost:3000/api/receipts/${txn.txn_code}.png`;
+                const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
+                const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
 
                 // Notify Buyer
                 const { data: buyerLinked } = await supabase
