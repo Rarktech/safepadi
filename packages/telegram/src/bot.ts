@@ -524,21 +524,34 @@ bot.catch((err: any, ctx: any) => {
 
 import http from 'http';
 
-bot.launch().then(() => {
-    console.log('✅ Safeeely Telegram Bot is fully launched and connected.');
-    
-    // ⚓ Dummy HTTP Server to satisfy Render "Web Service" port check
-    const PORT = process.env.PORT || 10000;
-    http.createServer((req, res) => {
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end('Safeeely Bot is Healthy\n');
-    }).listen(PORT, () => {
-        console.log(`Telegram Bot Health-Check server is listening on port ${PORT}`);
-    });
-}).catch(err => {
-    console.error('❌ Failed to launch Telegram bot:', err);
-    process.exit(1);
+// ⚓ Dummy HTTP Server to satisfy Render "Web Service" port check INSTANTLY
+const PORT = process.env.PORT || 10000;
+http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Safeeely Telegram Bot is Healthy\n');
+}).listen(PORT, () => {
+    console.log(`🌐 Telegram Bot Health-Check server is listening on port ${PORT}`);
 });
+
+const startBot = async (retryCount = 0) => {
+    try {
+        await bot.launch();
+        console.log('✅ Safeeely Telegram Bot is fully launched and connected.');
+    } catch (err: any) {
+        console.error('❌ Failed to launch Telegram bot:', err.message);
+        
+        // Handle Render Zero-Downtime 409 Conflict (Old bot hasn't died yet)
+        if (err.response && err.response.error_code === 409 && retryCount < 10) {
+            console.log('⏳ Telegram 409 Conflict (Old container still alive). Retrying in 5 seconds...');
+            setTimeout(() => startBot(retryCount + 1), 5000);
+        } else {
+            // Let the health server keep the container alive so we don't restart loop Render
+            console.error('🚨 Fatal Telegram Error. Bot is dead but health server is alive.');
+        }
+    }
+};
+
+startBot();
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
