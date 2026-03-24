@@ -7,6 +7,8 @@
   ],
   "main": "index.js",
   "scripts": {
+    "start:api": "npm start -w packages/api",
+    "start:discord": "npm start -w packages/discord",
     "build:all": "npm run build -w packages/shared && npm run build -w packages/api && npm run build -w packages/telegram && npm run build -w packages/discord",
     "build:render": "chmod +x render-build.sh && ./render-build.sh",
     "test": "echo \"Error: no test specified\" && exit 1"
