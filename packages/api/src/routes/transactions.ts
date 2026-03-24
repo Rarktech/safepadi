@@ -890,7 +890,8 @@ router.post('/:id/pay', async (req, res) => {
         if (buyerLinked) {
             const msg = `✅ <b>Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
 
-            const receiptUrl = `http://localhost:3000/api/receipts/${txn.txn_code}.png`;
+            const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
+            const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
 
             sendNotification((buyerLinked as any).platform, (buyerLinked as any).platform_id, msg, [
                 { label: '👁️ View Transaction', customId: `view_txn_${txn.id}` },
@@ -912,7 +913,8 @@ router.post('/:id/pay', async (req, res) => {
         if (sellerLinked) {
             const msg = `🔐 <b>Payment Received and Held Securely!</b>\n\nThe buyer has made payment and funds are now secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Secured: <b>${txn.amount} ${txn.currency}</b>\n👤 Buyer: <code>${txn.buyer.safetag}</code>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller, you can now proceed to fulfill the order.\n\n❓ Have you completed your part of the agreement?\n   (Shipped the product or delivered the service)\n\n⚠️ Important: Please be sure the buyer has received satisfactory delivery — any disputes raised after confirmation won't be considered.`;
 
-            const receiptUrl = `http://localhost:3000/api/receipts/${txn.txn_code}.png`;
+            const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
+            const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
 
             sendNotification((sellerLinked as any).platform, (sellerLinked as any).platform_id, msg, [
                 { label: '✅ Mark as Completed', customId: `txn_action_complete_prompt|${txn.id}` },
