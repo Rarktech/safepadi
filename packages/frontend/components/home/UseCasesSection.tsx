@@ -11,7 +11,7 @@ import {
   CheckCircle2, 
   ShieldCheck 
 } from "lucide-react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 
 const USE_CASES = [
@@ -85,6 +85,9 @@ const USE_CASES = [
 
 export function UseCasesSection() {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [isDrag, setIsDrag] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [scrollLt, setScrollLt] = useState(0);
 
   const scroll = (direction: 'left' | 'right') => {
     if (scrollRef.current) {
@@ -92,6 +95,22 @@ export function UseCasesSection() {
       const scrollTo = direction === 'left' ? scrollLeft - (clientWidth * 0.8) : scrollLeft + (clientWidth * 0.8);
       scrollRef.current.scrollTo({ left: scrollTo, behavior: 'smooth' });
     }
+  };
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    if (!scrollRef.current) return;
+    setIsDrag(true);
+    setStartX(e.pageX - scrollRef.current.offsetLeft);
+    setScrollLt(scrollRef.current.scrollLeft);
+  };
+  const onMouseLeave = () => setIsDrag(false);
+  const onMouseUp = () => setIsDrag(false);
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (!isDrag || !scrollRef.current) return;
+    e.preventDefault();
+    const x = e.pageX - scrollRef.current.offsetLeft;
+    const walk = (x - startX) * 2; // scroll-fast
+    scrollRef.current.scrollLeft = scrollLt - walk;
   };
 
   return (
@@ -145,15 +164,19 @@ export function UseCasesSection() {
         </div>
 
         {/* Right Column: Carousel Wrapper with Fade */}
-        <div className="relative">
+        <div className="relative min-w-0">
           {/* Scroll Fade Overlay */}
           <div className="absolute right-0 top-0 bottom-0 w-24 md:w-48 bg-gradient-to-l from-slate-50 to-transparent pointer-events-none z-20" />
           
           <div 
             ref={scrollRef}
-            className="flex gap-6 overflow-x-auto no-scrollbar snap-x snap-mandatory items-stretch pb-8 pt-4 -mx-6 px-6 md:mx-0 md:px-0 lg:pr-32"
-          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-        >
+            onMouseDown={onMouseDown}
+            onMouseLeave={onMouseLeave}
+            onMouseUp={onMouseUp}
+            onMouseMove={onMouseMove}
+            className={`flex gap-6 overflow-x-auto no-scrollbar snap-x snap-mandatory items-stretch pb-8 pt-4 -mx-6 px-6 md:mx-0 md:px-0 lg:pr-32 ${isDrag ? 'cursor-grabbing select-none' : 'cursor-grab'}`}
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          >
           {USE_CASES.map((useCase) => (
             <article 
               key={useCase.id}
@@ -192,12 +215,9 @@ export function UseCasesSection() {
                 </div>
               </div>
 
-              <div className="pt-6 border-t border-slate-100 flex justify-between items-center mt-auto">
-                <span className="text-[10px] font-bold tracking-wider text-slate-300">
-                  SEO: {useCase.seo}
-                </span>
+              <div className="pt-6 border-t border-slate-100 flex justify-start items-center mt-auto pointer-events-auto">
                 <Link href="/pay">
-                  <button className="bg-[#0f172a] hover:bg-[#1e293b] text-white rounded-full py-2.5 px-6 shrink-0 text-sm font-semibold flex items-center justify-center gap-2 transition-all shadow-md w-fit">
+                  <button className="bg-slate-900 hover:bg-slate-800 text-white rounded-full py-2.5 px-6 shrink-0 text-sm font-semibold flex items-center justify-center gap-2 transition-all shadow-md w-fit">
                     Join for Free <ArrowRight className="w-4 h-4" />
                   </button>
                 </Link>
