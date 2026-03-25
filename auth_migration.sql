@@ -24,3 +24,5 @@ CREATE TABLE IF NOT EXISTS binding_bans (
 -- Enable RLS (Assume service role for now, but tables should be ready)
 ALTER TABLE auth_otps ENABLE ROW LEVEL SECURITY;
 ALTER TABLE binding_bans ENABLE ROW LEVEL SECURITY;
+
+
