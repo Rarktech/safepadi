@@ -47,7 +47,7 @@ export function StorySection() {
                     <div className="bg-white p-2.5 md:p-6 rounded-[2.5rem] shadow-[0_32px_120px_-20px_rgba(0,0,0,0.15)] border border-slate-100 flex flex-col md:flex-row gap-4 relative">
                         
                         {/* Floating "Jay" (Reference Style) - Hidden on mobile */}
-                        <div className="absolute top-1/2 -left-8 -translate-y-1/2 hidden lg:block w-40 aspect-[4/3] bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden transform -rotate-6 z-50">
+                        <div className="absolute top-1/2 -left-8 -translate-y-1/2 hidden lg:block w-40 aspect-[4/3] bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden transform -rotate-6 z-40">
                             <div className="relative w-full h-full">
                                 <img src="https://images.unsplash.com/photo-1531384441138-2736e62e0919?auto=format&fit=crop&q=80&w=300&h=200" className="w-full h-full object-cover" alt="Jay" />
                                 <div className="absolute bottom-2 left-2 bg-slate-900/40 backdrop-blur-sm px-2 py-1 rounded text-[8px] font-bold text-white uppercase">Participant</div>
