@@ -14,11 +14,6 @@ export function Navbar() {
 
                 <div className="flex items-center gap-4">
                     <Link href="/pay">
-                        <Button variant="ghost" className="hidden md:inline-flex text-slate-600 hover:text-slate-900 transition-colors">
-                            Login
-                        </Button>
-                    </Link>
-                    <Link href="/pay">
                         <Button className="rounded-full bg-slate-900 hover:bg-slate-800 text-white px-6 shadow-lg shadow-slate-200">
                             Join for Free →
                         </Button>
