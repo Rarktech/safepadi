@@ -31,7 +31,16 @@ export async function processAIDispute(disputeId: string) {
 
         const history = messages || [];
 
-        // 2. Multimodal context preparation
+        // 2. Fraud & Reputation Context (RAG Injection)
+        const buyerId = dispute.transactions.buyer_id;
+        const sellerId = dispute.transactions.seller_id;
+        
+        const [buyerDisputes, sellerDisputes] = await Promise.all([
+            supabase.from('disputes').select('id, status').eq('raised_by', buyerId),
+            supabase.from('disputes').select('id, status').eq('raised_by', sellerId)
+        ]);
+
+        // 3. Multimodal context preparation
         // We find the last user message and its attachments
         const lastUserMessage = [...history].reverse().find(m => m.sender_type === 'USER');
         const attachments = lastUserMessage?.attachments || [];
@@ -42,6 +51,10 @@ export async function processAIDispute(disputeId: string) {
                 id: dispute.id,
                 reason: dispute.reason,
                 status: dispute.status
+            },
+            reputation: {
+                buyer_past_disputes: buyerDisputes.data?.length || 0,
+                seller_past_disputes: sellerDisputes.data?.length || 0
             },
             history
         };
@@ -59,6 +72,11 @@ export async function processAIDispute(disputeId: string) {
             Seller: ${context.transaction.seller.safetag}
             
             DISPUTE REASON: ${context.dispute.reason}
+
+            FRAUD CONTEXT (WARNING FLAGS):
+            - Buyer has raised ${context.reputation.buyer_past_disputes} disputes in the past.
+            - Seller has been involved in ${context.reputation.seller_past_disputes} disputes in the past.
+            (Take this into consideration when weighing evidence, if someone has 0 disputes they are usually more trustworthy than someone with 10).
             
             IMPORTANT:
             - If this is the start of the dispute (only 1 message in history), you MUST ask the person who raised the dispute for high-quality evidence.
@@ -74,6 +92,12 @@ export async function processAIDispute(disputeId: string) {
             2. Identify if we need more evidence. If evidence was just provided, confirm you've seen it and what it proves.
             3. Formulate a polite but firm request for the specific party if needed.
             4. If no more evidence is needed, state "FACTS_COMPLETE".
+            
+            CHAT RESTRICTION RULE:
+            - To keep the chat completely orderly, you MUST explicitly restrict chatter to the person you are asking a question to!
+            - If you ask the BUYER a question, you must put exactly "[RESTRICT: BUYER]" at the very beginning of your response.
+            - If you ask the SELLER a question, you must put exactly "[RESTRICT: SELLER]" at the very beginning.
+            - If you are addressing BOTH or concluding, you must put "[RESTRICT: ALL]".
             
             FORMATTING RULES:
             - Use standard markdown bolding (**text**) for emphasis. 
@@ -151,17 +175,32 @@ export async function processAIDispute(disputeId: string) {
             const reviewerResponse = reviewerResult.response.text();
 
             if (reviewerResponse.includes('VERDICT_APPROVED')) {
+                let action = 'SPLIT';
+                if (judgeResponse.includes('REFUND_BUYER') || judgeResponse.includes('BUYER WINS')) action = 'REFUND_BUYER';
+                else if (judgeResponse.includes('PAY_SELLER') || judgeResponse.includes('SELLER WINS')) action = 'PAY_SELLER';
+
                 return {
                     type: 'VERDICT',
                     content: judgeResponse,
-                    action: judgeResponse.includes('REFUND_BUYER') ? 'REFUND' : (judgeResponse.includes('PAY_SELLER') ? 'PAY' : 'SPLIT')
+                    action: action
                 };
             }
         }
 
+        // Parse restriction directive
+        let restriction = 'ALL';
+        if (investigatorResponse.includes('[RESTRICT: BUYER]')) restriction = 'BUYER';
+        else if (investigatorResponse.includes('[RESTRICT: SELLER]')) restriction = 'SELLER';
+
+        // Clean out the raw tag for the user UI
+        const cleanContent = investigatorResponse
+            .replace(/\[RESTRICT:\s*(BUYER|SELLER|ALL)\]/g, '')
+            .trim();
+
         return {
             type: 'QUESTION',
-            content: investigatorResponse
+            content: cleanContent,
+            restrict: restriction
         };
 
     } catch (err: any) {
