@@ -58,7 +58,6 @@ export const SidebarContent = ({ currentView, setCurrentView, onClose }: Sidebar
                         active={currentView === 'transactions'}
                         onClick={() => handleViewChange('transactions')}
                     />
-                    <SidebarItem icon={Wallet} label="Wallet" />
                     <SidebarItem
                         icon={Send}
                         label="Withdraw"

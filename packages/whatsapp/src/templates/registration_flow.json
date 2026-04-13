@@ -1,0 +1,119 @@
+{
+  "version": "7.3",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "REGISTRATION_SCREEN": [
+      "OTP_SCREEN"
+    ],
+    "OTP_SCREEN": []
+  },
+  "screens": [
+    {
+      "id": "REGISTRATION_SCREEN",
+      "title": "👋 Welcome to Safeeely!",
+      "terminal": false,
+      "data": {
+        "user_name": {
+          "type": "string",
+          "default": "",
+          "__example__": "John"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "Your trusted escrow for secure transactions."
+          },
+          {
+            "type": "TextInput",
+            "name": "first_name",
+            "label": "First Name",
+            "required": true
+          },
+          {
+            "type": "TextInput",
+            "name": "last_name",
+            "label": "Last Name",
+            "required": true
+          },
+          {
+            "type": "TextInput",
+            "name": "email",
+            "label": "Email Address",
+            "required": true,
+            "input-type": "email"
+          },
+          {
+            "type": "TextInput",
+            "name": "safetag",
+            "label": "Safetag (@name)",
+            "required": true,
+            "helper-text": "Must start with @ and be unique. No spaces."
+          },
+          {
+            "type": "CheckboxGroup",
+            "name": "agreed_terms",
+            "label": "Agreement",
+            "required": true,
+            "data-source": [
+              {
+                "id": "agree",
+                "title": "I agree to Terms & Policy"
+              }
+            ]
+          },
+          {
+            "type": "Footer",
+            "label": "📧 Send OTP to Email",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "action": "send_otp"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "OTP_SCREEN",
+      "title": "🔐 Verify Your Email",
+      "terminal": true,
+      "data": {
+        "display_email": {
+          "type": "string",
+          "default": "",
+          "__example__": "user@example.com"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "A 6-digit verification code was just sent to: *${data.display_email}*"
+          },
+          {
+            "type": "TextInput",
+            "name": "otp_code",
+            "label": "6-Digit OTP Code",
+            "required": true,
+            "input-type": "number"
+          },
+          {
+            "type": "Footer",
+            "label": "✅ Verify & Create Account",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "action": "complete_registration"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

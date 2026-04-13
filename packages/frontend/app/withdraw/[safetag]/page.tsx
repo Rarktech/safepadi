@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, Activity, Eye, EyeOff, Home, Wallet, Send, Settings, User, Users } from 'lucide-react';
+import { Menu, Activity, Eye, EyeOff, Home, Wallet, Send, Settings, User, Users, ShoppingBag } from 'lucide-react';
 import { isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import api from '@/lib/api';
 
@@ -21,13 +21,14 @@ import { WithdrawalView } from '@/components/withdraw/WithdrawalView';
 import { SheetWithdrawal } from '@/components/withdraw/SheetWithdrawal';
 import { ReferralView } from '@/components/withdraw/ReferralView';
 import { DisputeDetailsView } from '@/components/withdraw/DisputeDetailsView';
+import { MarketplaceManagement } from '@/components/marketplace/MarketplaceManagement';
 
 export default function WithdrawDashboard() {
     const { safetag } = useParams() as { safetag: string };
     const searchParams = useSearchParams();
     const decodedSafetag = decodeURIComponent(safetag);
 
-    const [currentView, setCurrentView] = useState<'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details'>('dashboard');
+    const [currentView, setCurrentView] = useState<'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details' | 'marketplace'>('dashboard');
     const [balances, setBalances] = useState<any[]>([]);
     const [allTransactions, setAllTransactions] = useState<any[]>([]);
     const [filteredTxns, setFilteredTxns] = useState<any[]>([]);
@@ -188,7 +189,8 @@ export default function WithdrawDashboard() {
                         <h1 className="text-lg font-bold text-slate-800">
                             <span className="md:inline hidden">
                                 {currentView === 'dashboard' ? 'Dashboard' :
-                                    currentView === 'transactions' ? 'My Transactions' : 'Balance & Withdrawal'}
+                                    currentView === 'transactions' ? 'My Transactions' : 
+                                    currentView === 'marketplace' ? 'Marketplace Management' : 'Balance & Withdrawal'}
                             </span>
                             <span className="md:hidden inline">Welcome, {profile?.first_name || 'User'}</span>
                         </h1>
@@ -270,6 +272,10 @@ export default function WithdrawDashboard() {
                         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                             <ReferralView profile={profile} />
                         </div>
+                    ) : currentView === 'marketplace' ? (
+                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                             <MarketplaceManagement />
+                        </div>
                     ) : currentView === 'dispute_details' && selectedTxn ? (
                         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                             <DisputeDetailsView
@@ -337,6 +343,14 @@ export default function WithdrawDashboard() {
                     >
                         <div className={`p-2 rounded-full transition-colors ${currentView === 'transactions' ? 'bg-[#16a34a] shadow-lg shadow-emerald-500/20' : ''}`}>
                             <Activity size={20} className="text-white" />
+                        </div>
+                    </button>
+                    <button
+                        onClick={() => setCurrentView('marketplace')}
+                        className={`flex-1 flex flex-col items-center justify-center py-2 transition-all duration-300 ${currentView === 'marketplace' ? 'scale-110' : 'opacity-40 hover:opacity-100'}`}
+                    >
+                        <div className={`p-2 rounded-full transition-colors ${currentView === 'marketplace' ? 'bg-[#16a34a] shadow-lg shadow-emerald-500/20' : ''}`}>
+                            <ShoppingBag size={20} className="text-white" />
                         </div>
                     </button>
                     <div className="flex-1 flex flex-col items-center justify-center pointer-events-none">

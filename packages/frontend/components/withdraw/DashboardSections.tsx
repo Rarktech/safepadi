@@ -186,10 +186,10 @@ export const TrustScore = ({ score = 92.8, totalTrades = 4250.00 }: { score?: nu
         const innerRadius = 75;
         const outerRadius = 90; // All needles the same height
 
-        const x1 = 100 + innerRadius * Math.cos(angle);
-        const y1 = 100 - innerRadius * Math.sin(angle);
-        const x2 = 100 + outerRadius * Math.cos(angle);
-        const y2 = 100 - outerRadius * Math.sin(angle);
+        const x1 = +(100 + innerRadius * Math.cos(angle)).toFixed(4);
+        const y1 = +(100 - innerRadius * Math.sin(angle)).toFixed(4);
+        const x2 = +(100 + outerRadius * Math.cos(angle)).toFixed(4);
+        const y2 = +(100 - outerRadius * Math.sin(angle)).toFixed(4);
 
         return { x1, y1, x2, y2, color };
     });
@@ -198,10 +198,10 @@ export const TrustScore = ({ score = 92.8, totalTrades = 4250.00 }: { score?: nu
     const needleOuterR = 110;
     const needleInnerR = 55;
 
-    const needleX1 = 100 + needleInnerR * Math.cos(scoreAngle);
-    const needleY1 = 100 - needleInnerR * Math.sin(scoreAngle);
-    const needleX2 = 100 + needleOuterR * Math.cos(scoreAngle);
-    const needleY2 = 100 - needleOuterR * Math.sin(scoreAngle);
+    const needleX1 = +(100 + needleInnerR * Math.cos(scoreAngle)).toFixed(4);
+    const needleY1 = +(100 - needleInnerR * Math.sin(scoreAngle)).toFixed(4);
+    const needleX2 = +(100 + needleOuterR * Math.cos(scoreAngle)).toFixed(4);
+    const needleY2 = +(100 - needleOuterR * Math.sin(scoreAngle)).toFixed(4);
 
     let badgeText = "Excellent";
     let badgeColor = "text-[#22c55e] bg-[#ecfdf5]";

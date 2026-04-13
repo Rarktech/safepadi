@@ -1,0 +1,149 @@
+{
+  "version": "7.3",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "TRANSACTION_SCREEN_1_INPUTS": [
+      "TRANSACTION_SCREEN_2_LOOKUP",
+      "TRANSACTION_SCREEN_1_INPUTS"
+    ],
+    "TRANSACTION_SCREEN_2_LOOKUP": [
+      "TRANSACTION_SCREEN_3_SUMMARY",
+      "TRANSACTION_SCREEN_1_INPUTS"
+    ],
+    "TRANSACTION_SCREEN_3_SUMMARY": []
+  },
+  "screens": [
+    {
+      "id": "TRANSACTION_SCREEN_1_INPUTS",
+      "title": "🛒 New Escrow Request",
+      "terminal": false,
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextInput",
+            "name": "product_name",
+            "label": "Product/Service Name",
+            "required": true
+          },
+          {
+            "type": "TextArea",
+            "name": "description",
+            "label": "Detailed Description",
+            "required": true
+          },
+          {
+            "type": "TextInput",
+            "name": "amount",
+            "label": "Amount",
+            "required": true,
+            "input-type": "number"
+          },
+          {
+            "type": "Dropdown",
+            "name": "currency",
+            "label": "Currency",
+            "required": true,
+            "data-source": [
+              { "id": "NGN", "title": "🇳🇬 NGN (Naira)" },
+              { "id": "USD", "title": "🇺🇸 USD (Dollar)" },
+              { "id": "USDT", "title": "🪙 USDT (Tether)" }
+            ]
+          },
+          {
+            "type": "TextInput",
+            "name": "other_safetag",
+            "label": "Counterparty Safetag",
+            "required": true
+          },
+          {
+            "type": "Footer",
+            "label": "🔍 Find & Review User",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "action": "lookup_user"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "TRANSACTION_SCREEN_2_LOOKUP",
+      "title": "👤 Review Counterparty",
+      "terminal": false,
+      "data": {
+        "profile_card": { "type": "string", "default": "", "__example__": "John_Doe" },
+        "rating": { "type": "string", "default": "No reviews yet", "__example__": "5/5 Stars" },
+        "safetag": { "type": "string", "default": "john_doe", "__example__": "john_doe" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "User found: ${data.profile_card}\nRating: ${data.rating}\nVerified Status: Yes"
+          },
+          {
+            "type": "TextBody",
+            "text": "View Detailed External Reviews at: https://Safeeely.com/reviews/${data.safetag}"
+          },
+          {
+            "type": "CheckboxGroup",
+            "name": "who_pays_fee",
+            "label": "Who pays the 5% Fee?",
+            "required": true,
+            "data-source": [
+              { "id": "buyer", "title": "👤 Buyer (100%)" },
+              { "id": "seller", "title": "👤 Seller (100%)" },
+              { "id": "split", "title": "🤝 Split (50/50)" }
+            ]
+          },
+          {
+            "type": "Footer",
+            "label": "📋 View Final Summary",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "action": "view_summary"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "TRANSACTION_SCREEN_3_SUMMARY",
+      "title": "🚀 Final Confirmation",
+      "terminal": true,
+      "data": {
+        "summary_text": { "type": "string", "default": "", "__example__": "Summary" },
+        "total_amount": { "type": "string", "default": "0", "__example__": "5000" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "${data.summary_text}"
+          },
+          {
+            "type": "TextBody",
+            "text": "━━━━━━━━━━━━━━━━━━━━\nTOTAL TO PAY: ${data.total_amount}"
+          },
+          {
+            "type": "Footer",
+            "label": "🚀 Confirm & Create Transaction",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "action": "create_transaction"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -9,6 +9,18 @@
   "scripts": {
     "start:api": "npm start -w packages/api",
     "start:discord": "npm start -w packages/discord",
+    "start:apple": "npm start -w packages/apple_business",
+    "dev:api": "npm run dev -w packages/api",
+    "dev:telegram": "npm run dev -w packages/telegram",
+    "dev:whatsapp": "npm run dev -w packages/whatsapp",
+    "dev:instagram": "npm run dev -w packages/instagram",
+    "dev:frontend": "npm run dev -w packages/frontend",
+    "dev:apple": "npm run dev -w packages/apple_business",
+    "tunnel:api": "ssh -p 443 -R0:localhost:3000 qr@a.pinggy.io",
+    "tunnel:frontend": "ssh -p 443 -R0:localhost:3001 qr@a.pinggy.io",
+    "tunnel:whatsapp": "ssh -p 443 -R0:localhost:10001 qr@a.pinggy.io",
+    "tunnel:instagram": "ssh -p 443 -R0:localhost:10002 qr@a.pinggy.io",
+    "tunnel:apple": "ssh -p 443 -R0:localhost:10003 qr@a.pinggy.io",
     "build:all": "npm run build -w packages/shared && npm run build -w packages/api && npm run build -w packages/telegram && npm run build -w packages/discord",
     "build:render": "chmod +x render-build.sh && ./render-build.sh",
     "test": "echo \"Error: no test specified\" && exit 1"

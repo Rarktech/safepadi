@@ -9,7 +9,8 @@ import {
   Send,
   Settings,
   Wallet,
-  Users
+  Users,
+  ShoppingBag
 } from "lucide-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -36,6 +37,11 @@ const data = {
       url: "#",
       icon: Home,
       isActive: true,
+    },
+    {
+      title: "Marketplace",
+      url: "/marketplace",
+      icon: ShoppingBag,
     },
     {
       title: "My Transactions",
@@ -73,14 +79,14 @@ const data = {
 }
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
-  currentView?: 'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details'
-  setCurrentView?: (view: 'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details') => void
+  currentView?: 'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details' | 'marketplace'
+  setCurrentView?: (view: 'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details' | 'marketplace') => void
   userName?: string
   userEmail?: string
 }
 
 export function AppSidebar({ currentView: propCurrentView, setCurrentView: propSetCurrentView, userName, userEmail, ...props }: AppSidebarProps) {
-  const [internalView, setInternalView] = React.useState<'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details'>('dashboard');
+  const [internalView, setInternalView] = React.useState<'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details' | 'marketplace'>('dashboard');
 
   const currentView = propCurrentView || internalView;
   const setCurrentView = propSetCurrentView || setInternalView;
@@ -96,7 +102,8 @@ export function AppSidebar({ currentView: propCurrentView, setCurrentView: propS
     isActive: (item.title === 'Dashboard' && currentView === 'dashboard') ||
       (item.title === 'My Transactions' && currentView === 'transactions') ||
       (item.title === 'Withdraw' && currentView === 'withdraw') ||
-      (item.title === 'Referrals' && currentView === 'referrals')
+      (item.title === 'Referrals' && currentView === 'referrals') ||
+      (item.title === 'Marketplace' && currentView === 'marketplace')
   }))
 
   const handleNavClick = (title: string) => {
@@ -104,6 +111,7 @@ export function AppSidebar({ currentView: propCurrentView, setCurrentView: propS
     if (title === 'My Transactions') setCurrentView('transactions')
     if (title === 'Withdraw') setCurrentView('withdraw')
     if (title === 'Referrals') setCurrentView('referrals')
+    if (title === 'Marketplace') setCurrentView('marketplace')
   }
 
   return (
