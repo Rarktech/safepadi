@@ -156,7 +156,7 @@ export default function AdminCustomers() {
             const res = await axios.post(`${API_URL}/admin/customers/${customer.id}/block`, {}, {
                 headers: { 'ngrok-skip-browser-warning': 'true' }
             });
-            showToast(res.data.message || `@${customer.safetag} has been blocked`);
+            showToast(res.data.message || `${customer.safetag.startsWith('@') ? customer.safetag : `@${customer.safetag}`} has been blocked`);
             await fetchData();
         } catch (err: any) {
             showToast(err.response?.data?.error || "Failed to block user", "error");
@@ -171,7 +171,7 @@ export default function AdminCustomers() {
             const res = await axios.post(`${API_URL}/admin/customers/${customer.id}/unblock`, {}, {
                 headers: { 'ngrok-skip-browser-warning': 'true' }
             });
-            showToast(res.data.message || `@${customer.safetag} has been unblocked`);
+            showToast(res.data.message || `${customer.safetag.startsWith('@') ? customer.safetag : `@${customer.safetag}`} has been unblocked`);
             await fetchData();
         } catch (err: any) {
             showToast(err.response?.data?.error || "Failed to unblock user", "error");
@@ -187,7 +187,7 @@ export default function AdminCustomers() {
             await axios.delete(`${API_URL}/admin/customers/${confirmDelete.id}`, {
                 headers: { 'ngrok-skip-browser-warning': 'true' }
             });
-            showToast(`Account @${confirmDelete.safetag} deleted`);
+            showToast(`Account ${confirmDelete.safetag.startsWith('@') ? confirmDelete.safetag : `@${confirmDelete.safetag}`} deleted`);
             setConfirmDelete(null);
             await fetchData();
         } catch (err: any) {

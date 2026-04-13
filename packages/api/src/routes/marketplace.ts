@@ -144,19 +144,22 @@ router.put('/:id', upload.array('images', 5), async (req, res) => {
 
 
 // ==========================================
-// GET LIVE LISTINGS (WITH SEARCH & GEO FILTERS)
+// GET LIVE LISTINGS (WITH SEARCH & GEO FILTERS & PAGINATION)
 // ==========================================
 router.get('/', async (req, res) => {
     try {
-        const { q, loc, c, intent, type } = req.query;
+        const { q, loc, c, intent, type, limit, offset } = req.query;
 
-        // Start base query fetching active listings
+        const pageSize = parseInt(limit as string) || 9;
+        const pageOffset = parseInt(offset as string) || 0;
+
+        // Start base query fetching active listings with count
         let query = supabase
             .from('marketplace_listings')
             .select(`
                 *,
                 profiles ( safetag, first_name, last_name )
-            `)
+            `, { count: 'exact' })
             .eq('status', 'active');
 
         // 1. Intent / Type filters
@@ -165,40 +168,27 @@ router.get('/', async (req, res) => {
 
         // 2. Keyword Search
         if (q && typeof q === 'string') {
-            // Full-text search across title and description
             query = query.or(`title.ilike.%${q}%,description.ilike.%${q}%`);
         }
 
-        // Execute query
-        const { data, error } = await query;
-        if (error) throw error;
-
-        // 3. Post-Process Filtering for Geolocation logic & nested tags
-        // Since Supabase Array manipulation in REST can be tricky for complex geo-rules, 
-        // we'll filter the geo_scope locally on the node server perfectly.
-        
-        let filteredData = data;
-
-        // Apply Geolocation Scope Restrictions
+        // 3. Geolocation Filtering (Otimized: moved to DB level)
         const activeCountry = (c as string) || 'GLOBAL';
-        
         if (activeCountry !== 'GLOBAL') {
-            filteredData = data.filter(listing => {
-                // If it's a completely open global listing, let it through
-                if (listing.geo_scope === 'GLOBAL') return true;
-
-                // If origin-matched restriction (e.g. they only want people from their own country)
-                // Note: Assuming RESTRICTED implies either specified countries or origin country lock
-                if (listing.restricted_countries && listing.restricted_countries.length > 0) {
-                    return listing.restricted_countries.includes(activeCountry);
-                }
-
-                // Default fallback: If restricted and no array provided, lock to origin country
-                return listing.origin_country === activeCountry;
-            });
+            query = query.or(`geo_scope.eq.GLOBAL,restricted_countries.cs.["${activeCountry}"],origin_country.eq.${activeCountry}`);
         }
 
-        res.status(200).json(filteredData);
+        // 4. Pagination & Ordering
+        query = query.order('created_at', { ascending: false })
+                     .range(pageOffset, pageOffset + pageSize - 1);
+
+        // Execute query
+        const { data, error, count } = await query;
+        if (error) throw error;
+
+        res.status(200).json({ 
+            listings: data || [], 
+            total: count || 0 
+        });
     } catch (err: any) {
         console.error('❌ Error fetching listings:', err.message || err);
         res.status(500).json({ error: 'Failed to fetch marketplace feed' });

@@ -55,8 +55,8 @@ export const ReferralView = ({ profile }: { profile: any }) => {
     };
 
     const referralLink = typeof window !== 'undefined'
-        ? `${window.location.origin}/@${profile?.safetag || 'user'}`
-        : `https://Safeeely.com/@${profile?.safetag || 'user'}`;
+        ? `${window.location.origin}/${(profile?.safetag || 'user').startsWith('@') ? profile.safetag : `@${profile?.safetag || 'user'}`}`
+        : `https://Safeeely.com/${(profile?.safetag || 'user').startsWith('@') ? profile.safetag : `@${profile?.safetag || 'user'}`}`;
 
     const handleCopy = () => {
         navigator.clipboard.writeText(referralLink);
@@ -284,7 +284,7 @@ export const ReferralView = ({ profile }: { profile: any }) => {
                 <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-sm w-full p-8 bg-white text-slate-900 border-none rounded-[40px] shadow-2xl flex flex-col items-center space-y-6">
                     <div className="text-center space-y-2">
                         <h3 className="text-2xl font-black tracking-tight">Scan to Join</h3>
-                        <p className="text-sm font-bold text-slate-400">@{profile?.safetag}</p>
+                        <p className="text-sm font-bold text-slate-400">{profile?.safetag?.startsWith('@') ? profile.safetag : `@${profile?.safetag}`}</p>
                     </div>
 
                     {/* Actual QR code rendering */}

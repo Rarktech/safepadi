@@ -3,10 +3,11 @@
 import { useState, useEffect } from "react";
 import { Search, MapPin, Globe, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ALL_COUNTRIES } from "@/lib/countries";
 import { Input } from "@/components/ui/input";
+
 
 // Use the comprehensive external list and sort it alphabetically
 const COUNTRIES = [...ALL_COUNTRIES].sort((a, b) => {
@@ -17,7 +18,17 @@ const COUNTRIES = [...ALL_COUNTRIES].sort((a, b) => {
 
 export function MarketplaceHero() {
     const router = useRouter();
+    const pathname = usePathname();
     const searchParams = useSearchParams();
+
+    const typeParam = searchParams?.get('type');
+    let heroSubject = "Products";
+    
+    if (pathname?.includes('/jobs')) {
+        heroSubject = "Jobs";
+    } else if (typeParam === 'services' || typeParam === 'service') {
+        heroSubject = "Services";
+    }
     
     // Initialize state from URL params
     const [keyword, setKeyword] = useState(searchParams?.get("q") || "");
@@ -86,26 +97,33 @@ export function MarketplaceHero() {
 
             <div className="relative z-10 max-w-4xl w-full text-center">
                 
-                {/* Global Country Matcher */}
-                {isClient && (
-                    <div className="flex justify-center mb-6">
+
+                <h1 className="text-4xl sm:text-5xl md:text-6xl font-black text-slate-900 mb-8 tracking-tight flex flex-col md:flex-row flex-wrap items-center justify-center gap-x-3 gap-y-2">
+                    <span className="shrink-0">Find Safe <span className="text-emerald-500 underline decoration-emerald-200 decoration-8 underline-offset-4">{heroSubject}</span></span>
+                    
+                    <div className="flex items-center gap-3">
+                        <span className="text-slate-400 font-medium shrink-0">in</span>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <button className="flex items-center gap-2 bg-slate-50 border border-slate-100 px-4 py-2 rounded-full text-sm font-bold text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 transition-all shadow-sm">
-                                    <Globe size={14} className="text-slate-400" />
-                                    <span className="flex items-center gap-2">
-                                        Browsing in: 
-                                        {selectedCountry.code === 'GLOBAL' ? (
-                                            <span className="text-base">🌍</span>
-                                        ) : (
-                                            <img src={`https://flagcdn.com/w40/${selectedCountry.code.toLowerCase()}.png`} alt="flag" className="w-5 h-3.5 object-cover rounded-[2px]" />
+                                <button className="flex items-center gap-3 text-emerald-600 hover:text-emerald-700 transition-colors group">
+                                    <div className="flex items-center gap-2.5">
+                                        {isClient && (
+                                            selectedCountry.code === 'GLOBAL' ? (
+                                                <span className="text-3xl md:text-5xl leading-none">🌍</span>
+                                            ) : (
+                                                <img 
+                                                    src={`https://flagcdn.com/w80/${selectedCountry.code.toLowerCase()}.png`} 
+                                                    alt="flag" 
+                                                    className="w-8 md:w-14 h-5 md:h-9 object-cover rounded-md md:rounded-xl shadow-sm border border-slate-100" 
+                                                />
+                                            )
                                         )}
-                                        {selectedCountry.name}
-                                    </span>
-                                    <ChevronDown size={14} className="text-slate-400 ml-1" />
+                                        <span className="truncate max-w-[150px] sm:max-w-none">{selectedCountry.name}</span>
+                                    </div>
+                                    <ChevronDown className="w-6 h-6 md:w-8 md:h-8 text-slate-300 group-hover:text-emerald-400 transition-all" />
                                 </button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="center" className="w-64 rounded-2xl p-2 shadow-xl border-slate-100">
+                            <DropdownMenuContent align="center" className="w-64 rounded-2xl p-2 shadow-xl border-slate-100 z-50">
                                 <div className="px-2 pb-2">
                                     <div className="relative">
                                         <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -144,10 +162,6 @@ export function MarketplaceHero() {
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </div>
-                )}
-
-                <h1 className="text-5xl md:text-6xl font-black text-slate-900 mb-8 tracking-tight">
-                    Find Safe <span className="text-emerald-500 underline decoration-emerald-200 decoration-8 underline-offset-4">Providers</span>
                 </h1>
 
                 {/* Search Bar Container */}

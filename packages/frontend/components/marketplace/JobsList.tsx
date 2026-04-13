@@ -109,38 +109,57 @@ export function JobsList() {
         : 'NG';
 
     const [liveJobs, setLiveJobs] = useState<JobListing[]>([]);
+    const [totalCount, setTotalCount] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+    const fetchJobs = async (offset = 0) => {
+        if (offset === 0) setIsLoading(true);
+        else setIsLoadingMore(true);
+
+        try {
+            const params = new URLSearchParams();
+            if (keywordQuery) params.set('q', keywordQuery);
+            if (locationQuery) params.set('loc', locationQuery);
+            if (activeCountry) params.set('c', activeCountry);
+            params.set('type', 'job'); // Critical: only fetch jobs
+            params.set('offset', offset.toString());
+            params.set('limit', '9');
+            
+            if (filterIntent !== 'all') params.set('intent', filterIntent);
+
+            const res = await fetch(`http://localhost:3000/api/marketplace?${params.toString()}`);
+            if (!res.ok) {
+                if (offset === 0) setLiveJobs([]);
+                return;
+            }
+            const data = await res.json();
+            const newListings = data.listings || (Array.isArray(data) ? data : []);
+            
+            if (offset === 0) {
+                setLiveJobs(newListings);
+            } else {
+                setLiveJobs(prev => [...(prev || []), ...newListings]);
+            }
+            setTotalCount(data.total || newListings.length || 0);
+        } catch (err) {
+            console.error('Error fetching jobs:', err);
+            // Fallback to empty array if DB isn't running yet to prevent crash
+            if (offset === 0) setLiveJobs([]); 
+        } finally {
+            if (offset === 0) {
+                setTimeout(() => setIsLoading(false), 800);
+            } else {
+                setIsLoadingMore(false);
+            }
+        }
+    };
 
     useEffect(() => {
-        const fetchJobs = async () => {
-            setIsLoading(true);
-            try {
-                const params = new URLSearchParams();
-                if (keywordQuery) params.set('q', keywordQuery);
-                if (locationQuery) params.set('loc', locationQuery);
-                if (activeCountry) params.set('c', activeCountry);
-                params.set('type', 'job'); // Critical: only fetch jobs
-                
-                if (filterIntent !== 'all') params.set('intent', filterIntent);
-
-                const res = await fetch(`http://localhost:3000/api/marketplace?${params.toString()}`);
-                if (!res.ok) {
-                    setLiveJobs([]);
-                    return;
-                }
-                const data = await res.json();
-                setLiveJobs(data);
-            } catch (err) {
-                console.error('Error fetching jobs:', err);
-                // Fallback to empty array if DB isn't running yet to prevent crash
-                setLiveJobs([]); 
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        fetchJobs();
+        fetchJobs(0);
     }, [keywordQuery, locationQuery, activeCountry, filterIntent]);
+
+    const loadMore = () => fetchJobs(liveJobs.length);
 
     return (
         <div className="w-full max-w-7xl mx-auto px-6 pb-20 mt-2">
@@ -192,8 +211,8 @@ export function JobsList() {
                                 index={idx + 1}
                                 id={job.id}
                                 intent={job.intent as 'hiring'|'offering'}
-                                logo={job.profiles?.avatar_url || "https://images.unsplash.com/photo-1557683316-973673baf926?w=800&q=80"}
-                                name={job.profiles?.first_name ? `${job.profiles.first_name} ${job.profiles.last_name}` : `@${job.profiles?.safetag || 'Unknown'}`}
+                                logo={job.profiles?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${job.profiles?.safetag || job.id}&backgroundColor=f1f5f9`}
+                                name={job.profiles?.first_name ? `${job.profiles.first_name} ${job.profiles.last_name}` : (job.profiles?.safetag?.startsWith('@') ? job.profiles.safetag : `@${job.profiles?.safetag || 'Unknown'}`)}
                                 title={job.title}
                                 location={job.location_type || 'Remote'}
                                 rating={4.9} 
@@ -209,10 +228,17 @@ export function JobsList() {
                 )}
             </div>
             
-            {liveJobs.length > 0 && (
+            {(totalCount > liveJobs.length) && (
                 <div className="flex justify-center mt-12">
-                    <button className="px-8 py-4 rounded-full bg-slate-100 text-sm font-black text-slate-500 hover:bg-slate-200 transition-all shadow-sm">
-                        Load More Listings (24 available)
+                    <button 
+                        onClick={loadMore}
+                        disabled={isLoadingMore}
+                        className="px-8 py-4 rounded-full bg-slate-100 text-sm font-black text-slate-500 hover:bg-slate-200 transition-all shadow-sm flex items-center gap-3"
+                    >
+                        {isLoadingMore ? (
+                            <div className="w-4 h-4 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />
+                        ) : null}
+                        Load More {filterIntent === 'hiring' ? 'Recruiters' : filterIntent === 'offering' ? 'Talents' : 'Listings'} ({totalCount - liveJobs.length} available)
                     </button>
                 </div>
             )}

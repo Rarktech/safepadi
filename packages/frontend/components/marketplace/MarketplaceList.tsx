@@ -13,9 +13,11 @@ export function MarketplaceList() {
     const priceParam = searchParams?.get("price")?.toLowerCase();
     const ratingParam = searchParams?.get("rating");
     const intentParam = searchParams?.get("intent");
-    const industryParam = searchParams?.get("industry");
+    const industryParam = searchParams?.get("industry")?.toLowerCase();
     const [liveListings, setLiveListings] = useState<any[]>([]);
+    const [totalCount, setTotalCount] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [activeCategory, setActiveCategory] = useState<'all' | 'physical'| 'digital'>(typeParam);
 
     const keywordQuery = searchParams?.get("q")?.toLowerCase() || "";
@@ -26,39 +28,48 @@ export function MarketplaceList() {
         ? (countryParam || localStorage.getItem('safepadi_user_country') || 'GLOBAL') 
         : 'GLOBAL';
 
-    useEffect(() => {
-        const fetchListings = async () => {
-            setIsLoading(true);
-            try {
-                const params = new URLSearchParams();
-                if (keywordQuery) params.set('q', keywordQuery);
-                if (locationQuery) params.set('loc', locationQuery);
-                if (activeCountry !== 'GLOBAL') params.set('c', activeCountry);
-                
-                // For the main marketplace list, we show everything that is NOT a job
-                // Though, we could just fetch all and filter client side for products/services
-                // The API supports type filtering but if not set it returns all types.
+    const fetchListings = async (offset = 0) => {
+        if (offset === 0) setIsLoading(true);
+        else setIsLoadingMore(true);
 
-                const res = await fetch(`http://127.0.0.1:3000/api/marketplace?${params.toString()}`);
-                if (!res.ok) {
-                    setLiveListings([]);
-                    return;
-                }
-                const data = await res.json();
-                
-                // Filter out jobs, so this list only shows products/services
-                const productsAndServices = data.filter((item: any) => item.category_type !== 'job');
-                setLiveListings(productsAndServices);
-            } catch (err) {
-                console.error("Failed to fetch listings:", err);
-                setLiveListings([]);
-            } finally {
-                // Buffer to feel premium and avoid flickering
-                setTimeout(() => setIsLoading(false), 800);
+        try {
+            const params = new URLSearchParams();
+            if (keywordQuery) params.set('q', keywordQuery);
+            if (locationQuery) params.set('loc', locationQuery);
+            if (activeCountry !== 'GLOBAL') params.set('c', activeCountry);
+            
+            params.set('offset', offset.toString());
+            params.set('limit', '9');
+            
+            const res = await fetch(`http://127.0.0.1:3000/api/marketplace?${params.toString()}`);
+            if (!res.ok) {
+                if (offset === 0) setLiveListings([]);
+                return;
             }
-        };
+            const data = await res.json();
+            const sourceItems = data.listings || (Array.isArray(data) ? data : []);
+            const newItems = sourceItems.filter((item: any) => item.category_type !== 'job');
+            
+            if (offset === 0) {
+                setLiveListings(newItems);
+            } else {
+                setLiveListings(prev => [...(prev || []), ...newItems]);
+            }
+            setTotalCount(data.total || sourceItems.length || 0);
+        } catch (err) {
+            console.error("Failed to fetch listings:", err);
+            if (offset === 0) setLiveListings([]);
+        } finally {
+            if (offset === 0) {
+                setTimeout(() => setIsLoading(false), 800);
+            } else {
+                setIsLoadingMore(false);
+            }
+        }
+    };
 
-        fetchListings();
+    useEffect(() => {
+        fetchListings(0);
     }, [keywordQuery, locationQuery, activeCountry]);
 
     if (isLoading) {
@@ -91,7 +102,7 @@ export function MarketplaceList() {
     }
 
     const filteredListings = liveListings.filter(item => {
-        // Category filtering
+        // Category filtering (Local filter remains for tab switching, but fetch is optimized)
         if (activeCategory === 'physical' && item.category_type !== 'product') return false;
         if (activeCategory === 'digital' && item.category_type !== 'service') return false;
         
@@ -119,6 +130,8 @@ export function MarketplaceList() {
 
         return true;
     });
+
+    const loadMore = () => fetchListings(liveListings.length);
 
     return (
         <div className="w-full max-w-7xl mx-auto px-6 pb-20 animate-in fade-in duration-700">
@@ -153,8 +166,8 @@ export function MarketplaceList() {
                     <ProductCard 
                         key={provider.id} 
                         id={provider.id as string}
-                        name={`@${provider.profiles?.safetag || 'unknown'}`}
-                        logo={provider.profiles?.avatar_url || "https://images.unsplash.com/photo-1557683316-973673baf926?w=800&q=80"}
+                        name={provider.profiles?.safetag?.startsWith('@') ? provider.profiles.safetag : `@${provider.profiles?.safetag || 'unknown'}`}
+                        logo={provider.profiles?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${provider.profiles?.safetag || provider.id}&backgroundColor=f1f5f9`}
                         images={provider.images && provider.images.length > 0 ? provider.images : ["https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&q=80"]}
                         location={provider.origin_country || 'Worldwide'}
                         rating={5.0} // Mocking rating from profiles
@@ -170,11 +183,20 @@ export function MarketplaceList() {
                 </div>
             )}
             
-            <div className="flex justify-center mt-16">
-                <button className="px-8 py-4 rounded-full bg-slate-100 text-sm font-black text-slate-500 hover:bg-slate-200 transition-all shadow-sm">
-                    Load More Services (124 available)
-                </button>
-            </div>
+            {(totalCount > liveListings.length) && (
+                <div className="flex justify-center mt-16">
+                    <button 
+                        onClick={loadMore}
+                        disabled={isLoadingMore}
+                        className="px-8 py-4 rounded-full bg-slate-100 text-sm font-black text-slate-500 hover:bg-slate-200 transition-all shadow-sm flex items-center gap-3"
+                    >
+                        {isLoadingMore ? (
+                            <div className="w-4 h-4 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />
+                        ) : null}
+                        Load More {activeCategory === 'physical' ? 'Products' : activeCategory === 'digital' ? 'Services' : 'Listings'} ({totalCount - liveListings.length} available)
+                    </button>
+                </div>
+            )}
         </div>
     );
 }
