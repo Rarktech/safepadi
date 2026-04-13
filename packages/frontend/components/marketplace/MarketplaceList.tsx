@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { ProductCard } from "./ProductCard";
+import { ProductSkeleton } from "./ProductSkeleton";
+import { Skeleton } from "@/components/ui/skeleton";
 import { SearchX } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 
@@ -14,7 +16,7 @@ export function MarketplaceList() {
     const industryParam = searchParams?.get("industry");
     const [liveListings, setLiveListings] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [activeCategory, setActiveCategory] = useState<'all' | 'physical' | 'digital'>(typeParam);
+    const [activeCategory, setActiveCategory] = useState<'all' | 'physical'| 'digital'>(typeParam);
 
     const keywordQuery = searchParams?.get("q")?.toLowerCase() || "";
     const locationQuery = searchParams?.get("loc")?.toLowerCase() || "";
@@ -51,7 +53,8 @@ export function MarketplaceList() {
                 console.error("Failed to fetch listings:", err);
                 setLiveListings([]);
             } finally {
-                setIsLoading(false);
+                // Buffer to feel premium and avoid flickering
+                setTimeout(() => setIsLoading(false), 800);
             }
         };
 
@@ -60,8 +63,17 @@ export function MarketplaceList() {
 
     if (isLoading) {
         return (
-            <div className="w-full max-w-7xl mx-auto px-6 pb-20 flex justify-center items-center min-h-[300px]">
-                <div className="w-8 h-8 border-4 border-slate-900 border-t-transparent rounded-full animate-spin"></div>
+            <div className="w-full max-w-7xl mx-auto px-6 pb-20">
+                <div className="flex items-center gap-3 mb-8 overflow-x-auto no-scrollbar pb-2">
+                    {[1, 2, 3].map((i) => (
+                        <Skeleton key={i} className="h-10 w-32 rounded-full" />
+                    ))}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {[1, 2, 3, 4, 5, 6].map((i) => (
+                        <ProductSkeleton key={i} />
+                    ))}
+                </div>
             </div>
         );
     }
@@ -109,7 +121,7 @@ export function MarketplaceList() {
     });
 
     return (
-        <div className="w-full max-w-7xl mx-auto px-6 pb-20">
+        <div className="w-full max-w-7xl mx-auto px-6 pb-20 animate-in fade-in duration-700">
             {/* Category Tabs */}
             <div className="flex items-center gap-3 mb-8 overflow-x-auto no-scrollbar pb-2">
                 {[

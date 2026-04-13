@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import styles from './reviews.module.css';
 
+import { SkeletonReviews } from '@/components/skeletons/SkeletonReviews';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 
 /* ─── helpers ─── */
@@ -20,6 +22,8 @@ const initials = (r: any) => {
     const ln = r?.last_name?.[0] ?? '';
     return (fn + ln).toUpperCase() || '?';
 };
+
+const distInit: Record<number, number> = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
 
 /* ── Star bar in hero ── */
 function StarBar({ rating, count, total }: { rating: number; count: number; total: number }) {
@@ -283,18 +287,14 @@ export default function ReviewsPage() {
         } catch (e: any) {
             setError(e.message);
         } finally {
-            setLoading(false);
+            // Buffer for premium feel
+            setTimeout(() => setLoading(false), 800);
         }
     }, [profileSafetag]);
 
     useEffect(() => { load(); }, [load]);
 
-    if (loading) return (
-        <div className={styles.centered}>
-            <div className={styles.spinner} />
-            <p>Loading reviews…</p>
-        </div>
-    );
+    if (loading) return <SkeletonReviews />;
 
     if (error) return (
         <div className={styles.centered}>
