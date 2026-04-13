@@ -35,6 +35,20 @@ services:
     envVars:
       - key: DISCORD_BOT_TOKEN
         sync: false
+  # Apple Business / JivoChat Bot
+  - type: web
+    name: safeeely-apple-iyb3
+    env: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install
+    startCommand: npm start -w packages/apple_business
+    healthCheckPath: /health
+    envVars:
+      - key: JIVO_PROVIDER_ID
+        sync: false
+      - key: JIVO_TOKEN
+        sync: false
       - fromGroup: safeeely-common-iyb3
 
 envVarGroups:
