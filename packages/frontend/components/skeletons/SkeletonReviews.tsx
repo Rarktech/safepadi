@@ -1,7 +1,7 @@
 "use client";
 
 import { Skeleton } from "@/components/ui/skeleton";
-import styles from "../app/reviews/[safetag]/reviews.module.css";
+import styles from "../../app/reviews/[safetag]/reviews.module.css";
 
 export function SkeletonReviews() {
   return (
