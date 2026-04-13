@@ -5,6 +5,8 @@ import { MarketplaceList } from "@/components/marketplace/MarketplaceList";
 import { Footer } from "@/components/home/Footer";
 import { Metadata } from "next";
 
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
     title: "Marketplace | Safeeely - Secure Services & Products",
     description: "Browse verified services and products protected by Safeeely AI escrow. Find trusted providers worldwide.",

@@ -5,6 +5,8 @@ import { JobsList } from "@/components/marketplace/JobsList";
 import { Footer } from "@/components/home/Footer";
 import { Metadata } from "next";
 
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
     title: "Jobs Marketplace | Safeeely - Find Verified AI Agencies & Roles",
     description: "Browse verified jobs, agencies, and roles protected by Safeeely AI escrow. Secure your next collaboration.",
