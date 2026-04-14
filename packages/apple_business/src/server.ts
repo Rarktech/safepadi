@@ -38,13 +38,17 @@ async function sendJivoChatMessage(clientId: string, chatId: string, messagePayl
         const url = `https://bot.jivosite.com/webhooks/${JIVO_PROVIDER_ID}/${JIVO_TOKEN}`;
         const uuid = (Math.random() * 1e32).toString(36); // Generate string UUID
 
-        await axios.post(url, {
+        const payload = {
             event: "BOT_MESSAGE",
             id: uuid,
             client_id: clientId,
             chat_id: chatId,
             message: messagePayload
-        }, {
+        };
+
+        console.log(`📤 Sending payload to JivoChat:`, JSON.stringify(payload, null, 2));
+
+        await axios.post(url, payload, {
             headers: {
                 'Content-Type': 'application/json'
             }
@@ -130,12 +134,12 @@ app.post('/webhook/:token', async (req, res) => {
                     title: `👋 Welcome back, ${safetag}!`,
                     text: `What would you like to do today?\n\nSelect an option:`,
                     buttons: [
-                        { id: "1", text: "🛒 Create Transaction" },
-                        { id: "2", text: "📋 My Transactions" },
-                        { id: "3", text: "💰 Balance & Withdrawals" },
-                        { id: "4", text: "🎁 Referral" },
-                        { id: "5", text: "⭐ Reviews & Ratings" },
-                        { id: "6", text: "⚙️ Settings & Account" }
+                        { id: 1, text: "🛒 Create Transaction" },
+                        { id: 2, text: "📋 My Transactions" },
+                        { id: 3, text: "💰 Balance & Withdrawals" },
+                        { id: 4, text: "🎁 Referral" },
+                        { id: 5, text: "⭐ Reviews & Ratings" },
+                        { id: 6, text: "⚙️ Settings & Account" }
                     ],
                     timestamp: Math.floor(Date.now() / 1000)
                 });
@@ -172,7 +176,7 @@ app.post('/webhook/:token', async (req, res) => {
                         title: '👋 Welcome to Safeeely!',
                         text: 'Your trusted escrow service for secure social media transactions.\n\nBefore we begin, please review and agree to our Privacy Policy.',
                         buttons: [
-                            { id: "agree_btn", text: "✅ I Agree & Continue" }
+                            { id: 99, text: "✅ I Agree & Continue" }
                         ],
                         timestamp: Math.floor(Date.now() / 1000)
                     });
