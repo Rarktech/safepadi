@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import axios from "axios";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CheckCircle2, ShieldCheck, Loader2 } from "lucide-react";
+import { CheckCircle2, ShieldCheck, Loader2, ArrowRight } from "lucide-react";
 
 function AppleAuthContent() {
   const searchParams = useSearchParams();
@@ -148,112 +148,128 @@ function AppleAuthContent() {
   }
 
   return (
-    <div className="flex min-h-[100dvh] w-full flex-col items-center justify-center bg-slate-50 p-4 font-sans">
-      <div className="mb-6 flex flex-col items-center space-y-2">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary shadow-sm">
-          <ShieldCheck className="h-6 w-6 text-white" />
+    <div className="relative flex min-h-[100dvh] w-full justify-center bg-[#fafafa] font-sans overflow-hidden">
+      {/* Brand Top Gradient Blur */}
+      <div className="absolute top-0 left-1/2 w-[150%] h-[350px] -translate-x-1/2 -translate-y-1/3 bg-primary/25 blur-[60px] rounded-[100%] pointer-events-none" />
+
+      <div className="relative z-10 w-full max-w-[360px] px-4 pt-20 pb-12 flex flex-col">
+        <div className="mb-10 text-left">
+          {step === "input" ? (
+             <>
+               <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-2">Create an account</h1>
+               <p className="text-sm text-slate-500 leading-relaxed">
+                 Start planning events, voting on places, and staying connected with your friends.
+               </p>
+               {/* Or custom Safepadi text */}
+             </>
+          ) : (
+             <>
+               <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-2">Check your inbox</h1>
+               <p className="text-sm text-slate-500 leading-relaxed">
+                 We've sent a unique code to your email. Type it in here to securely sign in.
+               </p>
+             </>
+          )}
         </div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Safeeely</h1>
-        <p className="text-sm text-slate-500">Secure Escrow Validation</p>
-      </div>
 
-      <Card className="w-full max-w-md shadow-xl border-slate-200 bg-white">
-        {step === "input" ? (
-          <Tabs value={mode} onValueChange={(val) => setMode(val as any)} className="w-full">
-            <CardHeader className="pb-4">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="login">Login</TabsTrigger>
-                <TabsTrigger value="register">Register</TabsTrigger>
+        <div className="w-full">
+          {step === "input" ? (
+            <Tabs value={mode} onValueChange={(val) => setMode(val as any)} className="w-full">
+              <TabsList className="grid w-full grid-cols-2 mb-6 bg-slate-100 rounded-full p-1 h-12">
+                <TabsTrigger value="login" className="rounded-full data-[state=active]:shadow-sm">Login</TabsTrigger>
+                <TabsTrigger value="register" className="rounded-full data-[state=active]:shadow-sm">Register</TabsTrigger>
               </TabsList>
-            </CardHeader>
-            
-            <TabsContent value="login">
-              <form onSubmit={handleSendOtp}>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="safetag" className="text-slate-700">Safetag</Label>
-                    <Input 
-                      id="safetag" 
-                      placeholder="@john_doe" 
-                      value={safetag}
-                      onChange={(e) => setSafetag(e.target.value)}
-                      required
-                      className="bg-slate-50"
-                    />
+              
+              <TabsContent value="login" className="mt-0 outline-none">
+                <form onSubmit={handleSendOtp} className="space-y-6">
+                  <div className="space-y-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="safetag" className="text-xs text-slate-500 px-1">Safetag</Label>
+                      <Input 
+                        id="safetag" 
+                        placeholder="@john_doe" 
+                        value={safetag}
+                        onChange={(e) => setSafetag(e.target.value)}
+                        required
+                        className="bg-transparent border-slate-200 h-14 rounded-2xl px-4 text-base shadow-sm focus-visible:ring-primary/20 focus-visible:border-primary transition-all"
+                      />
+                    </div>
                   </div>
-                </CardContent>
-                <CardFooter>
-                  <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Send Verification Code"}
+                  
+                  <Button type="submit" className="w-full h-14 rounded-full text-base font-medium flex justify-between items-center px-2 pl-6 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md transition-transform active:scale-[0.98]" disabled={isLoading}>
+                    <span>{isLoading ? "Sending Code..." : "Continue"}</span>
+                    <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-primary ml-4">
+                      {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowRight className="h-5 w-5" />}
+                    </div>
                   </Button>
-                </CardFooter>
-              </form>
-            </TabsContent>
+                </form>
+              </TabsContent>
 
-            <TabsContent value="register">
-              <form onSubmit={handleRegister}>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="firstName" className="text-slate-700">First Name</Label>
-                      <Input id="firstName" required value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+              <TabsContent value="register" className="mt-0 outline-none">
+                <form onSubmit={handleRegister} className="space-y-6">
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="firstName" className="text-xs text-slate-500 px-1">First Name</Label>
+                        <Input id="firstName" required value={firstName} onChange={(e) => setFirstName(e.target.value)} className="bg-transparent border-slate-200 h-14 rounded-2xl px-4 text-base shadow-sm focus-visible:ring-primary/20" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="lastName" className="text-xs text-slate-500 px-1">Last Name</Label>
+                        <Input id="lastName" required value={lastName} onChange={(e) => setLastName(e.target.value)} className="bg-transparent border-slate-200 h-14 rounded-2xl px-4 text-base shadow-sm focus-visible:ring-primary/20" />
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="lastName" className="text-slate-700">Last Name</Label>
-                      <Input id="lastName" required value={lastName} onChange={(e) => setLastName(e.target.value)} />
+                    <div className="space-y-1.5">
+                      <Label htmlFor="email" className="text-xs text-slate-500 px-1">Email</Label>
+                      <Input id="email" type="email" placeholder="john@example.com" required value={email} onChange={(e) => setEmail(e.target.value)} className="bg-transparent border-slate-200 h-14 rounded-2xl px-4 text-base shadow-sm focus-visible:ring-primary/20" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="regSafetag" className="text-xs text-slate-500 px-1">Safetag</Label>
+                      <Input id="regSafetag" placeholder="@john_doe" required value={safetag} onChange={(e) => setSafetag(e.target.value)} className="bg-transparent border-slate-200 h-14 rounded-2xl px-4 text-base shadow-sm focus-visible:ring-primary/20" />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="email" className="text-slate-700">Email Address</Label>
-                    <Input id="email" type="email" placeholder="john@example.com" required value={email} onChange={(e) => setEmail(e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="regSafetag" className="text-slate-700">Choose Safetag</Label>
-                    <Input id="regSafetag" placeholder="@john_doe" required value={safetag} onChange={(e) => setSafetag(e.target.value)} />
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Create Account & Link"}
+                  
+                  <Button type="submit" className="w-full h-14 rounded-full text-base font-medium flex justify-between items-center px-2 pl-6 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md transition-transform active:scale-[0.98]" disabled={isLoading}>
+                    <span>{isLoading ? "Creating Account..." : "Continue"}</span>
+                    <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-primary ml-4">
+                      {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowRight className="h-5 w-5" />}
+                    </div>
                   </Button>
-                </CardFooter>
-              </form>
-            </TabsContent>
-          </Tabs>
-        ) : (
-          <form onSubmit={handleVerifyOtp}>
-            <CardHeader className="text-center pb-2">
-              <CardTitle className="text-xl">Verification Code</CardTitle>
-              <CardDescription>
-                We've sent a secure 6-digit code to your email and linked social accounts.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-4">
-              <div className="space-y-2 text-center">
+                </form>
+              </TabsContent>
+            </Tabs>
+          ) : (
+            <form onSubmit={handleVerifyOtp} className="space-y-8 mt-4">
+              <div className="flex justify-center">
+                {/* For styling, let's make the single input look like separated boxes using tracking wide */}
                 <Input 
                   id="otp" 
-                  placeholder="123456" 
+                  placeholder="------" 
                   autoComplete="one-time-code"
                   inputMode="numeric"
                   maxLength={6}
                   value={otp}
                   onChange={(e) => setOtp(e.target.value)}
-                  className="text-center text-2xl tracking-widest h-14 bg-slate-50"
+                  className="text-center text-4xl tracking-[1em] indent-[0.5em] h-20 rounded-2xl border-slate-200 bg-transparent shadow-sm focus-visible:ring-primary/20"
                   required
                 />
               </div>
-            </CardContent>
-            <CardFooter className="flex flex-col space-y-2">
-              <Button type="submit" className="w-full h-12 text-md" disabled={isLoading}>
-                {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Verify & Connect"}
-              </Button>
-              <Button variant="ghost" type="button" onClick={() => setStep("input")} className="w-full text-slate-500">
-                Cancel
-              </Button>
-            </CardFooter>
-          </form>
-        )}
-      </Card>
+              
+              <div className="space-y-4">
+                <Button type="submit" className="w-full h-14 rounded-full text-base font-medium flex justify-between items-center px-2 pl-6 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md transition-transform active:scale-[0.98]" disabled={isLoading}>
+                  <span>{isLoading ? "Authenticating..." : "Continue"}</span>
+                  <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-primary ml-4">
+                    {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowRight className="h-5 w-5" />}
+                  </div>
+                </Button>
+                
+                <div className="text-center text-sm text-slate-500">
+                  Didn't receive a code? <button type="button" onClick={() => setStep("input")} className="text-primary font-medium hover:underline">Resend</button>
+                </div>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
