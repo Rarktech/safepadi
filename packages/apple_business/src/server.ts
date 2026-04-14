@@ -131,17 +131,8 @@ app.post('/webhook/:token', async (req, res) => {
             // User is fully authenticated, permanently remembered!
             if (messageText.includes('hello') || messageText.includes('hi') || messageText.includes('menu') || messageText.includes('start')) {
                 await sendJivoChatMessage(clientId, chatId, {
-                    type: "BUTTONS",
-                    title: `👋 Welcome back, ${safetag}!`,
-                    text: `What would you like to do today?\n\nSelect an option:`,
-                    buttons: [
-                        { id: 1, text: "🛒 Create Transaction" },
-                        { id: 2, text: "📋 My Transactions" },
-                        { id: 3, text: "💰 Balance & Withdrawals" },
-                        { id: 4, text: "🎁 Referral" },
-                        { id: 5, text: "⭐ Reviews & Ratings" },
-                        { id: 6, text: "⚙️ Settings & Account" }
-                    ],
+                    type: "TEXT",
+                    text: `👋 Welcome back, ${safetag}!\n\nWhat would you like to do today?\nReply with an option number:\n\n1. 🛒 Create Transaction\n2. 📋 My Transactions\n3. 💰 Balance & Withdrawals\n4. 🎁 Referral\n5. ⭐ Reviews & Ratings\n6. ⚙️ Settings & Account`,
                     timestamp: Math.floor(Date.now() / 1000)
                 });
             } else {
@@ -173,12 +164,8 @@ app.post('/webhook/:token', async (req, res) => {
                     // STEP 1: Initial greeting -> Require Privacy Policy
                     console.log(`⚠️ User ${clientId} is new. Sending Privacy Policy.`);
                     await sendJivoChatMessage(clientId, chatId, {
-                        type: 'BUTTONS',
-                        title: '👋 Welcome to Safeeely!',
-                        text: 'Your trusted escrow service for secure social media transactions.\n\nBefore we begin, please review and agree to our Privacy Policy.',
-                        buttons: [
-                            { id: 99, text: "✅ I Agree & Continue" }
-                        ],
+                        type: 'TEXT',
+                        text: '👋 Welcome to Safeeely!\nYour trusted escrow service for secure social media transactions.\n\nBefore we begin, please review our Privacy Policy.\n\n👉 Reply with "Agree" to continue.',
                         timestamp: Math.floor(Date.now() / 1000)
                     });
                 }
