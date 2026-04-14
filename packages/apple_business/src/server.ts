@@ -130,12 +130,12 @@ app.post('/webhook/:token', async (req, res) => {
                     title: `👋 Welcome back, ${safetag}!`,
                     text: `What would you like to do today?\n\nSelect an option:`,
                     buttons: [
-                        { text: "🛒 Create Transaction" },
-                        { text: "📋 My Transactions" },
-                        { text: "💰 Balance & Withdrawals" },
-                        { text: "🎁 Referral" },
-                        { text: "⭐ Reviews & Ratings" },
-                        { text: "⚙️ Settings & Account" }
+                        { id: "1", text: "🛒 Create Transaction" },
+                        { id: "2", text: "📋 My Transactions" },
+                        { id: "3", text: "💰 Balance & Withdrawals" },
+                        { id: "4", text: "🎁 Referral" },
+                        { id: "5", text: "⭐ Reviews & Ratings" },
+                        { id: "6", text: "⚙️ Settings & Account" }
                     ],
                     timestamp: Math.floor(Date.now() / 1000)
                 });
@@ -172,7 +172,7 @@ app.post('/webhook/:token', async (req, res) => {
                         title: '👋 Welcome to Safeeely!',
                         text: 'Your trusted escrow service for secure social media transactions.\n\nBefore we begin, please review and agree to our Privacy Policy.',
                         buttons: [
-                            { text: "✅ I Agree & Continue" }
+                            { id: "agree_btn", text: "✅ I Agree & Continue" }
                         ],
                         timestamp: Math.floor(Date.now() / 1000)
                     });
