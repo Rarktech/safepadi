@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import axios from "axios";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CheckCircle2, ShieldCheck, Loader2, ArrowRight } from "lucide-react";
+import { CheckCircle2, ShieldCheck, Loader2, ArrowRight, Lock } from "lucide-react";
+import Image from "next/image";
 
 function AppleAuthContent() {
   const searchParams = useSearchParams();
@@ -152,20 +153,36 @@ function AppleAuthContent() {
       {/* Brand Top Gradient Blur */}
       <div className="absolute top-0 left-1/2 w-[150%] h-[350px] -translate-x-1/2 -translate-y-1/3 bg-primary/25 blur-[60px] rounded-[100%] pointer-events-none" />
 
-      <div className="relative z-10 w-full max-w-[360px] px-4 pt-20 pb-12 flex flex-col">
-        <div className="mb-10 text-left">
+      {/* Security Notification Banner */}
+      <div className="absolute top-0 left-0 w-full z-50 flex items-center justify-center p-3">
+        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50/80 backdrop-blur-md rounded-full border border-green-200/50 shadow-sm">
+          <Lock className="w-3.5 h-3.5 text-green-600" />
+          <span className="text-xs font-medium text-green-700">Ensure you're on a secure safeeely.com connection</span>
+        </div>
+      </div>
+
+      <div className="relative z-10 w-full max-w-[360px] px-4 pt-24 pb-12 flex flex-col">
+        <div className="mb-6 flex justify-center">
+            <Image 
+              src="/favicon.ico.png" 
+              alt="Safeeely Logo" 
+              width={56} 
+              height={56} 
+              className="rounded-2xl drop-shadow-sm" 
+            />
+        </div>
+        <div className="mb-10 text-center">
           {step === "input" ? (
              <>
                <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-2">Create an account</h1>
-               <p className="text-sm text-slate-500 leading-relaxed">
+               <p className="text-sm text-slate-500 leading-relaxed px-2">
                  Start planning events, voting on places, and staying connected with your friends.
                </p>
-               {/* Or custom Safepadi text */}
              </>
           ) : (
              <>
                <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-2">Check your inbox</h1>
-               <p className="text-sm text-slate-500 leading-relaxed">
+               <p className="text-sm text-slate-500 leading-relaxed px-2">
                  We've sent a unique code to your email. Type it in here to securely sign in.
                </p>
              </>
