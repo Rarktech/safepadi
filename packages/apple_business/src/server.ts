@@ -49,15 +49,19 @@ async function sendJivoChatMessage(clientId: string, chatId: string, messagePayl
 
         console.log(`📤 Sending payload to JivoChat asynchronously:`, JSON.stringify(payload, null, 2));
 
-        await axios.post(url, payload, {
+        const response = await axios.post(url, payload, {
             headers: {
                 'Content-Type': 'application/json'
             }
         });
 
-        console.log(`✅ Message sent to JivoChat chat ${chatId}`);
+        console.log(`✅ Message sent to JivoChat chat ${chatId}. Status: ${response.status}`);
     } catch (err: any) {
-        console.error(`❌ Failed to send JivoChat message:`, err.response?.data || err.message);
+        console.error(`❌ Failed to send JivoChat message.`);
+        console.error(`- Response Status:`, err.response?.status);
+        console.error(`- Response Headers:`, JSON.stringify(err.response?.headers, null, 2));
+        console.error(`- Response Data:`, JSON.stringify(err.response?.data, null, 2));
+        console.error(`- Original Request Payload:`, JSON.stringify(err.config?.data, null, 2));
     }
 }
 
