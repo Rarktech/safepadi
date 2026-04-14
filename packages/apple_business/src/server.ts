@@ -2,6 +2,7 @@ import express from 'express';
 import axios from 'axios';
 import * as dotenv from 'dotenv';
 import path from 'path';
+import crypto from 'crypto';
 
 // Handle Environment Variables relative to the root .env
 if (process.env.NODE_ENV !== 'production') {
@@ -36,7 +37,7 @@ async function sendJivoChatMessage(clientId: string, chatId: string, messagePayl
 
     try {
         const url = `https://bot.jivosite.com/webhooks/${JIVO_PROVIDER_ID}/${JIVO_TOKEN}`;
-        const uuid = (Math.random() * 1e32).toString(36); // Generate string UUID
+        const uuid = crypto.randomUUID(); // Strict UUID is required by JivoChat
 
         const payload = {
             event: "BOT_MESSAGE",
@@ -104,7 +105,7 @@ app.post('/webhook/:token', async (req, res) => {
             await sendJivoChatMessage(clientId, chatId, {
                 type: 'TEXT',
                 text: '⏸️ I have paused the bot. An agent has been notified and will review your request shortly.',
-                timestamp: Date.now()
+                timestamp: Math.floor(Date.now() / 1000)
             });
 
             // Hand off to JivoChat human
@@ -141,13 +142,13 @@ app.post('/webhook/:token', async (req, res) => {
                         { id: 5, text: "⭐ Reviews & Ratings" },
                         { id: 6, text: "⚙️ Settings & Account" }
                     ],
-                    timestamp: Date.now()
+                    timestamp: Math.floor(Date.now() / 1000)
                 });
             } else {
                 await sendJivoChatMessage(clientId, chatId, {
                     type: 'TEXT',
                     text: 'Type "Menu" to see your available options.',
-                    timestamp: Date.now()
+                    timestamp: Math.floor(Date.now() / 1000)
                 });
             }
 
@@ -166,7 +167,7 @@ app.post('/webhook/:token', async (req, res) => {
                         type: 'MARKDOWN',
                         content: '🚀 Let\'s get started! Authenticate your account to continue.',
                         text: `🚀 Let's get started! Authenticate your account to continue:\n[Sign In / Register](${magicLink})`,
-                        timestamp: Date.now()
+                        timestamp: Math.floor(Date.now() / 1000)
                     });
                 } else {
                     // STEP 1: Initial greeting -> Require Privacy Policy
@@ -178,7 +179,7 @@ app.post('/webhook/:token', async (req, res) => {
                         buttons: [
                             { id: 99, text: "✅ I Agree & Continue" }
                         ],
-                        timestamp: Date.now()
+                        timestamp: Math.floor(Date.now() / 1000)
                     });
                 }
             } else {
@@ -188,7 +189,7 @@ app.post('/webhook/:token', async (req, res) => {
                 await sendJivoChatMessage(clientId, chatId, {
                    type: 'TEXT',
                    text: 'Sorry, the service is currently experiencing issues. Please try again later.',
-                   timestamp: Date.now()
+                   timestamp: Math.floor(Date.now() / 1000)
                 });
             }
         }
