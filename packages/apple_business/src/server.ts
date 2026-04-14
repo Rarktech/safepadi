@@ -124,7 +124,7 @@ app.post('/webhook/:token', (req, res) => {
                 } catch(e) {}
             }
 
-            return res.status(200).send();
+            return;
         }
 
         // 2. Check if user is registered via API (we use Jivo client_id as the platform_id)
@@ -176,6 +176,7 @@ app.post('/webhook/:token', (req, res) => {
             } else {
                 // Ignore other background events
             }
+        }
         } catch (err: any) {
             console.error('🔥 Error processing JivoChat webhook payload asynchronously:', err.message);
         }
