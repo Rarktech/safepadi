@@ -104,7 +104,7 @@ app.post('/webhook/:token', async (req, res) => {
             await sendJivoChatMessage(clientId, chatId, {
                 type: 'TEXT',
                 text: '⏸️ I have paused the bot. An agent has been notified and will review your request shortly.',
-                timestamp: Math.floor(Date.now() / 1000)
+                timestamp: Date.now()
             });
 
             // Hand off to JivoChat human
@@ -141,13 +141,13 @@ app.post('/webhook/:token', async (req, res) => {
                         { id: 5, text: "⭐ Reviews & Ratings" },
                         { id: 6, text: "⚙️ Settings & Account" }
                     ],
-                    timestamp: Math.floor(Date.now() / 1000)
+                    timestamp: Date.now()
                 });
             } else {
                 await sendJivoChatMessage(clientId, chatId, {
                     type: 'TEXT',
                     text: 'Type "Menu" to see your available options.',
-                    timestamp: Math.floor(Date.now() / 1000)
+                    timestamp: Date.now()
                 });
             }
 
@@ -166,7 +166,7 @@ app.post('/webhook/:token', async (req, res) => {
                         type: 'MARKDOWN',
                         content: '🚀 Let\'s get started! Authenticate your account to continue.',
                         text: `🚀 Let's get started! Authenticate your account to continue:\n[Sign In / Register](${magicLink})`,
-                        timestamp: Math.floor(Date.now() / 1000)
+                        timestamp: Date.now()
                     });
                 } else {
                     // STEP 1: Initial greeting -> Require Privacy Policy
@@ -178,7 +178,7 @@ app.post('/webhook/:token', async (req, res) => {
                         buttons: [
                             { id: 99, text: "✅ I Agree & Continue" }
                         ],
-                        timestamp: Math.floor(Date.now() / 1000)
+                        timestamp: Date.now()
                     });
                 }
             } else {
@@ -188,7 +188,7 @@ app.post('/webhook/:token', async (req, res) => {
                 await sendJivoChatMessage(clientId, chatId, {
                    type: 'TEXT',
                    text: 'Sorry, the service is currently experiencing issues. Please try again later.',
-                   timestamp: Math.floor(Date.now() / 1000)
+                   timestamp: Date.now()
                 });
             }
         }
