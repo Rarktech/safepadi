@@ -62,40 +62,45 @@ async function sendJivoChatMessage(clientId: string, chatId: string, messagePayl
 }
 
 // JivoChat Webhook Endpoint
-app.post('/webhook/:token', async (req, res) => {
-    try {
-        const { token } = req.params;
-        
-        // Security check: Ignore if the token doesn't match
-        if (JIVO_TOKEN && token !== JIVO_TOKEN) {
-            console.warn(`⚠️ Blocked unauthorized webhook request with token: ${token}`);
-            return res.status(403).send('Unauthorized');
-        }
+app.post('/webhook/:token', (req, res) => {
+    const { token } = req.params;
+    
+    // Security check: Ignore if the token doesn't match
+    if (JIVO_TOKEN && token !== JIVO_TOKEN) {
+        console.warn(`⚠️ Blocked unauthorized webhook request with token: ${token}`);
+        return res.status(403).send('Unauthorized');
+    }
 
-        const body = req.body;
-        console.log(`\n🔔 [Webhook Received] Event: ${body.event}`);
-        console.log(JSON.stringify(body, null, 2));
-        
-        let clientId: string | undefined;
-        let chatId: string | undefined;
-        let messageText: string | undefined;
+    // Acknowledge JivoChat IMMEDIATELY (within 3 seconds) to prevent chat transfer/state lock
+    res.status(200).send();
 
-        // Parse JivoChat CLIENT_MESSAGE
-        if (body.event === 'CLIENT_MESSAGE' && body.message) {
-            clientId = body.client_id;
-            chatId = body.chat_id;
-            messageText = body.message.text?.toLowerCase().trim();
-        } 
-        // We can safely ignore other events like AGENT_JOINED etc for simple bot functionality.
-        else {
-            return res.status(200).send();
-        }
+    // Process asynchronously in background
+    setImmediate(async () => {
+        try {
+            const body = req.body;
+            console.log(`\n🔔 [Webhook Received] Event: ${body.event}`);
+            console.log(JSON.stringify(body, null, 2));
+            
+            let clientId: string | undefined;
+            let chatId: string | undefined;
+            let messageText: string | undefined;
 
-        if (!clientId || !chatId || !messageText) {
-            return res.status(200).send();
-        }
+            // Parse JivoChat CLIENT_MESSAGE
+            if (body.event === 'CLIENT_MESSAGE' && body.message) {
+                clientId = body.client_id;
+                chatId = body.chat_id;
+                messageText = body.message.text?.toLowerCase().trim();
+            } 
+            // We can safely ignore other events like AGENT_JOINED etc for simple bot functionality.
+            else {
+                return;
+            }
 
-        console.log(`💬 Message from [Client: ${clientId} | Chat: ${chatId}]: ${messageText}`);
+            if (!clientId || !chatId || !messageText) {
+                return;
+            }
+
+            console.log(`💬 Message from [Client: ${clientId} | Chat: ${chatId}]: ${messageText}`);
 
         // 1. Check "I need help" (Human Escalation) => Transfer back to JivoChat Agent
         if (messageText === 'i need help' || messageText === 'agent' || messageText === 'support') {
@@ -169,22 +174,12 @@ app.post('/webhook/:token', async (req, res) => {
                     });
                 }
             } else {
-                console.error(`API Error: ${apiErr.message}`);
-                
-                // Fallback for API offline 
-                await sendJivoChatMessage(clientId, chatId, {
-                   type: 'TEXT',
-                   text: 'Sorry, the service is currently experiencing issues. Please try again later.',
-                   timestamp: Math.floor(Date.now() / 1000)
-                });
+                // Ignore other background events
             }
+        } catch (err: any) {
+            console.error('🔥 Error processing JivoChat webhook payload asynchronously:', err.message);
         }
-
-        res.status(200).send();
-    } catch (err: any) {
-        console.error('🔥 Error parsing JivoChat webhook:', err.message);
-        res.status(500).send('Internal Server Error');
-    }
+    });
 });
 
 app.listen(PORT, () => {
