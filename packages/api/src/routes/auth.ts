@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
 import { sendNotification } from '../services/notifications';
+import { sendEmail } from '../services/email';
 
 const router = Router();
 
@@ -88,8 +89,27 @@ router.post('/otp/send', async (req, res) => {
             ));
         }
 
-        // 6. Send to Email (Mocked or real if service exists)
-        console.log(`[OTP] Sent ${otp} to ${profile.email}`);
+        // 6. Send to Email
+        const emailHtml = `
+            <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 8px; text-align: center;">
+                <h2 style="color: #0f172a;">Safeeely Account Verification</h2>
+                <p style="color: #475569; line-height: 1.5;">You requested to link your Safetag (<b>${cleanTag}</b>) using <b>${platform}</b>.</p>
+                <p style="color: #475569; line-height: 1.5;">Please use the following 6-digit code to complete your authentication:</p>
+                <div style="font-size: 32px; font-weight: bold; letter-spacing: 8px; padding: 20px; margin: 30px 0; background: #f8fafc; border-radius: 8px; color: #0284c7;">
+                    ${otp}
+                </div>
+                <p style="color: #475569; line-height: 1.5;">This code will expire in 10 minutes.</p>
+                <p style="font-size: 13px; color: #94a3b8; margin-top: 40px;">If you did not request this verification, your account remains secure and you can safely ignore this email.</p>
+            </div>
+        `;
+        
+        await sendEmail({
+            to: profile.email,
+            subject: `${otp} is your Safeeely verification code`,
+            html: emailHtml
+        });
+        
+        console.log(`[OTP] Sent verification email to ${profile.email}`);
 
         res.json({ success: true, message: 'OTP sent to your linked accounts and email.' });
     } catch (err: any) {

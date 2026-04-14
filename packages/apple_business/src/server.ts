@@ -63,10 +63,13 @@ app.post('/webhook/:token', async (req, res) => {
         
         // Security check: Ignore if the token doesn't match
         if (JIVO_TOKEN && token !== JIVO_TOKEN) {
+            console.warn(`⚠️ Blocked unauthorized webhook request with token: ${token}`);
             return res.status(403).send('Unauthorized');
         }
 
         const body = req.body;
+        console.log(`\n🔔 [Webhook Received] Event: ${body.event}`);
+        console.log(JSON.stringify(body, null, 2));
         
         let clientId: string | undefined;
         let chatId: string | undefined;
