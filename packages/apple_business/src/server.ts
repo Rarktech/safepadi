@@ -147,11 +147,11 @@ app.post('/webhook/:token', (req, res) => {
                         
                         const magicLink = `${FRONTEND_URL}/apple-auth?apple_id=${encodeURIComponent(clientId)}&mode=${mode}`;
                         
-                        // Sending only the markdown link as a standalone message 
-                        // to trigger the native iMessage 'Rich Link' with integrated browser action.
+                        // To trigger the 'Integrated Browser' (Safari View Controller) in iMessage,
+                        // we send the URL as a standalone TEXT message. iOS will auto-expand this 
+                        // into a Rich Link card which stays inside the chat.
                         await sendJivoChatMessage(clientId, chatId, {
-                            type: 'MARKDOWN',
-                            content: `[${mode === 'login' ? '🔐 Click to Login' : '📝 Click to Register'}](${magicLink})`,
+                            type: 'TEXT',
                             text: magicLink
                         });
                     } else if (isPolicyAgreed) {
@@ -176,10 +176,9 @@ app.post('/webhook/:token', (req, res) => {
                             text: '👋 Welcome to Safeeely!\nYour trusted escrow service for secure social media transactions.\n\nBefore we begin, please review our Privacy Policy.'
                         });
 
-                        // Message 2: Standalone link to trigger the 'Rich Link' card with integrated browser
+                        // Message 2: Standalone URL to trigger the integrated browser preview
                         await sendJivoChatMessage(clientId, chatId, {
-                            type: 'MARKDOWN',
-                            content: '[Privacy Policy](https://safeeely.com/privacy)',
+                            type: 'TEXT',
                             text: 'https://safeeely.com/privacy'
                         });
 
