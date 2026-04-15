@@ -179,7 +179,6 @@ app.post('/webhook/:token', (req, res) => {
             } else {
                 console.error(`⚠️ API Error (non-404): ${apiErr.message}`);
             }
-        }
         } catch (err: any) {
             console.error('🔥 Error processing JivoChat webhook payload asynchronously:', err.message);
         }
