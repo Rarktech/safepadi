@@ -68,8 +68,8 @@ async function sendJivoChatMessage(clientId: string, chatId: string, messagePayl
     } catch (err: any) {
         console.error(`❌ Failed to send JivoChat message.`);
         console.error(`- Response Status:`, err.response?.status);
-        console.error(`- Error Code:`, err.response?.data?.error?.code);
         console.error(`- Error Details:`, JSON.stringify(err.response?.data));
+        console.error(`- Payload Sent:`, JSON.stringify(err.config?.data));
     }
 }
 
