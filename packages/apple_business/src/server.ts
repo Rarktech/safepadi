@@ -152,9 +152,8 @@ app.post('/webhook/:token', (req, res) => {
             try {
                 const profileRes = await axios.get(`${API_URL}/profiles/by_platform/apple/${clientId}`);
                 const safetag = profileRes.data.safetag;
-
                 const session = getSession(clientId);
-                const safetag = profileRes.data.safetag;
+
 
                 // --- MAIN MENU ---
                 if (messageText.includes('hello') || messageText.includes('hi') || messageText.includes('menu') || messageText.includes('start') || messageText === 'back') {
