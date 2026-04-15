@@ -26,7 +26,7 @@ app.get('/health', (req, res) => {
 
 // --- SESSION MANAGEMENT ---
 interface UserState {
-    state: 'IDLE' | 'ROLE_SELECTION' | 'PRODUCT_NAME' | 'PRODUCT_DESCRIPTION' | 'CURRENCY_SELECTION' | 'PRICE_INPUT' | 'FEE_ALLOCATION' | 'COUNTERPARTY_SAFETAG' | 'CONFIRMATION';
+    state: 'IDLE' | 'ROLE_SELECTION' | 'PRODUCT_NAME' | 'PRODUCT_DESCRIPTION' | 'ATTACHMENTS' | 'CURRENCY_SELECTION' | 'PRICE_INPUT' | 'FEE_ALLOCATION' | 'COUNTERPARTY_SAFETAG' | 'CONFIRMATION';
     formData: {
         role?: 'buyer' | 'seller';
         product_name?: string;
@@ -164,10 +164,12 @@ app.post('/webhook/:token', (req, res) => {
                         text: `👋 Welcome back, ${safetag}!\nWhat would you like to do today?`,
                         force_reply: true,
                         buttons: [
-                            { text: '🛒 Create Transaction', id: 1 },
-                            { text: '📋 My Transactions', id: 2 },
-                            { text: '💰 Balance', id: 3 },
-                            { text: '⚙️ Profile Settings', id: 4 }
+                            { text: '🛒 Create Transaction', description: 'Start a new secure escrow order', id: 1 },
+                            { text: '📋 My Transactions', description: 'View your active and past orders', id: 2 },
+                            { text: '💰 Balance & Withdrawals', description: 'Check funds and cash out', id: 3 },
+                            { text: '🎁 Referrals', description: 'Invite friends and earn rewards', id: 4 },
+                            { text: '⭐ Reviews & Ratings', description: 'View your feedback and score', id: 5 },
+                            { text: '⚙️ Settings & Profile', description: 'Manage your account details', id: 6 }
                         ]
                     });
                     return;
@@ -184,67 +186,82 @@ app.post('/webhook/:token', (req, res) => {
                         text: 'Are you buying or selling?',
                         force_reply: true,
                         buttons: [
-                            { text: '1️⃣ I am a buyer', id: 'role_buyer' },
-                            { text: '2️⃣ I am a seller', id: 'role_seller' },
-                            { text: '🔙 Back to Menu', id: 'main_menu' }
+                            { text: '1️⃣ I am a buyer', description: 'I want to pay for a product/service', id: 'role_buyer' },
+                            { text: '2️⃣ I am a seller', description: 'I want to receive payment for an item', id: 'role_seller' },
+                            { text: '🔙 Back to Menu', description: 'Return to start', id: 'main_menu' }
                         ]
                     });
                     return;
                 }
 
-                // Step 0: Role Selection -> Step 1: Product Name
+                // Step 1: Role Selection -> Step 2: Product Name
                 if (session.state === 'ROLE_SELECTION') {
                     const role = messageText.includes('buyer') ? 'buyer' : 'seller';
                     session.formData.role = role;
                     session.state = 'PRODUCT_NAME';
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'TEXT',
-                        text: `🛒 *${role === 'buyer' ? 'Buyer' : 'Seller'} Transaction - Step 1/7*\n\nWhat do you want to ${role === 'buyer' ? 'buy' : 'sell'}?\n\nPlease enter the product or service name:`
+                        text: `🛒 ${role === 'buyer' ? 'Buyer' : 'Seller'} Transaction - Step 1/8\n\nWhat do you want to ${role === 'buyer' ? 'buy' : 'sell'}?\n\nPlease enter the product or service name:`
                     });
                     return;
                 }
 
-                // Step 1: Product Name -> Step 2: Description
+                // Step 2: Product Name -> Step 3: Description
                 if (session.state === 'PRODUCT_NAME') {
                     session.formData.product_name = body.message.text;
                     session.state = 'PRODUCT_DESCRIPTION';
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'TEXT',
-                        text: `🛒 *Step 2/7: Description*\n\nPlease provide a detailed description:\n\n📝 Include specs, condition, or special requirements:`
+                        text: `🛒 Step 2/8: Description\n\nPlease provide a detailed description:\n\n📝 Include specs, condition, or special requirements:`
                     });
                     return;
                 }
 
-                // Step 2: Description -> Step 3: Currency
+                // Step 3: Description -> Step 4: Attachments
                 if (session.state === 'PRODUCT_DESCRIPTION') {
                     session.formData.description = body.message.text;
-                    session.state = 'CURRENCY_SELECTION';
+                    session.state = 'ATTACHMENTS';
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'BUTTONS',
-                        title: '🛒 Step 3/7: Currency',
-                        text: '💱 Choose Currency\nSelect the currency for this transaction:',
+                        title: '🛒 Step 3/8: Attachments',
+                        text: '📎 Upload Attachments (Optional)\n\nYou can upload images/docs via chat now, or skip this step.',
                         force_reply: true,
                         buttons: [
-                            { text: '🇳🇬 NGN (Naira)', id: 'NGN' },
-                            { text: '🇺🇸 USD (Dollar)', id: 'USD' },
-                            { text: '🪙 USDT (Tether)', id: 'USDT' }
+                            { text: '2️⃣ Skip this step', description: 'Proceed without attachments', id: 'skip_attachments' }
                         ]
                     });
                     return;
                 }
 
-                // Step 3: Currency -> Step 4: Amount
+                // Step 4: Attachments -> Step 5: Currency
+                if (session.state === 'ATTACHMENTS') {
+                    session.state = 'CURRENCY_SELECTION';
+                    await sendJivoChatMessage(clientId, chatId, {
+                        type: 'BUTTONS',
+                        title: '🛒 Step 4/8: Currency',
+                        text: '💱 Choose Currency\nSelect the currency for this transaction:',
+                        force_reply: true,
+                        buttons: [
+                            { text: '🇳🇬 NGN (Naira)', description: 'Local Nigerian currency', id: 'NGN' },
+                            { text: '🇺🇸 USD (Dollar)', description: 'US Dollars', id: 'USD' },
+                            { text: '🪙 USDT (Tether)', description: 'Crypto stablecoin', id: 'USDT' }
+                        ]
+                    });
+                    return;
+                }
+
+                // Step 5: Currency -> Step 6: Amount
                 if (session.state === 'CURRENCY_SELECTION') {
                     session.formData.currency = messageText.includes('ngn') ? 'NGN' : (messageText.includes('usdt') ? 'USDT' : 'USD');
                     session.state = 'PRICE_INPUT';
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'TEXT',
-                        text: `🛒 *Step 4/7: Amount*\n\n💰 How much is the price?\n\nEnter the amount in ${session.formData.currency}:`
+                        text: `🛒 Step 5/8: Amount\n\n💰 How much is the price?\n\nEnter the amount in ${session.formData.currency}:`
                     });
                     return;
                 }
 
-                // Step 4: Amount -> Step 5: Fee Allocation
+                // Step 6: Amount -> Step 7: Fee Allocation
                 if (session.state === 'PRICE_INPUT') {
                     const amount = parseFloat(messageText);
                     if (isNaN(amount) || amount <= 0) {
@@ -256,31 +273,31 @@ app.post('/webhook/:token', (req, res) => {
                     session.state = 'FEE_ALLOCATION';
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'BUTTONS',
-                        title: '🛒 Step 5/7: Fee Allocation',
+                        title: '🛒 Step 6/8: Fee Allocation',
                         text: `💵 Who pays the 5% transaction fee?\n\nAmount: ${amount} ${session.formData.currency}\nEscrow Fee: ${fee.toFixed(2)} ${session.formData.currency}`,
                         force_reply: true,
                         buttons: [
-                            { text: '👤 Buyer (pays 100%)', id: 'buyer' },
-                            { text: '👤 Seller (pays 100%)', id: 'seller' },
-                            { text: '🤝 Split (50/50)', id: 'split' }
+                            { text: '👤 Buyer (pays 100%)', description: 'Buyer covers the entire fee', id: 'buyer' },
+                            { text: '👤 Seller (pays 100%)', description: 'Seller covers the entire fee', id: 'seller' },
+                            { text: '🤝 Split (50/50)', description: 'Both parties share the fee', id: 'split' }
                         ]
                     });
                     return;
                 }
 
-                // Step 5: Fee Allocation -> Step 6: Counterparty Safetag
+                // Step 7: Fee Allocation -> Step 8: Counterparty Safetag
                 if (session.state === 'FEE_ALLOCATION') {
                     session.formData.fee_allocation = messageText.includes('buyer') ? 'buyer' : (messageText.includes('split') ? 'split' : 'seller');
                     session.state = 'COUNTERPARTY_SAFETAG';
                     const role = session.formData.role;
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'TEXT',
-                        text: `👤 *Step 6/7: Counterparty*\n\nEnter the ${role === 'buyer' ? 'seller' : 'buyer'}'s Safetag (e.g., @user_123):`
+                        text: `👤 Step 7/8: Counterparty\n\nEnter the ${role === 'buyer' ? 'seller' : 'buyer'}'s Safetag (e.g., @user_123):`
                     });
                     return;
                 }
 
-                // Step 6: Counterparty Safetag -> Step 7: Confirmation Summary
+                // Step 8: Counterparty Safetag -> Profile Preview -> Confirmation
                 if (session.state === 'COUNTERPARTY_SAFETAG') {
                     const otherTag = messageText.startsWith('@') ? messageText : `@${messageText}`;
                     try {
@@ -288,26 +305,43 @@ app.post('/webhook/:token', (req, res) => {
                         session.formData.other_safetag = res.data.safetag;
                         session.formData.other_id = res.data.id;
                         
-                        // Summary
-                        const { product_name, description, amount, currency, fee_allocation, role } = session.formData;
+                        const role = session.formData.role;
+                        const isVerified = res.data.kyc_status === 'VERIFIED';
+                        const verifiedLabel = isVerified ? '✅ Verified' : '❌ Unverified';
+
+                        // 1. Text Summary
+                        await sendJivoChatMessage(clientId, chatId, {
+                            type: 'TEXT',
+                            text: `👤 Counterparty Found: ${res.data.safetag}\nStatus: ${verifiedLabel}\n\nReviewing their reputation before we proceed:`
+                        });
+
+                        // 2. Standalone Profile Preview Link (Integrated Browser trigger)
+                        const profileLink = `${FRONTEND_URL}/reviews/${encodeURIComponent(res.data.safetag)}?viewer=${encodeURIComponent(safetag)}`;
+                        await sendJivoChatMessage(clientId, chatId, {
+                            type: 'TEXT',
+                            text: profileLink
+                        });
+
+                        // 3. Review & Confirm Buttons
+                        const { product_name, description, amount, currency, fee_allocation } = session.formData;
                         const fee = amount! * 0.05;
                         const total = fee_allocation === 'buyer' ? amount! + fee : (fee_allocation === 'split' ? amount! + (fee / 2) : amount!);
 
                         session.state = 'CONFIRMATION';
-                        const summary = `📋 *Transaction Summary*\n\n🛒 Product: ${product_name}\n📝 description: ${description}\n💰 Amount: ${amount} ${currency}\n💵 Fee: ${fee.toFixed(2)} ${currency} (${fee_allocation})\n💳 Total: ${total.toFixed(2)} ${currency}\n👤 ${role === 'buyer' ? 'Seller' : 'Buyer'}: ${otherTag}`;
+                        const summary = `📋 Transaction Summary\n\n🛒 Product: ${product_name}\n📝 Description: ${description}\n💰 Amount: ${amount} ${currency}\n💵 Fee: ${fee.toFixed(2)} ${currency} (${fee_allocation})\n💳 Total: ${total.toFixed(2)} ${currency}\n👤 ${role === 'buyer' ? 'Seller' : 'Buyer'}: ${otherTag}`;
 
                         await sendJivoChatMessage(clientId, chatId, {
                             type: 'BUTTONS',
-                            title: '📋 Step 7/7: Review & Confirm',
+                            title: '📋 Step 8/8: Review & Confirm',
                             text: summary,
                             force_reply: true,
                             buttons: [
-                                { text: '✅ Confirm & Create', id: 'confirm' },
-                                { text: '❌ Cancel', id: 'cancel' }
+                                { text: '✅ Confirm & Create', description: 'Submit order to counterparty', id: 'confirm' },
+                                { text: '❌ Cancel', description: 'Abort and go to menu', id: 'cancel' }
                             ]
                         });
                     } catch (e) {
-                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ *User not found*\n\nThe Safetag "${otherTag}" doesn't exist. Please check and try again:` });
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ User not found\n\nThe Safetag "${otherTag}" doesn't exist. Please check and try again:` });
                     }
                     return;
                 }
