@@ -155,22 +155,21 @@ app.post('/webhook/:token', (req, res) => {
             // User not found (404) -> They are NEW or Unlinked
             if (apiErr.response?.status === 404) {
                 
-                const isPolicyAgreed = messageText.includes('agree') || messageText.includes('continue');
+                const isPolicyAgreed = messageText.includes('agree') || messageText.includes('continue') || messageText.includes('okay') || messageText.includes('ok');
 
                 if (isPolicyAgreed) {
-                    // STEP 2: User Agreed to Policy -> Send Magic Link using MARKDOWN type
-                    console.log(`✅ User ${clientId} agreed to policy. Sending Magic Link.`);
+                    // STEP 2: User Agreed to Policy -> Send Magic Link
+                    console.log(`[BOT STEP] 2: User ${clientId} agreed to policy. Sending Magic Link.`);
                     const magicLink = `${FRONTEND_URL}/apple-auth?apple_id=${encodeURIComponent(clientId)}`;
 
                     await sendJivoChatMessage(clientId, chatId, {
-                        type: 'MARKDOWN',
-                        content: '🚀 Let\'s get started! Authenticate your account to continue.',
-                        text: `🚀 Let's get started! Authenticate your account to continue:\n[Sign In / Register](${magicLink})`,
+                        type: 'TEXT', // Switched from MARKDOWN to TEXT for wider channel compatibility
+                        text: `🚀 Let's get started! Authenticate your account to continue by clicking the link below:\n\n${magicLink}\n\nSimply log in or register to complete your setup.`,
                         timestamp: Math.floor(Date.now() / 1000)
                     });
                 } else {
                     // STEP 1: Initial greeting -> Require Privacy Policy
-                    console.log(`⚠️ User ${clientId} is new. Sending Privacy Policy.`);
+                    console.log(`[BOT STEP] 1: User ${clientId} is new. Sending Privacy Policy.`);
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'TEXT',
                         text: '👋 Welcome to Safeeely!\nYour trusted escrow service for secure social media transactions.\n\nBefore we begin, please review our Privacy Policy.\n\n👉 Reply with "Agree" to continue.',
@@ -178,7 +177,7 @@ app.post('/webhook/:token', (req, res) => {
                     });
                 }
             } else {
-                // Ignore other background events
+                console.error(`⚠️ API Error (non-404): ${apiErr.message}`);
             }
         }
         } catch (err: any) {
