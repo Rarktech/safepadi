@@ -28,7 +28,7 @@ const JIVO_PROVIDER_ID = process.env.JIVO_PROVIDER_ID;
 const JIVO_TOKEN = process.env.JIVO_TOKEN;
 
 // Helper: Send Message to JivoChat Bot API
-async function sendJivoChatMessage(clientId: string, chatId: string, messagePayload: any, siteId?: string) {
+async function sendJivoChatMessage(clientId: string, chatId: string, messagePayload: any) {
     if (!JIVO_PROVIDER_ID || !JIVO_TOKEN) {
         console.warn('⚠️ JivoChat credentials missing. Message logged to console only.');
         return;
@@ -38,27 +38,16 @@ async function sendJivoChatMessage(clientId: string, chatId: string, messagePayl
         const url = `https://bot.jivosite.com/webhooks/${JIVO_PROVIDER_ID}/${JIVO_TOKEN}`;
         const uuid = crypto.randomUUID();
 
-        // Convert to Numbers (Jivo's internal processing often fails with strings in specific slots)
-        const numericClientId = parseInt(clientId, 10);
-        const numericChatId = parseInt(chatId, 10);
-        const numericSiteId = siteId ? parseInt(siteId, 10) : undefined;
-
+        // Jivo confirmed: client_id and chat_id MUST be strings. site_id is not required.
         const payload: any = {
             event: "BOT_MESSAGE",
             id: uuid,
-            client_id: numericClientId || clientId, // Fallback to string if not numeric
-            chat_id: numericChatId || chatId,
-            message: messagePayload,
-            sender: {
-                id: numericClientId || clientId
-            }
+            client_id: String(clientId),
+            chat_id: String(chatId),
+            message: messagePayload
         };
 
-        if (numericSiteId) {
-            payload.site_id = numericSiteId;
-        }
-
-        console.log(`📤 [BOT REPLY] Sending structure to Chat ${chatId} (Site ${siteId})...`);
+        console.log(`📤 [BOT REPLY] Sending to Chat: ${chatId}...`);
 
         const response = await axios.post(url, payload, {
             headers: { 'Content-Type': 'application/json' }
@@ -67,9 +56,8 @@ async function sendJivoChatMessage(clientId: string, chatId: string, messagePayl
         console.log(`✅ Message sent to JivoChat chat ${chatId}. Status: ${response.status}`);
     } catch (err: any) {
         console.error(`❌ Failed to send JivoChat message.`);
-        console.error(`- Response Status:`, err.response?.status);
-        console.error(`- Error Details:`, JSON.stringify(err.response?.data));
-        console.error(`- Payload Sent:`, JSON.stringify(err.config?.data));
+        console.error(`- Status:`, err.response?.status);
+        console.error(`- Payload:`, JSON.stringify(err.config?.data));
     }
 }
 
@@ -95,7 +83,6 @@ app.post('/webhook/:token', (req, res) => {
             let clientId: string | undefined;
             let chatId: string | undefined;
             let messageText: string | undefined;
-            let siteId: string | undefined = body.site_id;
 
             // Parse JivoChat CLIENT_MESSAGE
             if (body.event === 'CLIENT_MESSAGE' && body.message) {
@@ -110,23 +97,22 @@ app.post('/webhook/:token', (req, res) => {
                 return;
             }
 
-            console.log(`💬 Message from [Client: ${clientId} | Chat: ${chatId}]: ${messageText}`);
+            console.log(`💬 [INC] User ${clientId}: ${messageText}`);
 
             // 1. Check "I need help" (Human Escalation) => Transfer back to JivoChat Agent
             if (messageText === 'i need help' || messageText === 'agent' || messageText === 'support') {
                 await sendJivoChatMessage(clientId, chatId, {
                     type: 'TEXT',
                     text: '⏸️ I have paused the bot. An agent has been notified and will review your request shortly.'
-                }, siteId);
+                });
 
                 if (JIVO_PROVIDER_ID && JIVO_TOKEN) {
                     try {
                         await axios.post(`https://bot.jivosite.com/webhooks/${JIVO_PROVIDER_ID}/${JIVO_TOKEN}`, {
                             event: "INVITE_AGENT",
                             id: crypto.randomUUID(),
-                            client_id: clientId,
-                            chat_id: chatId,
-                            site_id: siteId
+                            client_id: String(clientId),
+                            chat_id: String(chatId)
                         });
                     } catch(e) {}
                 }
@@ -142,12 +128,12 @@ app.post('/webhook/:token', (req, res) => {
                     await sendJivoChatMessage(clientId, chatId, {
                         type: "TEXT",
                         text: `👋 Welcome back, ${safetag}!\n\nWhat would you like to do today?\nReply with an option number:\n\n1. 🛒 Create Transaction\n2. 📋 My Transactions\n3. 💰 Balance & Withdrawals\n4. 🎁 Referral\n5. ⭐ Reviews & Ratings\n6. ⚙️ Settings & Account`
-                    }, siteId);
+                    });
                 } else {
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'TEXT',
                         text: 'Type "Menu" to see your available options.'
-                    }, siteId);
+                    });
                 }
             } catch (apiErr: any) {
                 if (apiErr.response?.status === 404) {
@@ -160,13 +146,13 @@ app.post('/webhook/:token', (req, res) => {
                         await sendJivoChatMessage(clientId, chatId, {
                             type: 'TEXT',
                             text: `🚀 Let's get started! Authenticate your account to continue by clicking the link below:\n\n${magicLink}\n\nSimply log in or register to complete your setup.`
-                        }, siteId);
+                        });
                     } else {
                         console.log(`[BOT STEP] 1: User ${clientId} is new. Sending Privacy Policy.`);
                         await sendJivoChatMessage(clientId, chatId, {
                             type: 'TEXT',
                             text: '👋 Welcome to Safeeely!\nYour trusted escrow service for secure social media transactions.\n\nBefore we begin, please review our Privacy Policy.\n\n👉 Reply with "Agree" to continue.'
-                        }, siteId);
+                        });
                     }
                 } else {
                     console.error(`⚠️ API Error (non-404): ${apiErr.message}`);
