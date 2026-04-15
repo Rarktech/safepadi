@@ -28,7 +28,7 @@ const JIVO_PROVIDER_ID = process.env.JIVO_PROVIDER_ID;
 const JIVO_TOKEN = process.env.JIVO_TOKEN;
 
 // Helper: Send Message to JivoChat Bot API
-async function sendJivoChatMessage(clientId: string, chatId: string, messagePayload: any) {
+async function sendJivoChatMessage(clientId: string, chatId: string, messagePayload: any, siteId?: string) {
     if (!JIVO_PROVIDER_ID || !JIVO_TOKEN) {
         console.warn('⚠️ JivoChat credentials missing. Message logged to console only.');
         console.log(`📤 [LOG ONLY] Chat: ${chatId}, Client: ${clientId}:`, JSON.stringify(messagePayload, null, 2));
@@ -39,7 +39,7 @@ async function sendJivoChatMessage(clientId: string, chatId: string, messagePayl
         const url = `https://bot.jivosite.com/webhooks/${JIVO_PROVIDER_ID}/${JIVO_TOKEN}`;
         const uuid = crypto.randomUUID(); // Strict UUID is required by JivoChat
 
-        const payload = {
+        const payload: any = {
             event: "BOT_MESSAGE",
             id: uuid,
             client_id: clientId,
@@ -47,21 +47,23 @@ async function sendJivoChatMessage(clientId: string, chatId: string, messagePayl
             message: messagePayload
         };
 
-        console.log(`📤 Sending payload to JivoChat asynchronously:`, JSON.stringify(payload, null, 2));
+        // Some JivoChat channels (like Apple) require site_id for correct routing
+        if (siteId) {
+            payload.site_id = siteId;
+        }
+
+        console.log(`📤 [BOT REPLY] Sending to Chat: ${chatId}...`);
 
         const response = await axios.post(url, payload, {
-            headers: {
-                'Content-Type': 'application/json'
-            }
+            headers: { 'Content-Type': 'application/json' }
         });
 
         console.log(`✅ Message sent to JivoChat chat ${chatId}. Status: ${response.status}`);
     } catch (err: any) {
         console.error(`❌ Failed to send JivoChat message.`);
         console.error(`- Response Status:`, err.response?.status);
-        console.error(`- Response Headers:`, JSON.stringify(err.response?.headers, null, 2));
-        console.error(`- Response Data:`, JSON.stringify(err.response?.data, null, 2));
-        console.error(`- Original Request Payload:`, JSON.stringify(err.config?.data, null, 2));
+        console.error(`- Error Code:`, err.response?.data?.error?.code);
+        console.error(`- Original Request:`, JSON.stringify(err.config?.data));
     }
 }
 
@@ -83,11 +85,11 @@ app.post('/webhook/:token', (req, res) => {
         try {
             const body = req.body;
             console.log(`\n🔔 [Webhook Received] Event: ${body.event}`);
-            console.log(JSON.stringify(body, null, 2));
             
             let clientId: string | undefined;
             let chatId: string | undefined;
             let messageText: string | undefined;
+            let siteId: string | undefined = body.site_id;
 
             // Parse JivoChat CLIENT_MESSAGE
             if (body.event === 'CLIENT_MESSAGE' && body.message) {
@@ -108,9 +110,8 @@ app.post('/webhook/:token', (req, res) => {
             if (messageText === 'i need help' || messageText === 'agent' || messageText === 'support') {
                 await sendJivoChatMessage(clientId, chatId, {
                     type: 'TEXT',
-                    text: '⏸️ I have paused the bot. An agent has been notified and will review your request shortly.',
-                    timestamp: Math.floor(Date.now() / 1000)
-                });
+                    text: '⏸️ I have paused the bot. An agent has been notified and will review your request shortly.'
+                }, siteId);
 
                 if (JIVO_PROVIDER_ID && JIVO_TOKEN) {
                     try {
@@ -118,7 +119,8 @@ app.post('/webhook/:token', (req, res) => {
                             event: "INVITE_AGENT",
                             id: crypto.randomUUID(),
                             client_id: clientId,
-                            chat_id: chatId
+                            chat_id: chatId,
+                            site_id: siteId
                         });
                     } catch(e) {}
                 }
@@ -133,15 +135,13 @@ app.post('/webhook/:token', (req, res) => {
                 if (messageText.includes('hello') || messageText.includes('hi') || messageText.includes('menu') || messageText.includes('start')) {
                     await sendJivoChatMessage(clientId, chatId, {
                         type: "TEXT",
-                        text: `👋 Welcome back, ${safetag}!\n\nWhat would you like to do today?\nReply with an option number:\n\n1. 🛒 Create Transaction\n2. 📋 My Transactions\n3. 💰 Balance & Withdrawals\n4. 🎁 Referral\n5. ⭐ Reviews & Ratings\n6. ⚙️ Settings & Account`,
-                        timestamp: Math.floor(Date.now() / 1000)
-                    });
+                        text: `👋 Welcome back, ${safetag}!\n\nWhat would you like to do today?\nReply with an option number:\n\n1. 🛒 Create Transaction\n2. 📋 My Transactions\n3. 💰 Balance & Withdrawals\n4. 🎁 Referral\n5. ⭐ Reviews & Ratings\n6. ⚙️ Settings & Account`
+                    }, siteId);
                 } else {
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'TEXT',
-                        text: 'Type "Menu" to see your available options.',
-                        timestamp: Math.floor(Date.now() / 1000)
-                    });
+                        text: 'Type "Menu" to see your available options.'
+                    }, siteId);
                 }
             } catch (apiErr: any) {
                 if (apiErr.response?.status === 404) {
@@ -153,16 +153,14 @@ app.post('/webhook/:token', (req, res) => {
 
                         await sendJivoChatMessage(clientId, chatId, {
                             type: 'TEXT',
-                            text: `🚀 Let's get started! Authenticate your account to continue by clicking the link below:\n\n${magicLink}\n\nSimply log in or register to complete your setup.`,
-                            timestamp: Math.floor(Date.now() / 1000)
-                        });
+                            text: `🚀 Let's get started! Authenticate your account to continue by clicking the link below:\n\n${magicLink}\n\nSimply log in or register to complete your setup.`
+                        }, siteId);
                     } else {
                         console.log(`[BOT STEP] 1: User ${clientId} is new. Sending Privacy Policy.`);
                         await sendJivoChatMessage(clientId, chatId, {
                             type: 'TEXT',
-                            text: '👋 Welcome to Safeeely!\nYour trusted escrow service for secure social media transactions.\n\nBefore we begin, please review our Privacy Policy.\n\n👉 Reply with "Agree" to continue.',
-                            timestamp: Math.floor(Date.now() / 1000)
-                        });
+                            text: '👋 Welcome to Safeeely!\nYour trusted escrow service for secure social media transactions.\n\nBefore we begin, please review our Privacy Policy.\n\n👉 Reply with "Agree" to continue.'
+                        }, siteId);
                     }
                 } else {
                     console.error(`⚠️ API Error (non-404): ${apiErr.message}`);
