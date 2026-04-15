@@ -31,28 +31,34 @@ const JIVO_TOKEN = process.env.JIVO_TOKEN;
 async function sendJivoChatMessage(clientId: string, chatId: string, messagePayload: any, siteId?: string) {
     if (!JIVO_PROVIDER_ID || !JIVO_TOKEN) {
         console.warn('⚠️ JivoChat credentials missing. Message logged to console only.');
-        console.log(`📤 [LOG ONLY] Chat: ${chatId}, Client: ${clientId}:`, JSON.stringify(messagePayload, null, 2));
         return;
     }
 
     try {
         const url = `https://bot.jivosite.com/webhooks/${JIVO_PROVIDER_ID}/${JIVO_TOKEN}`;
-        const uuid = crypto.randomUUID(); // Strict UUID is required by JivoChat
+        const uuid = crypto.randomUUID();
+
+        // Convert to Numbers (Jivo's internal processing often fails with strings in specific slots)
+        const numericClientId = parseInt(clientId, 10);
+        const numericChatId = parseInt(chatId, 10);
+        const numericSiteId = siteId ? parseInt(siteId, 10) : undefined;
 
         const payload: any = {
             event: "BOT_MESSAGE",
             id: uuid,
-            client_id: clientId,
-            chat_id: chatId,
-            message: messagePayload
+            client_id: numericClientId || clientId, // Fallback to string if not numeric
+            chat_id: numericChatId || chatId,
+            message: messagePayload,
+            sender: {
+                id: numericClientId || clientId
+            }
         };
 
-        // Some JivoChat channels (like Apple) require site_id for correct routing
-        if (siteId) {
-            payload.site_id = siteId;
+        if (numericSiteId) {
+            payload.site_id = numericSiteId;
         }
 
-        console.log(`📤 [BOT REPLY] Sending to Chat: ${chatId}...`);
+        console.log(`📤 [BOT REPLY] Sending structure to Chat ${chatId} (Site ${siteId})...`);
 
         const response = await axios.post(url, payload, {
             headers: { 'Content-Type': 'application/json' }
@@ -63,7 +69,7 @@ async function sendJivoChatMessage(clientId: string, chatId: string, messagePayl
         console.error(`❌ Failed to send JivoChat message.`);
         console.error(`- Response Status:`, err.response?.status);
         console.error(`- Error Code:`, err.response?.data?.error?.code);
-        console.error(`- Original Request:`, JSON.stringify(err.config?.data));
+        console.error(`- Error Details:`, JSON.stringify(err.response?.data));
     }
 }
 
