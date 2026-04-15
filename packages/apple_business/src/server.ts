@@ -186,9 +186,8 @@ app.post('/webhook/:token', (req, res) => {
                         text: 'Are you buying or selling?',
                         force_reply: true,
                         buttons: [
-                            { text: '1️⃣ I am a buyer', description: 'I want to pay for a product/service', id: 'role_buyer' },
-                            { text: '2️⃣ I am a seller', description: 'I want to receive payment for an item', id: 'role_seller' },
-                            { text: '🔙 Back to Menu', description: 'Return to start', id: 'main_menu' }
+                            { text: '1️⃣ I am a buyer', title: 'I am a buyer', description: 'I want to pay for a product/service', id: 'role_buyer' },
+                            { text: '2️⃣ I am a seller', title: 'I am a seller', description: 'I want to receive payment for an item', id: 'role_seller' }
                         ]
                     });
                     return;
@@ -222,31 +221,39 @@ app.post('/webhook/:token', (req, res) => {
                     session.formData.description = body.message.text;
                     session.state = 'ATTACHMENTS';
                     await sendJivoChatMessage(clientId, chatId, {
-                        type: 'BUTTONS',
-                        title: '🛒 Step 3/8: Attachments',
-                        text: '📎 Upload Attachments (Optional)\n\nYou can upload images/docs via chat now, or skip this step.',
-                        force_reply: true,
-                        buttons: [
-                            { text: '2️⃣ Skip this step', description: 'Proceed without attachments', id: 'skip_attachments' }
-                        ]
+                        type: 'TEXT',
+                        text: '🛒 Step 3/8: Attachments\n\n📎 Upload Attachments (Optional)\n\nYou can upload images/docs via chat now, or type "Skip" to proceed without documents.'
                     });
                     return;
                 }
 
-                // Step 4: Attachments -> Step 5: Currency
+                // Step 4: Attachments Handling
                 if (session.state === 'ATTACHMENTS') {
-                    session.state = 'CURRENCY_SELECTION';
-                    await sendJivoChatMessage(clientId, chatId, {
-                        type: 'BUTTONS',
-                        title: '🛒 Step 4/8: Currency',
-                        text: '💱 Choose Currency\nSelect the currency for this transaction:',
-                        force_reply: true,
-                        buttons: [
-                            { text: '🇳🇬 NGN (Naira)', description: 'Local Nigerian currency', id: 'NGN' },
-                            { text: '🇺🇸 USD (Dollar)', description: 'US Dollars', id: 'USD' },
-                            { text: '🪙 USDT (Tether)', description: 'Crypto stablecoin', id: 'USDT' }
-                        ]
-                    });
+                    const isMedia = body.message.type === 'IMAGE' || body.message.type === 'FILE';
+                    const isSkip = messageText === 'skip';
+
+                    if (isMedia || isSkip) {
+                        if (isMedia) {
+                            console.log(`[Wizard] Attachment received from ${clientId}`);
+                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '✅ Attachment received.' });
+                        }
+                        
+                        session.state = 'CURRENCY_SELECTION';
+                        await sendJivoChatMessage(clientId, chatId, {
+                            type: 'BUTTONS',
+                            title: '🛒 Step 4/8: Currency',
+                            text: '💱 Choose Currency\nSelect the currency for this transaction:',
+                            force_reply: true,
+                            buttons: [
+                                { text: '🇳🇬 NGN (Naira)', title: 'NGN (Naira)', description: 'Local Nigerian currency', id: 'NGN' },
+                                { text: '🇺🇸 USD (Dollar)', title: 'USD (Dollar)', description: 'US Dollars', id: 'USD' },
+                                { text: '🪙 USDT (Tether)', title: 'USDT (Tether)', description: 'Crypto stablecoin', id: 'USDT' }
+                            ]
+                        });
+                        return;
+                    }
+                    // If they send text that isn't skip, remind them
+                    await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: 'Please upload a document or type "Skip" to continue.' });
                     return;
                 }
 
@@ -277,9 +284,9 @@ app.post('/webhook/:token', (req, res) => {
                         text: `💵 Who pays the 5% transaction fee?\n\nAmount: ${amount} ${session.formData.currency}\nEscrow Fee: ${fee.toFixed(2)} ${session.formData.currency}`,
                         force_reply: true,
                         buttons: [
-                            { text: '👤 Buyer (pays 100%)', description: 'Buyer covers the entire fee', id: 'buyer' },
-                            { text: '👤 Seller (pays 100%)', description: 'Seller covers the entire fee', id: 'seller' },
-                            { text: '🤝 Split (50/50)', description: 'Both parties share the fee', id: 'split' }
+                            { text: '👤 Buyer (pays 100%)', title: 'Buyer (pays 100%)', description: 'Buyer covers the entire fee', id: 'buyer' },
+                            { text: '👤 Seller (pays 100%)', title: 'Seller (pays 100%)', description: 'Seller covers the entire fee', id: 'seller' },
+                            { text: '🤝 Split (50/50)', title: 'Split (50/50)', description: 'Both parties share the fee', id: 'split' }
                         ]
                     });
                     return;
@@ -336,8 +343,8 @@ app.post('/webhook/:token', (req, res) => {
                             text: summary,
                             force_reply: true,
                             buttons: [
-                                { text: '✅ Confirm & Create', description: 'Submit order to counterparty', id: 'confirm' },
-                                { text: '❌ Cancel', description: 'Abort and go to menu', id: 'cancel' }
+                                { text: '✅ Confirm & Create', title: 'Confirm & Create', description: 'Submit order to counterparty', id: 'confirm' },
+                                { text: '❌ Cancel', title: 'Cancel', description: 'Abort and go to menu', id: 'cancel' }
                             ]
                         });
                     } catch (e) {

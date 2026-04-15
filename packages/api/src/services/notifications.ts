@@ -165,5 +165,60 @@ export async function sendNotification(platform: string, platformId: string, mes
             log(errorMsg);
             console.error(errorMsg);
         }
+    } else if (platform === 'apple') {
+        const JIVO_PROVIDER_ID = process.env.JIVO_PROVIDER_ID;
+        const JIVO_TOKEN = process.env.JIVO_TOKEN;
+        
+        if (!JIVO_PROVIDER_ID || !JIVO_TOKEN) {
+            log(`❌ Apple Notification Error: Jivo credentials missing in .env`);
+            return;
+        }
+
+        try {
+            // JivoChat expects a specific BOT_MESSAGE event for outbound notifications
+            const url = `https://bot.jivosite.com/webhooks/${JIVO_PROVIDER_ID}/${JIVO_TOKEN}`;
+            
+            // Format message: convert <b> to bold etc if Jivo markdown is preferred
+            // For now, Jivo supports standard text and some emojis.
+            const cleanMessage = message.replace(/<[^>]*>/g, ''); // Strip HTML tags for Jivo text
+
+            const payload: any = {
+                event: "BOT_MESSAGE",
+                id: require('crypto').randomUUID(),
+                client_id: String(platformId),
+                chat_id: String(platformId), // Usually the same for Jivo Apple integration
+                message: {
+                    type: "TEXT",
+                    text: cleanMessage
+                }
+            };
+
+            await axios.post(url, payload);
+            log(`✅ [Apple Notification] Sent to ${platformId} via Jivo`);
+
+            // If there are buttons/actions, send them as a separate message
+            if (options && options.length > 0) {
+                const buttonsPayload = {
+                    event: "BOT_MESSAGE",
+                    id: require('crypto').randomUUID(),
+                    client_id: String(platformId),
+                    chat_id: String(platformId),
+                    message: {
+                        type: "BUTTONS",
+                        title: "Actions",
+                        text: "Please select an option:",
+                        buttons: options.map((opt, index) => ({
+                            text: opt.label,
+                            id: opt.customId || `opt_${index}`
+                        }))
+                    }
+                };
+                await axios.post(url, buttonsPayload);
+            }
+        } catch (err: any) {
+            const errorMsg = `❌ Apple Notification Error for ${platformId}: ${err.message}`;
+            log(errorMsg);
+            console.error(errorMsg);
+        }
     }
 }
