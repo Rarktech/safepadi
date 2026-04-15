@@ -138,20 +138,42 @@ app.post('/webhook/:token', (req, res) => {
             } catch (apiErr: any) {
                 if (apiErr.response?.status === 404) {
                     const isPolicyAgreed = messageText.includes('agree') || messageText.includes('continue') || messageText.includes('okay') || messageText.includes('ok');
+                    const isLoginSelect = messageText === 'login' || messageText.includes('🔐');
+                    const isRegisterSelect = messageText === 'register' || messageText.includes('📝');
 
-                    if (isPolicyAgreed) {
-                        console.log(`[BOT STEP] 2: User ${clientId} agreed to policy. Sending Magic Link.`);
-                        const magicLink = `${FRONTEND_URL}/apple-auth?apple_id=${encodeURIComponent(clientId)}`;
-
+                    if (isLoginSelect || isRegisterSelect) {
+                        const mode = isLoginSelect ? 'login' : 'register';
+                        console.log(`[BOT STEP] 3: User ${clientId} selected ${mode}. Sending targeted link.`);
+                        
+                        const magicLink = `${FRONTEND_URL}/apple-auth?apple_id=${encodeURIComponent(clientId)}&mode=${mode}`;
+                        
                         await sendJivoChatMessage(clientId, chatId, {
-                            type: 'TEXT',
-                            text: `🚀 Let's get started! Authenticate your account to continue by clicking the link below:\n\n${magicLink}\n\nSimply log in or register to complete your setup.`
+                            type: 'MARKDOWN',
+                            content: mode === 'login' 
+                                ? `🔐 Click [here](${magicLink}) to Login to your account.`
+                                : `📝 Click [here](${magicLink}) to Register your new account.`,
+                            text: `Authenticating: ${magicLink}` // Plain text fallback
+                        });
+                    } else if (isPolicyAgreed) {
+                        console.log(`[BOT STEP] 2: User ${clientId} agreed to policy. Sending Buttons.`);
+                        
+                        await sendJivoChatMessage(clientId, chatId, {
+                            type: 'BUTTONS',
+                            title: 'Authenticating Safeeely',
+                            text: 'Would you like to Login to an existing account or Register a new one?',
+                            force_reply: true,
+                            buttons: [
+                                { text: '🔐 Login', id: 1 },
+                                { text: '📝 Register', id: 2 }
+                            ]
                         });
                     } else {
                         console.log(`[BOT STEP] 1: User ${clientId} is new. Sending Privacy Policy.`);
+                        
                         await sendJivoChatMessage(clientId, chatId, {
-                            type: 'TEXT',
-                            text: '👋 Welcome to Safeeely!\nYour trusted escrow service for secure social media transactions.\n\nBefore we begin, please review our Privacy Policy.\n\n👉 Reply with "Agree" to continue.'
+                            type: 'MARKDOWN',
+                            content: `👋 Welcome to Safeeely!\nYour trusted escrow service for secure social media transactions.\n\nBefore we begin, please review our [Privacy Policy](https://safeeely.com/privacy).\n\n👉 Reply with "Agree" to continue.`,
+                            text: `Welcome! Please review our Privacy Policy at https://safeeely.com/privacy and reply "Agree" to continue.`
                         });
                     }
                 } else {

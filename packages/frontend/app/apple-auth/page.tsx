@@ -15,8 +15,9 @@ import Image from "next/image";
 function AppleAuthContent() {
   const searchParams = useSearchParams();
   const appleId = searchParams.get("apple_id");
+  const initialMode = searchParams.get("mode") as "login" | "register" | null;
 
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<"login" | "register">(initialMode || "login");
   const [step, setStep] = useState<"input" | "otp" | "success">("input");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -174,9 +175,13 @@ function AppleAuthContent() {
         <div className="mb-10 text-center">
           {step === "input" ? (
              <>
-               <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-2">Create an account</h1>
+               <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-2 capitalize">
+                 {mode === "login" ? "Welcome Back" : "Create an account"}
+               </h1>
                <p className="text-sm text-slate-500 leading-relaxed px-2">
-                 Start planning events, voting on places, and staying connected with your friends.
+                 {mode === "login" 
+                   ? "Securely sign in to your Safeeely account to continue." 
+                   : "Start planning events, voting on places, and staying connected with your friends."}
                </p>
              </>
           ) : (
@@ -192,10 +197,12 @@ function AppleAuthContent() {
         <div className="w-full">
           {step === "input" ? (
             <Tabs value={mode} onValueChange={(val) => setMode(val as any)} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 mb-6 bg-slate-100 rounded-full p-1 h-12">
-                <TabsTrigger value="login" className="rounded-full data-[state=active]:shadow-sm">Login</TabsTrigger>
-                <TabsTrigger value="register" className="rounded-full data-[state=active]:shadow-sm">Register</TabsTrigger>
-              </TabsList>
+              {!initialMode && (
+                <TabsList className="grid w-full grid-cols-2 mb-6 bg-slate-100 rounded-full p-1 h-12">
+                  <TabsTrigger value="login" className="rounded-full data-[state=active]:shadow-sm">Login</TabsTrigger>
+                  <TabsTrigger value="register" className="rounded-full data-[state=active]:shadow-sm">Register</TabsTrigger>
+                </TabsList>
+              )}
               
               <TabsContent value="login" className="mt-0 outline-none">
                 <form onSubmit={handleSendOtp} className="space-y-6">
