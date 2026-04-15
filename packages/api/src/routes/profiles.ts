@@ -12,7 +12,7 @@ const RegistrationSchema = z.object({
     email: z.string().email(),
     first_name: z.string().optional(),
     last_name: z.string().optional(),
-    primary_platform: z.enum(['telegram', 'discord', 'whatsapp', 'instagram']),
+    primary_platform: z.enum(['telegram', 'discord', 'whatsapp', 'instagram', 'apple']),
     platform_id: z.string(),
     referral_code: z.string().optional()
 });
