@@ -94,9 +94,7 @@ app.post('/webhook/:token', (req, res) => {
                 clientId = body.client_id;
                 chatId = body.chat_id;
                 messageText = body.message.text?.toLowerCase().trim();
-            } 
-            // We can safely ignore other events like AGENT_JOINED etc for simple bot functionality.
-            else {
+            } else {
                 return;
             }
 
@@ -106,84 +104,74 @@ app.post('/webhook/:token', (req, res) => {
 
             console.log(`💬 Message from [Client: ${clientId} | Chat: ${chatId}]: ${messageText}`);
 
-        // 1. Check "I need help" (Human Escalation) => Transfer back to JivoChat Agent
-        if (messageText === 'i need help' || messageText === 'agent' || messageText === 'support') {
-            
-            // But let's send a polite text first:
-            await sendJivoChatMessage(clientId, chatId, {
-                type: 'TEXT',
-                text: '⏸️ I have paused the bot. An agent has been notified and will review your request shortly.',
-                timestamp: Math.floor(Date.now() / 1000)
-            });
-
-            // Hand off to JivoChat human
-            if (JIVO_PROVIDER_ID && JIVO_TOKEN) {
-                try {
-                    await axios.post(`https://bot.jivosite.com/webhooks/${JIVO_PROVIDER_ID}/${JIVO_TOKEN}`, {
-                        event: "INVITE_AGENT",
-                        id: crypto.randomUUID(),
-                        client_id: clientId,
-                        chat_id: chatId
-                    });
-                } catch(e) {}
-            }
-
-            return;
-        }
-
-        // 2. Check if user is registered via API (we use Jivo client_id as the platform_id)
-        try {
-            const profileRes = await axios.get(`${API_URL}/profiles/by_platform/apple/${clientId}`);
-            const safetag = profileRes.data.safetag;
-
-            // User is fully authenticated, permanently remembered!
-            if (messageText.includes('hello') || messageText.includes('hi') || messageText.includes('menu') || messageText.includes('start')) {
-                await sendJivoChatMessage(clientId, chatId, {
-                    type: "TEXT",
-                    text: `👋 Welcome back, ${safetag}!\n\nWhat would you like to do today?\nReply with an option number:\n\n1. 🛒 Create Transaction\n2. 📋 My Transactions\n3. 💰 Balance & Withdrawals\n4. 🎁 Referral\n5. ⭐ Reviews & Ratings\n6. ⚙️ Settings & Account`,
-                    timestamp: Math.floor(Date.now() / 1000)
-                });
-            } else {
+            // 1. Check "I need help" (Human Escalation) => Transfer back to JivoChat Agent
+            if (messageText === 'i need help' || messageText === 'agent' || messageText === 'support') {
                 await sendJivoChatMessage(clientId, chatId, {
                     type: 'TEXT',
-                    text: 'Type "Menu" to see your available options.',
+                    text: '⏸️ I have paused the bot. An agent has been notified and will review your request shortly.',
                     timestamp: Math.floor(Date.now() / 1000)
                 });
+
+                if (JIVO_PROVIDER_ID && JIVO_TOKEN) {
+                    try {
+                        await axios.post(`https://bot.jivosite.com/webhooks/${JIVO_PROVIDER_ID}/${JIVO_TOKEN}`, {
+                            event: "INVITE_AGENT",
+                            id: crypto.randomUUID(),
+                            client_id: clientId,
+                            chat_id: chatId
+                        });
+                    } catch(e) {}
+                }
+                return;
             }
 
-        } catch (apiErr: any) {
-            // User not found (404) -> They are NEW or Unlinked
-            if (apiErr.response?.status === 404) {
-                
-                const isPolicyAgreed = messageText.includes('agree') || messageText.includes('continue') || messageText.includes('okay') || messageText.includes('ok');
+            // 2. Check if user is registered via API (we use Jivo client_id as the platform_id)
+            try {
+                const profileRes = await axios.get(`${API_URL}/profiles/by_platform/apple/${clientId}`);
+                const safetag = profileRes.data.safetag;
 
-                if (isPolicyAgreed) {
-                    // STEP 2: User Agreed to Policy -> Send Magic Link
-                    console.log(`[BOT STEP] 2: User ${clientId} agreed to policy. Sending Magic Link.`);
-                    const magicLink = `${FRONTEND_URL}/apple-auth?apple_id=${encodeURIComponent(clientId)}`;
-
+                if (messageText.includes('hello') || messageText.includes('hi') || messageText.includes('menu') || messageText.includes('start')) {
                     await sendJivoChatMessage(clientId, chatId, {
-                        type: 'TEXT', // Switched from MARKDOWN to TEXT for wider channel compatibility
-                        text: `🚀 Let's get started! Authenticate your account to continue by clicking the link below:\n\n${magicLink}\n\nSimply log in or register to complete your setup.`,
+                        type: "TEXT",
+                        text: `👋 Welcome back, ${safetag}!\n\nWhat would you like to do today?\nReply with an option number:\n\n1. 🛒 Create Transaction\n2. 📋 My Transactions\n3. 💰 Balance & Withdrawals\n4. 🎁 Referral\n5. ⭐ Reviews & Ratings\n6. ⚙️ Settings & Account`,
                         timestamp: Math.floor(Date.now() / 1000)
                     });
                 } else {
-                    // STEP 1: Initial greeting -> Require Privacy Policy
-                    console.log(`[BOT STEP] 1: User ${clientId} is new. Sending Privacy Policy.`);
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'TEXT',
-                        text: '👋 Welcome to Safeeely!\nYour trusted escrow service for secure social media transactions.\n\nBefore we begin, please review our Privacy Policy.\n\n👉 Reply with "Agree" to continue.',
+                        text: 'Type "Menu" to see your available options.',
                         timestamp: Math.floor(Date.now() / 1000)
                     });
                 }
-            } else {
-                console.error(`⚠️ API Error (non-404): ${apiErr.message}`);
+            } catch (apiErr: any) {
+                if (apiErr.response?.status === 404) {
+                    const isPolicyAgreed = messageText.includes('agree') || messageText.includes('continue') || messageText.includes('okay') || messageText.includes('ok');
+
+                    if (isPolicyAgreed) {
+                        console.log(`[BOT STEP] 2: User ${clientId} agreed to policy. Sending Magic Link.`);
+                        const magicLink = `${FRONTEND_URL}/apple-auth?apple_id=${encodeURIComponent(clientId)}`;
+
+                        await sendJivoChatMessage(clientId, chatId, {
+                            type: 'TEXT',
+                            text: `🚀 Let's get started! Authenticate your account to continue by clicking the link below:\n\n${magicLink}\n\nSimply log in or register to complete your setup.`,
+                            timestamp: Math.floor(Date.now() / 1000)
+                        });
+                    } else {
+                        console.log(`[BOT STEP] 1: User ${clientId} is new. Sending Privacy Policy.`);
+                        await sendJivoChatMessage(clientId, chatId, {
+                            type: 'TEXT',
+                            text: '👋 Welcome to Safeeely!\nYour trusted escrow service for secure social media transactions.\n\nBefore we begin, please review our Privacy Policy.\n\n👉 Reply with "Agree" to continue.',
+                            timestamp: Math.floor(Date.now() / 1000)
+                        });
+                    }
+                } else {
+                    console.error(`⚠️ API Error (non-404): ${apiErr.message}`);
+                }
             }
+        } catch (err: any) {
+            console.error('🔥 Error processing JivoChat webhook payload asynchronously:', err.message);
         }
-    } catch (err: any) {
-        console.error('🔥 Error processing JivoChat webhook payload asynchronously:', err.message);
-    }
-});
+    });
 });
 
 app.listen(PORT, () => {
