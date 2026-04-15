@@ -146,13 +146,13 @@ app.post('/webhook/:token', (req, res) => {
                         console.log(`[BOT STEP] 3: User ${clientId} selected ${mode}. Sending targeted link.`);
                         
                         const magicLink = `${FRONTEND_URL}/apple-auth?apple_id=${encodeURIComponent(clientId)}&mode=${mode}`;
-                        
+                        const introText = "🚀 Let's get started! Authenticate your account to continue by clicking the link below:";
+                        const footerText = "Simply log in or register to complete your setup.";
+
                         await sendJivoChatMessage(clientId, chatId, {
                             type: 'MARKDOWN',
-                            content: mode === 'login' 
-                                ? `🔐 Click [here](${magicLink}) to Login to your account.`
-                                : `📝 Click [here](${magicLink}) to Register your new account.`,
-                            text: `Authenticating: ${magicLink}` // Plain text fallback
+                            content: `${introText}\n\n${mode === 'login' ? '🔐' : '📝'} Click [here](${magicLink}) to ${mode === 'login' ? 'Login' : 'Register'}.\n\n${footerText}`,
+                            text: `${introText}\n\n${magicLink}\n\n${footerText}`
                         });
                     } else if (isPolicyAgreed) {
                         console.log(`[BOT STEP] 2: User ${clientId} agreed to policy. Sending Buttons.`);
@@ -160,7 +160,7 @@ app.post('/webhook/:token', (req, res) => {
                         await sendJivoChatMessage(clientId, chatId, {
                             type: 'BUTTONS',
                             title: 'Authenticating Safeeely',
-                            text: 'Would you like to Login to an existing account or Register a new one?',
+                            text: "🚀 Let's get started! Authenticate your account to continue.\n\nSimply log in or register to complete your setup.",
                             force_reply: true,
                             buttons: [
                                 { text: '🔐 Login', id: 1 },
@@ -170,10 +170,10 @@ app.post('/webhook/:token', (req, res) => {
                     } else {
                         console.log(`[BOT STEP] 1: User ${clientId} is new. Sending Privacy Policy.`);
                         
+                        // Use TEXT for primary greeting to ensure exact emoji/line-break rendering
                         await sendJivoChatMessage(clientId, chatId, {
-                            type: 'MARKDOWN',
-                            content: `👋 Welcome to Safeeely!\nYour trusted escrow service for secure social media transactions.\n\nBefore we begin, please review our [Privacy Policy](https://safeeely.com/privacy).\n\n👉 Reply with "Agree" to continue.`,
-                            text: `Welcome! Please review our Privacy Policy at https://safeeely.com/privacy and reply "Agree" to continue.`
+                            type: 'TEXT',
+                            text: '👋 Welcome to Safeeely!\nYour trusted escrow service for secure social media transactions.\n\nBefore we begin, please review our Privacy Policy.\n\n👉 Reply with "Agree" to continue.'
                         });
                     }
                 } else {
