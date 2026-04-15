@@ -151,12 +151,16 @@ app.post('/webhook/:token', (req, res) => {
             // 2. Check if user is registered via API (we use Jivo client_id as the platform_id)
             try {
                 const profileRes = await axios.get(`${API_URL}/profiles/by_platform/apple/${clientId}`);
-                const safetag = profileRes.data.safetag;
                 const session = getSession(clientId);
+                const safetag = profileRes.data.safetag;
 
+                const isGreeting = messageText.includes('hello') || messageText.includes('hi') || messageText.includes('menu') || messageText.includes('start');
+                const isExplicitBack = messageText === 'back';
 
-                // --- MAIN MENU ---
-                if (messageText.includes('hello') || messageText.includes('hi') || messageText.includes('menu') || messageText.includes('start') || messageText === 'back') {
+                // --- MAIN MENU TRIGGER ---
+                // Only trigger global menu keyword if we are NOT in the middle of a transaction wizard
+                // or if the user explicitly typed 'back'
+                if (isExplicitBack || (isGreeting && (session.state === 'IDLE' || session.state === 'CONFIRMATION'))) {
                     resetSession(clientId);
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'BUTTONS',

@@ -169,24 +169,22 @@ export async function sendNotification(platform: string, platformId: string, mes
         const JIVO_PROVIDER_ID = process.env.JIVO_PROVIDER_ID;
         const JIVO_TOKEN = process.env.JIVO_TOKEN;
         
+        log(`🍎 [Apple Notification] Attempting to notify ${platformId}...`);
+
         if (!JIVO_PROVIDER_ID || !JIVO_TOKEN) {
-            log(`❌ Apple Notification Error: Jivo credentials missing in .env`);
+            log(`❌ Apple Notification Error: Jivo credentials missing in .env (Provider: ${JIVO_PROVIDER_ID ? 'OK' : 'MISSING'}, Token: ${JIVO_TOKEN ? 'OK' : 'MISSING'})`);
             return;
         }
 
         try {
-            // JivoChat expects a specific BOT_MESSAGE event for outbound notifications
             const url = `https://bot.jivosite.com/webhooks/${JIVO_PROVIDER_ID}/${JIVO_TOKEN}`;
-            
-            // Format message: convert <b> to bold etc if Jivo markdown is preferred
-            // For now, Jivo supports standard text and some emojis.
-            const cleanMessage = message.replace(/<[^>]*>/g, ''); // Strip HTML tags for Jivo text
+            const cleanMessage = message.replace(/<[^>]*>/g, ''); // Jivo text doesn't like HTML tags
 
             const payload: any = {
                 event: "BOT_MESSAGE",
                 id: require('crypto').randomUUID(),
                 client_id: String(platformId),
-                chat_id: String(platformId), // Usually the same for Jivo Apple integration
+                chat_id: String(platformId),
                 message: {
                     type: "TEXT",
                     text: cleanMessage
@@ -194,9 +192,8 @@ export async function sendNotification(platform: string, platformId: string, mes
             };
 
             await axios.post(url, payload);
-            log(`✅ [Apple Notification] Sent to ${platformId} via Jivo`);
+            log(`✅ [Apple Notification] Basic Text Sent to ${platformId}`);
 
-            // If there are buttons/actions, send them as a separate message
             if (options && options.length > 0) {
                 const buttonsPayload = {
                     event: "BOT_MESSAGE",
@@ -205,15 +202,19 @@ export async function sendNotification(platform: string, platformId: string, mes
                     chat_id: String(platformId),
                     message: {
                         type: "BUTTONS",
-                        title: "Actions",
-                        text: "Please select an option:",
+                        title: "Transaction Update",
+                        text: "Please select an action:",
                         buttons: options.map((opt, index) => ({
-                            text: opt.label,
+                            text: opt.label, // This is the main title in Apple
+                            title: opt.label, // Alternative for some systems
+                            subtitle: "Tap to proceed", // Explicitly set subtitle to fix double-text
+                            description: "Tap to proceed", // Alternative description field
                             id: opt.customId || `opt_${index}`
                         }))
                     }
                 };
                 await axios.post(url, buttonsPayload);
+                log(`✅ [Apple Notification] Interactive Buttons Sent to ${platformId}`);
             }
         } catch (err: any) {
             const errorMsg = `❌ Apple Notification Error for ${platformId}: ${err.message}`;
