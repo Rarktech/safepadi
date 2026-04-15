@@ -168,12 +168,12 @@ app.post('/webhook/:token', (req, res) => {
                         text: `👋 Welcome back, ${safetag}!\nWhat would you like to do today?`,
                         force_reply: true,
                         buttons: [
-                            { text: '🛒 Create Transaction', description: 'Start a new secure escrow order', id: 1 },
-                            { text: '📋 My Transactions', description: 'View your active and past orders', id: 2 },
-                            { text: '💰 Balance & Withdrawals', description: 'Check funds and cash out', id: 3 },
-                            { text: '🎁 Referrals', description: 'Invite friends and earn rewards', id: 4 },
-                            { text: '⭐ Reviews & Ratings', description: 'View your feedback and score', id: 5 },
-                            { text: '⚙️ Settings & Profile', description: 'Manage your account details', id: 6 }
+                            { text: '🛒 Create Transaction', description: 'Start a new secure escrow order', subtitle: 'Start a new secure escrow order', id: 1 },
+                            { text: '📋 My Transactions', description: 'View your active and past orders', subtitle: 'View your active and past orders', id: 2 },
+                            { text: '💰 Balance & Withdrawals', description: 'Check funds and cash out', subtitle: 'Check funds and cash out', id: 3 },
+                            { text: '🎁 Referrals', description: 'Invite friends and earn rewards', subtitle: 'Invite friends and earn rewards', id: 4 },
+                            { text: '⭐ Reviews & Ratings', description: 'View your feedback and score', subtitle: 'View your feedback and score', id: 5 },
+                            { text: '⚙️ Settings & Profile', description: 'Manage your account details', subtitle: 'Manage your account details', id: 6 }
                         ]
                     });
                     return;
@@ -190,8 +190,8 @@ app.post('/webhook/:token', (req, res) => {
                         text: 'Are you buying or selling?',
                         force_reply: true,
                         buttons: [
-                            { text: '1️⃣ I am a buyer', title: 'I am a buyer', description: 'I want to pay for a product/service', id: 'role_buyer' },
-                            { text: '2️⃣ I am a seller', title: 'I am a seller', description: 'I want to receive payment for an item', id: 'role_seller' }
+                            { text: '1️⃣ I am a buyer', title: 'I am a buyer', description: 'I want to pay for a product/service', subtitle: 'I want to pay for a product/service', id: 'role_buyer' },
+                            { text: '2️⃣ I am a seller', title: 'I am a seller', description: 'I want to receive payment for an item', subtitle: 'I want to receive payment for an item', id: 'role_seller' }
                         ]
                     });
                     return;
