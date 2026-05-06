@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Partials, Collection, InteractionReplyOptions } from 'discord.js';
+import { Client, GatewayIntentBits, Partials, Collection, InteractionReplyOptions, MessageFlags } from 'discord.js';
 import * as dotenv from 'dotenv';
 import axios from 'axios';
 import path from 'path';
@@ -463,14 +463,14 @@ client.on('interactionCreate', async (interaction) => {
                     return; // ⚡ Correct: Handled
                 } catch (err: any) {
                     console.error('Action processing failed:', err.message);
-                    await interaction.followUp({ content: `❌ Action failed: ${err.response?.data?.error || err.message}`, ephemeral: true }).catch(() => {});
+                    await interaction.followUp({ content: `❌ Action failed: ${err.response?.data?.error || err.message}`, flags: MessageFlags.Ephemeral }).catch(() => {});
                     return;
                 }
             }
 
             if (customId.startsWith('txn_pay_')) {
                 const txnId = customId.replace('txn_pay_', '');
-                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
                     await axios.post(`${API_URL}/transactions/${txnId}/pay`);
                     await interaction.editReply({ content: '⏳ **Payment Processing...**\n\nWe\'re verifying your payment. This may take a few minutes.\n\nPlease wait while we confirm...' });
@@ -482,7 +482,7 @@ client.on('interactionCreate', async (interaction) => {
 
             if (customId.startsWith('view_txn_details|')) {
                 const txnId = customId.split('|')[1];
-                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
                     const myTag = profileRes.data.safetag;
@@ -559,7 +559,7 @@ client.on('interactionCreate', async (interaction) => {
                     return;
                 } catch (err: any) {
                     console.error('Milestone Update Error:', err.message);
-                    await interaction.followUp({ content: '❌ Failed to update milestone.', ephemeral: true }).catch(() => {});
+                    await interaction.followUp({ content: '❌ Failed to update milestone.', flags: MessageFlags.Ephemeral }).catch(() => {});
                     return;
                 }
             }
@@ -572,7 +572,7 @@ client.on('interactionCreate', async (interaction) => {
                 await interaction.reply({
                     content: '📜 **Safeeely Privacy Policy**\n\nBefore we begin, please review and agree to our Privacy Policy to protect your data.',
                     components: [{ type: 1, components: [{ type: 2, label: '📜 Read Policy', style: 5, url: `${REVIEWS_URL}/privacy` }, { type: 2, label: '✅ I Agree', style: 3, custom_id: agreeId }] }],
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
                 });
             } else if (customId === 'start_login') {
                 // @ts-ignore
@@ -610,7 +610,7 @@ client.on('interactionCreate', async (interaction) => {
                             components: [{ type: 2, label: '🔙 Back to Menu', style: 2, custom_id: 'main_menu' }]
                         }
                     ],
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
                 });
             } else if (customId.startsWith('txn_role|')) {
                 const role = customId.split('|')[1];
@@ -625,7 +625,7 @@ client.on('interactionCreate', async (interaction) => {
                             ]
                         }
                     ],
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
                 });
             } else if (customId.startsWith('txn_type|')) {
                 const [_, role, type] = customId.split('|');
@@ -641,7 +641,7 @@ client.on('interactionCreate', async (interaction) => {
             } else if (customId.startsWith('txn_curr_select|')) {
                 const currency = customId.split('|')[1];
                 const draft = txnDrafts.get(interaction.user.id);
-                if (!draft) return interaction.reply({ content: '❌ Transaction state lost. Please start over.', ephemeral: true });
+                if (!draft) return interaction.reply({ content: '❌ Transaction state lost. Please start over.', flags: MessageFlags.Ephemeral });
                 draft.currency = currency;
 
                 if (draft.transaction_type === 'MILESTONE') {
@@ -651,7 +651,7 @@ client.on('interactionCreate', async (interaction) => {
                             type: 1,
                             components: [{ type: 2, label: '➕ Add Milestone Phase', style: 1, custom_id: 'txn_milestone_add' }]
                         }],
-                        ephemeral: true
+                        flags: MessageFlags.Ephemeral
                     });
                 } else {
                     // @ts-ignore
@@ -665,7 +665,7 @@ client.on('interactionCreate', async (interaction) => {
                 }
             } else if (customId === 'txn_milestone_add') {
                 const draft = txnDrafts.get(interaction.user.id);
-                if (!draft) return interaction.reply({ content: '❌ Transaction state lost.', ephemeral: true });
+                if (!draft) return interaction.reply({ content: '❌ Transaction state lost.', flags: MessageFlags.Ephemeral });
                 // @ts-ignore
                 await interaction.showModal({
                     title: '🪜 Add Milestone Phase',
@@ -677,7 +677,7 @@ client.on('interactionCreate', async (interaction) => {
                 });
             } else if (customId === 'txn_milestone_finish') {
                 const draft = txnDrafts.get(interaction.user.id);
-                if (!draft) return interaction.reply({ content: '❌ Transaction state lost.', ephemeral: true });
+                if (!draft) return interaction.reply({ content: '❌ Transaction state lost.', flags: MessageFlags.Ephemeral });
                 const amount = parseFloat(draft.amount || '0');
                 const fee = amount * 0.05;
 
@@ -693,12 +693,12 @@ client.on('interactionCreate', async (interaction) => {
                             ]
                         }
                     ],
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
                 });
             } else if (customId.startsWith('txn_fee_select|')) {
                 const fee_allocation = customId.split('|')[1];
                 const draft = txnDrafts.get(interaction.user.id);
-                if (!draft) return interaction.reply({ content: '❌ Transaction state lost. Please start over.', ephemeral: true });
+                if (!draft) return interaction.reply({ content: '❌ Transaction state lost. Please start over.', flags: MessageFlags.Ephemeral });
                 draft.fee_allocation = fee_allocation;
 
                 // @ts-ignore
@@ -711,7 +711,7 @@ client.on('interactionCreate', async (interaction) => {
                 });
             } else if (customId === 'txn_profile_confirm') {
                 const draft = txnDrafts.get(interaction.user.id);
-                if (!draft) return interaction.reply({ content: '❌ Transaction state lost.', ephemeral: true });
+                if (!draft) return interaction.reply({ content: '❌ Transaction state lost.', flags: MessageFlags.Ephemeral });
                 
                 const amount = parseFloat(draft.amount || '0');
                 const feeAllocation = draft.fee_allocation || 'buyer';
@@ -746,7 +746,7 @@ client.on('interactionCreate', async (interaction) => {
                 });
             } else if (customId === 'txn_profile_back') {
                 const draft = txnDrafts.get(interaction.user.id);
-                if (!draft) return interaction.reply({ content: '❌ Transaction state lost.', ephemeral: true });
+                if (!draft) return interaction.reply({ content: '❌ Transaction state lost.', flags: MessageFlags.Ephemeral });
                 
                 // Show modal again to change safetag
                 // @ts-ignore
@@ -758,7 +758,7 @@ client.on('interactionCreate', async (interaction) => {
                     ]
                 });
             } else if (customId === 'txn_confirm_final') {
-                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 const draft = txnDrafts.get(interaction.user.id);
                 if (!draft) return interaction.editReply('❌ Draft missing.');
                 try {
@@ -836,13 +836,13 @@ client.on('interactionCreate', async (interaction) => {
                             ]
                         }
                     ],
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
                 });
             } else if (customId === 'main_menu' || customId === 'main_menu_back') {
                 await sendMainMenu(interaction);
             } else if (customId.startsWith('view_txns_category|')) {
                 const category = customId.split('|')[1];
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
                     const txnsRes = await axios.get(`${API_URL}/transactions`, { params: { safetag: profileRes.data.safetag, category } });
@@ -856,7 +856,7 @@ client.on('interactionCreate', async (interaction) => {
                 } catch (err: any) { await interaction.editReply(`❌ Error: ${err.message}`); }
             } else if (customId.startsWith('txn_resume|')) {
                 const txnId = customId.split('|')[1];
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
                     const statusRes = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'resume', updater_safetag: profileRes.data.safetag });
@@ -871,7 +871,7 @@ client.on('interactionCreate', async (interaction) => {
                 // @ts-ignore
                 await interaction.showModal({ title: '⚠️ Dispute', custom_id: `dispute_modal|${tid}`, components: [{ type: 1, components: [{ type: 4, custom_id: 'reason', label: 'Reason', style: 2, min_length: 10, required: true }] }] });
             } else if (customId === 'balance') {
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
                     const safetag = profileRes.data.safetag;
@@ -900,7 +900,7 @@ client.on('interactionCreate', async (interaction) => {
                     });
                 } catch (err: any) { await interaction.editReply(`❌ Balance Error: ${err.message}`); }
             } else if (customId === 'referral') {
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
                     const safetag = profileRes.data.safetag;
@@ -953,7 +953,7 @@ client.on('interactionCreate', async (interaction) => {
                     }
                 } catch (err: any) { await interaction.editReply(`❌ Error: ${err.message}`); }
             } else if (customId === 'reviews') {
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
                     const safetag = profileRes.data.safetag;
@@ -987,7 +987,7 @@ client.on('interactionCreate', async (interaction) => {
                     });
                 } catch (err: any) { await interaction.editReply(`❌ Error: ${err.message}`); }
             } else if (customId === 'settings') {
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
                     const p = profileRes.data;
@@ -1009,7 +1009,7 @@ client.on('interactionCreate', async (interaction) => {
                     });
                 } catch (err: any) { await interaction.editReply(`❌ Error: ${err.message}`); }
             } else if (customId === 'other_settings') {
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
                     const p = profileRes.data;
@@ -1030,7 +1030,7 @@ client.on('interactionCreate', async (interaction) => {
                 await interaction.reply({
                     content: '🔗 **Linked Accounts**\n\nYour account is linked to this Discord profile.\n\nTo link other platforms, log in via WhatsApp, Instagram, or Telegram using your safetag.',
                     components: [{ type: 1, components: [{ type: 2, label: '🔙 Back', style: 2, custom_id: 'other_settings' }] }],
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
                 });
             } else if (customId === 'start_deletion') {
                 await interaction.reply({
@@ -1048,7 +1048,7 @@ client.on('interactionCreate', async (interaction) => {
                             { type: 2, label: '🏠 Cancel', style: 2, custom_id: 'settings' }
                         ]
                     }],
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
                 });
             } else if (customId === 'confirm_deletion_modal') {
                 // @ts-ignore
@@ -1073,7 +1073,7 @@ client.on('interactionCreate', async (interaction) => {
         if (interaction.isStringSelectMenu()) {
             if (customId === 'view_txn_select') {
                 const txnId = interaction.values[0].replace('view_txn_select_val|', '');
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
                     const myTag = profileRes.data.safetag;
@@ -1137,7 +1137,7 @@ client.on('interactionCreate', async (interaction) => {
                 });
             } else if (customId === 'smart_txn_confirm') {
                 console.log(`✅ Processing smart_txn_confirm for ${interaction.user.tag}`);
-                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 const draft = smartTxnSessions.get(interaction.user.id);
                 if (!draft) return interaction.editReply("❌ AI Session expired.");
                 smartTxnSessions.delete(interaction.user.id);
@@ -1251,7 +1251,7 @@ client.on('interactionCreate', async (interaction) => {
             console.log(`📝 Modal: ${customId} by ${interaction.user.tag}`);
             if (customId.startsWith('registration_modal')) {
                 const referralCode = customId.split('|')[1] || '';
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 const firstName = interaction.fields.getTextInputValue('first_name');
                 const lastName = interaction.fields.getTextInputValue('last_name');
                 const email = interaction.fields.getTextInputValue('email');
@@ -1281,7 +1281,7 @@ client.on('interactionCreate', async (interaction) => {
             } else if (customId === 'login_modal') {
                 const safetag = interaction.fields.getTextInputValue('safetag');
                 const cleanTag = safetag.startsWith('@') ? safetag : `@${safetag}`;
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
                     await axios.post(`${API_URL}/auth/otp/send`, { safetag: cleanTag, platform: 'discord', platform_id: interaction.user.id });
                     await interaction.editReply({
@@ -1290,7 +1290,7 @@ client.on('interactionCreate', async (interaction) => {
                     });
                 } catch (err: any) { await interaction.editReply(`❌ Error: ${err.response?.data?.error || 'Failed.'}`); }
             } else if (customId === 'reg_email_otp_modal') {
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 const code = interaction.fields.getTextInputValue('email_code');
                 const draft = regDrafts.get(interaction.user.id);
                 if (!draft) {
@@ -1317,7 +1317,7 @@ client.on('interactionCreate', async (interaction) => {
             } else if (customId.startsWith('otp_verify_modal|')) {
                 const safetag = customId.split('|')[1];
                 const otp = interaction.fields.getTextInputValue('otp_code');
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
                     const res = await axios.post(`${API_URL}/auth/otp/verify`, { safetag, platform: 'discord', platform_id: interaction.user.id, otp });
                     await interaction.editReply(`👋 **Welcome back!** Your Discord is linked.`);
@@ -1325,7 +1325,7 @@ client.on('interactionCreate', async (interaction) => {
                 } catch (err: any) { await interaction.editReply(`❌ Verification failed: ${err.response?.data?.error || 'Invalid.'}`); }
             } else if (customId.startsWith('dispute_modal|')) {
                 const txnId = customId.split('|')[1];
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 const reason = interaction.fields.getTextInputValue('reason');
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
@@ -1337,7 +1337,7 @@ client.on('interactionCreate', async (interaction) => {
                 const role = parts[1];
                 const type = parts[2] as 'ONE_TIME' | 'MILESTONE';
                 
-                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                 txnDrafts.set(interaction.user.id, {
                     role,
@@ -1361,7 +1361,7 @@ client.on('interactionCreate', async (interaction) => {
                     ]
                 });
             } else if (customId === 'txn_modal_milestone') {
-                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 const title = interaction.fields.getTextInputValue('title');
                 const amountStr = interaction.fields.getTextInputValue('amount');
                 const amount = parseFloat(amountStr);
@@ -1390,7 +1390,7 @@ client.on('interactionCreate', async (interaction) => {
                     }]
                 });
             } else if (customId === 'txn_modal_amount') {
-                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 const amountStr = interaction.fields.getTextInputValue('amount');
                 const amount = parseFloat(amountStr);
                 if (isNaN(amount) || amount <= 0) {
@@ -1415,10 +1415,10 @@ client.on('interactionCreate', async (interaction) => {
                             ]
                         }
                     ],
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
                 });
             } else if (customId === 'txn_modal_other') {
-                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 const other = interaction.fields.getTextInputValue('other_party');
                 const otherSafetag = other.startsWith('@') ? other : `@${other}`;
                 const draft = txnDrafts.get(interaction.user.id);
@@ -1460,7 +1460,7 @@ client.on('interactionCreate', async (interaction) => {
                 }
 
             } else if (customId === 'deletion_feedback_modal') {
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 const reason = interaction.fields.getTextInputValue('reason') || 'No feedback provided';
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
@@ -1487,9 +1487,9 @@ client.on('interactionCreate', async (interaction) => {
         if (interaction.isRepliable()) {
             try {
                 if (interaction.replied || interaction.deferred) {
-                    await interaction.followUp({ content: `❌ Error: ${err.message}`, ephemeral: true }).catch(() => {});
+                    await interaction.followUp({ content: `❌ Error: ${err.message}`, flags: MessageFlags.Ephemeral }).catch(() => {});
                 } else {
-                    await interaction.reply({ content: `❌ Error: ${err.message}`, ephemeral: true }).catch(() => {});
+                    await interaction.reply({ content: `❌ Error: ${err.message}`, flags: MessageFlags.Ephemeral }).catch(() => {});
                 }
             } catch (e) { 
                 console.error('Failed to send error message to user:', e.message);

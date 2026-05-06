@@ -1,15 +1,7 @@
-import nodemailer from 'nodemailer';
+import axios from 'axios';
 
-const port = Number(process.env.SMTP_PORT) || 587;
-const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port,
-    secure: port === 465, // SSL for port 465, STARTTLS for 587
-    auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-    },
-});
+const RESEND_API_KEY = process.env.RESEND_API_KEY || process.env.SMTP_PASS;
+const FROM_EMAIL = process.env.SMTP_FROM || '"Safeeely" <info@safeeely.com>';
 
 export async function sendEmail({
     to,
@@ -20,19 +12,24 @@ export async function sendEmail({
     subject: string;
     html: string;
 }) {
-    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-        console.warn('⚠️ [Email] SMTP credentials not set. Skipping email to:', to);
+    if (!RESEND_API_KEY) {
+        console.warn('⚠️ [Email] RESEND_API_KEY not set. Skipping email to:', to);
         return;
     }
     try {
-        await transporter.sendMail({
-            from: process.env.SMTP_FROM || '"Safeeely" <no-reply@safeeely.com>',
-            to,
-            subject,
-            html,
-        });
+        await axios.post(
+            'https://api.resend.com/emails',
+            { from: FROM_EMAIL, to: [to], subject, html },
+            {
+                headers: {
+                    Authorization: `Bearer ${RESEND_API_KEY}`,
+                    'Content-Type': 'application/json',
+                },
+                timeout: 10000,
+            }
+        );
         console.log(`✅ [Email] Sent "${subject}" to ${to}`);
     } catch (err: any) {
-        console.error(`❌ [Email] Failed to send to ${to}:`, err.message);
+        console.error(`❌ [Email] Failed to send to ${to}:`, err.response?.data || err.message);
     }
 }

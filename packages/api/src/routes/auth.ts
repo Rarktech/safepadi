@@ -122,12 +122,12 @@ router.post('/otp/send', async (req, res) => {
             </div>
         `;
         
-        await sendEmail({
+        sendEmail({
             to: profile.email,
             subject: `${otp} is your Safeeely verification code`,
             html: emailHtml
-        });
-        
+        }).catch(() => {});
+
         console.log(`[OTP] Sent verification email to ${profile.email}`);
 
         res.json({ success: true, message: 'OTP sent to your linked accounts and email.' });
@@ -322,7 +322,7 @@ router.post('/email-otp/send', async (req, res) => {
             </div>
         `;
 
-        await sendEmail({ to: email, subject: `${code} is your Safeeely verification code`, html });
+        sendEmail({ to: email, subject: `${code} is your Safeeely verification code`, html }).catch(() => {});
 
         res.json({ success: true, message: 'Verification code sent to your email.' });
     } catch (err: any) {
