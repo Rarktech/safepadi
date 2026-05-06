@@ -6,6 +6,21 @@ import { sendEmail } from '../services/email';
 
 const router = Router();
 
+// Simple in-memory rate limiter for OTP requests (max 3 per 15 min per key)
+const otpRateLimits = new Map<string, { count: number; resetAt: number }>();
+function isRateLimited(key: string): boolean {
+    const now = Date.now();
+    const window = 15 * 60 * 1000;
+    const record = otpRateLimits.get(key);
+    if (!record || now > record.resetAt) {
+        otpRateLimits.set(key, { count: 1, resetAt: now + window });
+        return false;
+    }
+    if (record.count >= 3) return true;
+    record.count++;
+    return false;
+}
+
 // Validation schemas
 const SendOTPSchema = z.object({
     safetag: z.string(),
@@ -31,6 +46,10 @@ const BlockActionSchema = z.object({
 router.post('/otp/send', async (req, res) => {
     try {
         const { safetag, platform, platform_id } = SendOTPSchema.parse(req.body);
+
+        if (isRateLimited(`${platform}:${platform_id}`)) {
+            return res.status(429).json({ error: 'Too many requests. Please wait 15 minutes before trying again.' });
+        }
         const cleanTag = safetag.startsWith('@') ? safetag : `@${safetag}`;
 
         // 1. Find Profile
@@ -206,6 +225,140 @@ router.post('/block', async (req, res) => {
             .eq('platform_id', platform_id);
 
         res.json({ success: true, message: 'Account blocked from binding.' });
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+/**
+ * Unlink a platform from an existing profile
+ */
+router.delete('/unlink', async (req, res) => {
+    try {
+        const { safetag, platform, platform_id } = z.object({
+            safetag: z.string(),
+            platform: z.enum(['telegram', 'discord', 'whatsapp', 'instagram', 'apple']),
+            platform_id: z.string()
+        }).parse(req.body);
+
+        const cleanTag = safetag.startsWith('@') ? safetag : `@${safetag}`;
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('safetag', cleanTag)
+            .single();
+
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+        const { data: linked } = await supabase
+            .from('linked_accounts')
+            .select('id, is_primary')
+            .eq('profile_id', profile.id)
+            .eq('platform', platform)
+            .eq('platform_id', platform_id)
+            .maybeSingle();
+
+        if (!linked) return res.status(404).json({ error: 'This platform is not linked to your profile' });
+        if (linked.is_primary) return res.status(400).json({ error: 'Cannot unlink your primary platform. Delete your account instead if needed.' });
+
+        const { count } = await supabase
+            .from('linked_accounts')
+            .select('*', { count: 'exact', head: true })
+            .eq('profile_id', profile.id);
+
+        if (count !== null && count <= 1) {
+            return res.status(400).json({ error: 'Cannot unlink your only linked platform. Add another platform first.' });
+        }
+
+        await supabase.from('linked_accounts').delete().eq('id', linked.id);
+
+        res.json({ success: true, message: 'Platform unlinked successfully.' });
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+/**
+ * Send email OTP for registration verification
+ */
+router.post('/email-otp/send', async (req, res) => {
+    try {
+        const { email } = z.object({ email: z.string().email() }).parse(req.body);
+
+        if (isRateLimited(`email:${email}`)) {
+            return res.status(429).json({ error: 'Too many requests. Please wait 15 minutes before trying again.' });
+        }
+
+        // Block if email is already registered
+        const { data: existing } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('email', email.toLowerCase())
+            .maybeSingle();
+
+        if (existing) {
+            return res.status(400).json({ error: 'This email is already registered. Use Login to link your account.' });
+        }
+
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+        const { error: upsertError } = await supabase
+            .from('email_verifications')
+            .upsert({ email: email.toLowerCase(), code, expires_at: expiresAt }, { onConflict: 'email' });
+
+        if (upsertError) throw upsertError;
+
+        const html = `
+            <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 8px; text-align: center;">
+                <h2 style="color: #0f172a;">Verify Your Email</h2>
+                <p style="color: #475569;">Use the code below to complete your Safeeely registration.</p>
+                <div style="font-size: 32px; font-weight: bold; letter-spacing: 8px; padding: 20px; margin: 30px 0; background: #f8fafc; border-radius: 8px; color: #0284c7;">
+                    ${code}
+                </div>
+                <p style="color: #475569;">This code expires in <b>10 minutes</b>.</p>
+                <p style="font-size: 13px; color: #94a3b8; margin-top: 40px;">If you did not request this, you can safely ignore this email.</p>
+            </div>
+        `;
+
+        await sendEmail({ to: email, subject: `${code} is your Safeeely verification code`, html });
+
+        res.json({ success: true, message: 'Verification code sent to your email.' });
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+/**
+ * Verify email OTP for registration
+ */
+router.post('/email-otp/verify', async (req, res) => {
+    try {
+        const { email, code } = z.object({ email: z.string().email(), code: z.string().length(6) }).parse(req.body);
+
+        const { data: record } = await supabase
+            .from('email_verifications')
+            .select('id, code, expires_at')
+            .eq('email', email.toLowerCase())
+            .maybeSingle();
+
+        if (!record) {
+            return res.status(400).json({ error: 'No verification pending for this email. Please request a new code.' });
+        }
+
+        if (record.code !== code) {
+            return res.status(400).json({ error: 'Invalid verification code.' });
+        }
+
+        if (new Date(record.expires_at) < new Date()) {
+            await supabase.from('email_verifications').delete().eq('id', record.id);
+            return res.status(400).json({ error: 'Verification code has expired. Please request a new one.' });
+        }
+
+        await supabase.from('email_verifications').delete().eq('id', record.id);
+
+        res.json({ success: true });
     } catch (err: any) {
         res.status(400).json({ error: err.message });
     }

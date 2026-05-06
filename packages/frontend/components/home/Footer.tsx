@@ -12,7 +12,7 @@ export const Footer = () => {
                     <div className="flex items-center gap-2">
                         {/* Safeeely Logo */}
                         <div className="w-10 h-10 flex items-center justify-center">
-                            <img src="/sidebar-logo-black.png" alt="Safeeely Logo" className="w-full h-full object-contain drop-shadow-sm" />
+                            <img src="/logo-main.svg" alt="Safeeely Logo" className="w-full h-full object-contain drop-shadow-sm" />
                         </div>
                         <span className="text-xl font-bold tracking-tight text-slate-900 font-['Inter']">Safeeely</span>
                     </div>

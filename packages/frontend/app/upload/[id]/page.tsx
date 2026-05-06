@@ -129,7 +129,7 @@ export default function SecureUploadPage() {
         return (
             <div className="min-h-screen bg-slate-50 flex items-center justify-center">
                 <div className="text-center">
-                    <Loader2 className="w-10 h-10 text-[#16a34a] animate-spin mx-auto mb-4" />
+                    <Loader2 className="w-10 h-10 text-[#10b981] animate-spin mx-auto mb-4" />
                     <p className="text-slate-500 font-bold text-xs uppercase tracking-widest animate-pulse">Initializing Portal...</p>
                 </div>
             </div>
@@ -176,7 +176,7 @@ export default function SecureUploadPage() {
                     </Button>
                     <Button
                         size="sm"
-                        className="h-9 bg-[#16a34a] hover:bg-[#15803d] text-white font-black text-[10px] uppercase tracking-widest px-4 shadow-xl shadow-green-100 rounded-xl"
+                        className="h-9 bg-[#10b981] hover:bg-[#059669] text-white font-black text-[10px] uppercase tracking-widest px-4 shadow-xl shadow-green-100 rounded-xl"
                         onClick={step === 2 && !success ? startUpload : () => setStep(prev => Math.min(3, prev + 1))}
                         disabled={uploading || scanningFiles || (step === 2 && files.length === 0)}
                     >
@@ -204,12 +204,12 @@ export default function SecureUploadPage() {
                                 />
                                 <div className="w-14 h-14 md:w-20 md:h-20 bg-slate-50 rounded-2xl md:rounded-[32px] flex items-center justify-center mx-auto mb-4 md:mb-8 group-hover:scale-110 group-hover:bg-white transition-all shadow-sm">
                                     <FileText className="w-6 h-6 md:w-10 md:h-10 text-slate-300 group-hover:text-green-500 transition-colors" />
-                                    <div className="absolute -top-2 -right-2 w-7 h-7 md:w-9 md:h-9 bg-[#16a34a] rounded-full flex items-center justify-center border-4 border-white shadow-lg">
+                                    <div className="absolute -top-2 -right-2 w-7 h-7 md:w-9 md:h-9 bg-[#10b981] rounded-full flex items-center justify-center border-4 border-white shadow-lg">
                                         <CloudUpload className="w-3 h-3 md:w-4 md:h-4 text-white" />
                                     </div>
                                 </div>
                                 <h2 className="text-xl md:text-3xl font-black text-slate-900 tracking-tight mb-2">Upload Proof [v2.5]</h2>
-                                <p className="text-slate-400 text-[10px] md:text-sm font-black uppercase tracking-[0.2em] text-[#16a34a] mb-2">Portal Active & Connected</p>
+                                <p className="text-slate-400 text-[10px] md:text-sm font-black uppercase tracking-[0.2em] text-[#10b981] mb-2">Portal Active & Connected</p>
                                 <p className="text-slate-400 text-[10px] md:text-xs font-medium max-w-xs mx-auto">Click or drag & drop to upload proofs.<br/>All files supported: <b>Movies, Docs, PSD, 3D & More</b></p>
                             </div>
 

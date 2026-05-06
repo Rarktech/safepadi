@@ -124,7 +124,7 @@ export function AppSidebar({ currentView: propCurrentView, setCurrentView: propS
         <SidebarMenu>
           <SidebarMenuItem>
             <div className="flex items-center gap-2 px-0 py-3 cursor-pointer" onClick={() => setCurrentView('dashboard')}>
-              <img src="/sidebar-logo.png" alt="Safeeely Logo" className="h-16 w-auto object-contain drop-shadow-sm" />
+              <img src="/logo-main.svg" alt="Safeeely Logo" className="h-12 w-auto object-contain drop-shadow-sm" />
             </div>
           </SidebarMenuItem>
         </SidebarMenu>

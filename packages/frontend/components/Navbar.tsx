@@ -18,15 +18,15 @@ export function Navbar() {
         <nav className="fixed top-0 left-0 right-0 z-50 flex justify-center p-4 md:p-6 bg-transparent">
             <div className="w-full max-w-7xl flex items-center justify-between px-6 py-3 rounded-[32px] bg-white/80 backdrop-blur-md border border-white/20 shadow-xl">
                 <Link href="/" className="flex items-center gap-2 shrink-0">
-                    <img src="/sidebar-logo-black.png" alt="Safeeely Logo" className="h-10 md:h-12 w-auto object-contain drop-shadow-sm" />
+                    <img src="/logo-main.svg" alt="Safeeely Logo" className="h-8 md:h-8 w-auto object-contain drop-shadow-sm" />
                 </Link>
 
                 {/* Center Navigation - Desktop (Only on Marketplace) */}
                 {isMarketplace && (
                     <div className="hidden md:flex items-center gap-8 animate-in fade-in slide-in-from-top-2 duration-500">
                         {navItems.map((item) => (
-                            <Link 
-                                key={item.label} 
+                            <Link
+                                key={item.label}
                                 href={item.href}
                                 className="text-sm font-bold text-slate-900 hover:text-emerald-600 transition-colors tracking-tight"
                             >

@@ -333,7 +333,7 @@ export default function WithdrawDashboard() {
                         onClick={() => setCurrentView('dashboard')}
                         className={`flex-1 flex flex-col items-center justify-center py-2 transition-all duration-300 ${currentView === 'dashboard' ? 'scale-110' : 'opacity-40 hover:opacity-100'}`}
                     >
-                        <div className={`p-2 rounded-full transition-colors ${currentView === 'dashboard' ? 'bg-[#16a34a] shadow-lg shadow-emerald-500/20' : ''}`}>
+                        <div className={`p-2 rounded-full transition-colors ${currentView === 'dashboard' ? 'bg-[#10b981] shadow-lg shadow-emerald-500/20' : ''}`}>
                             <Home size={20} className="text-white" />
                         </div>
                     </button>
@@ -341,7 +341,7 @@ export default function WithdrawDashboard() {
                         onClick={() => setCurrentView('transactions')}
                         className={`flex-1 flex flex-col items-center justify-center py-2 transition-all duration-300 ${currentView === 'transactions' ? 'scale-110' : 'opacity-40 hover:opacity-100'}`}
                     >
-                        <div className={`p-2 rounded-full transition-colors ${currentView === 'transactions' ? 'bg-[#16a34a] shadow-lg shadow-emerald-500/20' : ''}`}>
+                        <div className={`p-2 rounded-full transition-colors ${currentView === 'transactions' ? 'bg-[#10b981] shadow-lg shadow-emerald-500/20' : ''}`}>
                             <Activity size={20} className="text-white" />
                         </div>
                     </button>
@@ -349,7 +349,7 @@ export default function WithdrawDashboard() {
                         onClick={() => setCurrentView('marketplace')}
                         className={`flex-1 flex flex-col items-center justify-center py-2 transition-all duration-300 ${currentView === 'marketplace' ? 'scale-110' : 'opacity-40 hover:opacity-100'}`}
                     >
-                        <div className={`p-2 rounded-full transition-colors ${currentView === 'marketplace' ? 'bg-[#16a34a] shadow-lg shadow-emerald-500/20' : ''}`}>
+                        <div className={`p-2 rounded-full transition-colors ${currentView === 'marketplace' ? 'bg-[#10b981] shadow-lg shadow-emerald-500/20' : ''}`}>
                             <ShoppingBag size={20} className="text-white" />
                         </div>
                     </button>
@@ -362,7 +362,7 @@ export default function WithdrawDashboard() {
                         onClick={() => setCurrentView('withdraw')}
                         className={`flex-1 flex flex-col items-center justify-center py-2 transition-all duration-300 ${currentView === 'withdraw' ? 'scale-110' : 'opacity-40 hover:opacity-100'}`}
                     >
-                        <div className={`p-2 rounded-full transition-colors ${currentView === 'withdraw' ? 'bg-[#16a34a] shadow-lg shadow-emerald-500/20' : ''}`}>
+                        <div className={`p-2 rounded-full transition-colors ${currentView === 'withdraw' ? 'bg-[#10b981] shadow-lg shadow-emerald-500/20' : ''}`}>
                             <Send size={20} className="text-white" />
                         </div>
                     </button>
@@ -370,7 +370,7 @@ export default function WithdrawDashboard() {
                         onClick={() => setCurrentView('referrals')}
                         className={`flex-1 flex flex-col items-center justify-center py-2 transition-all duration-300 ${currentView === 'referrals' ? 'scale-110' : 'opacity-40 hover:opacity-100'}`}
                     >
-                        <div className={`p-2 rounded-full transition-colors ${currentView === 'referrals' ? 'bg-[#16a34a] shadow-lg shadow-emerald-500/20' : ''}`}>
+                        <div className={`p-2 rounded-full transition-colors ${currentView === 'referrals' ? 'bg-[#10b981] shadow-lg shadow-emerald-500/20' : ''}`}>
                             <Users size={20} className="text-white" />
                         </div>
                     </button>

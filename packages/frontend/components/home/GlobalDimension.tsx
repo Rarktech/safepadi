@@ -1,10 +1,10 @@
-"use client";
+﻿"use client";
 
 import React from "react";
 
 export function GlobalDimension() {
     return (
-        <section className="py-24 bg-gradient-to-br from-green-400 to-[#16a34a] relative overflow-hidden">
+        <section className="py-24 bg-gradient-to-br from-green-400 to-[#10b981] relative overflow-hidden">
             {/* Decorative Blur and Noise */}
             <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'url("https://www.transparenttextures.com/patterns/carbon-fibre.png")' }} />
             <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-white/10 blur-[120px] rounded-full -translate-y-1/2 translate-x-1/2" />

@@ -11,29 +11,30 @@ if (process.env.NODE_ENV !== 'production') {
 const app = express();
 app.use(express.json());
 
-const INSTAGRAM_ACCESS_TOKEN = process.env.INSTAGRAM_ACCESS_TOKEN || '';
-const HUB_VERIFY_TOKEN      = process.env.INSTAGRAM_VERIFY_TOKEN || 'SAFEO_IG_123';
+const MESSENGER_ACCESS_TOKEN = process.env.MESSENGER_ACCESS_TOKEN || '';
+const HUB_VERIFY_TOKEN       = process.env.MESSENGER_VERIFY_TOKEN || 'SAFEO_MSG_123';
 const API_URL                = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
 const PUBLIC_API_URL         = process.env.API_URL || 'http://localhost:3000/api';
 const REVIEWS_URL            = process.env.REVIEWS_URL || 'http://localhost:3001';
-const IG_BASE                = 'https://graph.facebook.com/v18.0';
+const BASE                   = 'https://graph.facebook.com/v18.0';
 
-console.log(`📸 Safeeely Instagram Bot Starting...`);
+console.log(`💬 Safeeely Messenger Bot Starting...`);
 
 // ─── State machine ────────────────────────────────────────────────────────────
-// Each entry: { mode, step, formData, smartDraft? }
 const userStates: Record<string, any> = {};
 
 // ─── Message helpers ──────────────────────────────────────────────────────────
 
-async function sendMsg(psid: string, payload: any) {
+async function sendMsg(psid: string, payload: any, messageTag?: string) {
     try {
-        await axios.post(`${IG_BASE}/me/messages?access_token=${INSTAGRAM_ACCESS_TOKEN}`, {
-            recipient: { id: psid },
-            message: payload
-        });
+        const body: any = { recipient: { id: psid }, message: payload };
+        if (messageTag) {
+            body.messaging_type = 'MESSAGE_TAG';
+            body.tag = messageTag;
+        }
+        await axios.post(`${BASE}/me/messages?access_token=${MESSENGER_ACCESS_TOKEN}`, body);
     } catch (err: any) {
-        console.error('❌ Instagram send error:', err.response?.data?.error?.message || err.message);
+        console.error('❌ Messenger send error:', err.response?.data?.error?.message || err.message);
     }
 }
 
@@ -95,15 +96,20 @@ function statusLabel(status: string) {
     return map[status] || status;
 }
 
-// ─── Setup: persistent menu + ice breakers ────────────────────────────────────
+// ─── Setup: Get Started + greeting + persistent menu + ice breaker ─────────────
 
 async function setupMenus() {
-    if (!INSTAGRAM_ACCESS_TOKEN) {
-        console.warn('⚠️ INSTAGRAM_ACCESS_TOKEN not set — skipping menu setup');
+    if (!MESSENGER_ACCESS_TOKEN) {
+        console.warn('⚠️ MESSENGER_ACCESS_TOKEN not set — skipping menu setup');
         return;
     }
     try {
-        await axios.post(`${IG_BASE}/me/messenger_profile?access_token=${INSTAGRAM_ACCESS_TOKEN}`, {
+        await axios.post(`${BASE}/me/messenger_profile?access_token=${MESSENGER_ACCESS_TOKEN}`, {
+            get_started: { payload: 'GET_STARTED' },
+            greeting: [{
+                locale: 'default',
+                text: 'Welcome to Safeeely! 🛡️ Secure escrow for social media trades, freelance gigs & crypto.'
+            }],
             ice_breakers: [
                 { question: '🚀 Get Started', payload: 'AGREE_POLICY' }
             ],
@@ -121,16 +127,16 @@ async function setupMenus() {
                 ]
             }]
         });
-        console.log('✅ Instagram persistent menu & ice breakers configured');
+        console.log('✅ Messenger Get Started, greeting, persistent menu & ice breaker configured');
     } catch (err: any) {
-        console.error('❌ Menu setup failed:', err.response?.data?.error || err.message);
+        console.error('❌ Messenger menu setup failed:', err.response?.data?.error || err.message);
     }
 }
 
 // ─── Profile fetch ────────────────────────────────────────────────────────────
 
 async function getProfile(psid: string) {
-    const res = await axios.get(`${API_URL}/profiles/by_platform/instagram/${psid}`);
+    const res = await axios.get(`${API_URL}/profiles/by_platform/messenger/${psid}`);
     return res.data;
 }
 
@@ -150,8 +156,8 @@ async function sendWelcome(psid: string) {
     await sendMsg(psid, btnTemplate(
         '👋 Welcome to Safeeely!\n\nYour trusted escrow service for secure social media transactions.\n\n🔒 Secure | 🌍 Cross-Platform | ⚡ Fast\n\nBefore we begin, please review and agree to our Privacy Policy to protect your data.',
         [
-            { type: 'web_url', url: 'https://safeeely.com/privacy', title: '📋 Read Policy' },
-            { type: 'postback', payload: 'AGREE_POLICY', title: '✅ Agree & Continue' }
+            { type: 'web_url',  url: 'https://safeeely.com/privacy', title: '📋 Read Policy'      },
+            { type: 'postback', payload: 'AGREE_POLICY',             title: '✅ Agree & Continue' }
         ]
     ));
 }
@@ -169,7 +175,7 @@ async function checkAndGreet(psid: string) {
             return;
         }
     } catch (e: any) {
-        if (e.response?.status !== 404) console.error('Instagram profile check error:', e.message);
+        if (e.response?.status !== 404) console.error('Messenger profile check error:', e.message);
     }
     await sendWelcome(psid);
 }
@@ -179,16 +185,16 @@ async function checkAndGreet(psid: string) {
 async function showSettings(psid: string) {
     try {
         const p = await getProfile(psid);
-        const safetag  = p.safetag  || 'N/A';
-        const email    = p.email    || 'N/A';
-        const name     = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'N/A';
+        const safetag = p.safetag  || 'N/A';
+        const email   = p.email    || 'N/A';
+        const name    = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'N/A';
 
         await sendMsg(psid, btnTemplate(
             `⚙️ Account Settings\n\n👤 Safetag: ${safetag}\n📧 Email: ${email}\n👤 Name: ${name}\n\nManage your account and privacy preferences below:`,
             [
-                { type: 'postback', payload: 'START_DELETION',   title: '❌ Delete Account' },
-                { type: 'postback', payload: 'OTHER_SETTINGS',   title: '⚙️ Other Settings' },
-                { type: 'postback', payload: 'MAIN_MENU',        title: '🏠 Main Menu'      }
+                { type: 'postback', payload: 'START_DELETION', title: '❌ Delete Account' },
+                { type: 'postback', payload: 'OTHER_SETTINGS', title: '⚙️ Other Settings' },
+                { type: 'postback', payload: 'MAIN_MENU',      title: '🏠 Main Menu'      }
             ]
         ));
     } catch (err: any) {
@@ -203,9 +209,9 @@ async function showOtherSettings(psid: string) {
         await sendMsg(psid, btnTemplate(
             '⚙️ Other Settings\n\nManage your linked accounts and identity verification:',
             [
-                { type: 'postback', payload: 'LINKED_ACCOUNTS',   title: '🔗 Linked Accounts'   },
-                { type: 'web_url',  url: kycUrl,                  title: '🛡️ KYC Verification'  },
-                { type: 'postback', payload: 'SETTINGS',          title: '🔙 Back'              }
+                { type: 'postback', payload: 'LINKED_ACCOUNTS', title: '🔗 Linked Accounts'  },
+                { type: 'web_url',  url: kycUrl,                title: '🛡️ KYC Verification' },
+                { type: 'postback', payload: 'SETTINGS',        title: '🔙 Back'             }
             ]
         ));
     } catch (err: any) {
@@ -234,8 +240,8 @@ async function showBalance(psid: string) {
 
         const withdrawUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(p.safetag)}?viewer=${encodeURIComponent(p.safetag)}`;
         await sendMsg(psid, btnTemplate(msg, [
-            { type: 'web_url',  url: withdrawUrl,  title: '💸 Withdraw Funds'  },
-            { type: 'postback', payload: 'MAIN_MENU', title: '🔙 Main Menu'    }
+            { type: 'web_url',  url: withdrawUrl,     title: '💸 Withdraw Funds' },
+            { type: 'postback', payload: 'MAIN_MENU', title: '🔙 Main Menu'      }
         ]));
     } catch (err: any) {
         await sendMsg(psid, { text: '❌ Could not load your balance. Please try again.' });
@@ -268,14 +274,13 @@ async function showReferral(psid: string) {
             `👥 Tier 2 Referrals: ${stats.tier2Count}\n` +
             `💰 Commissions Earned:\n${earningsLines}`;
 
-        // Try to send referral card image
         const cardUrl = `${PUBLIC_API_URL}/referrals/${safetag}/card`;
         try {
             await sendMsg(psid, {
                 attachment: { type: 'image', payload: { url: cardUrl, is_reusable: true } }
             });
         } catch (_) {
-            // Image will be unavailable in dev — fall through to text
+            // Image unavailable in dev — fall through to text
         }
 
         await sendMsg(psid, { text: caption });
@@ -356,18 +361,17 @@ async function showTransactionDetail(psid: string, txnId: string) {
 
         await sendMsg(psid, { text: detail });
 
-        // Contextual actions
         const actions: Array<{ title: string; payload: string }> = [];
         if (t.status === 'PENDING_SELLER_ACCEPTANCE' && role === 'seller') {
-            actions.push({ title: '✅ Accept',     payload: `ACCEPT_TXN_${t.id}` });
-            actions.push({ title: '❌ Decline',    payload: `DECLINE_TXN_${t.id}` });
+            actions.push({ title: '✅ Accept',  payload: `ACCEPT_TXN_${t.id}`  });
+            actions.push({ title: '❌ Decline', payload: `DECLINE_TXN_${t.id}` });
         }
         if (t.status === 'ACCEPTED' && role === 'buyer') {
             const payUrl = `${REVIEWS_URL}/pay/${t.id}`;
             await sendMsg(psid, btnTemplate('Ready to pay?', [
-                { type: 'web_url', url: payUrl, title: '💳 Pay Now' },
-                { type: 'postback', payload: `DISPUTE_TXN_${t.id}`, title: '🚩 Dispute' },
-                { type: 'postback', payload: 'MY_TXNS', title: '🔙 Back' }
+                { type: 'web_url',  url: payUrl,                               title: '💳 Pay Now'  },
+                { type: 'postback', payload: `DISPUTE_TXN_${t.id}`,            title: '🚩 Dispute'  },
+                { type: 'postback', payload: 'MY_TXNS',                        title: '🔙 Back'     }
             ]));
             return;
         }
@@ -406,9 +410,9 @@ async function showCounterpartyPreview(psid: string, counterpartyProfile: any, s
         title:    safetag.substring(0, 80),
         subtitle: subtitle || 'New user',
         buttons:  [
-            { type: 'postback', title: '✅ Confirm',       payload: 'CONFIRM_COUNTERPARTY' },
-            { type: 'web_url',  url: reviewsUrl,           title: '👁️ View Reviews'        },
-            { type: 'postback', title: '❌ Cancel',         payload: 'CANCEL_TXN'          }
+            { type: 'postback', title: '✅ Confirm',   payload: 'CONFIRM_COUNTERPARTY' },
+            { type: 'web_url',  url: reviewsUrl,       title: '👁️ View Reviews'        },
+            { type: 'postback', title: '❌ Cancel',     payload: 'CANCEL_TXN'          }
         ]
     }]));
 }
@@ -458,7 +462,7 @@ async function createTransaction(psid: string) {
             currency:         fd.currency,
             fee_allocation:   fd.fee_allocation,
             transaction_type: fd.transaction_type,
-            platform:         'instagram',
+            platform:         'messenger',
             initiated_by:     fd.role
         };
         if (fd.transaction_type === 'ONE_TIME') {
@@ -561,7 +565,7 @@ async function handleRegistration(psid: string, rawText: string) {
                 last_name:        state.formData.last_name,
                 email:            state.formData.email,
                 safetag:          state.formData.safetag,
-                primary_platform: 'instagram',
+                primary_platform: 'messenger',
                 platform_id:      psid,
                 referral_code:    state.formData.referralCode
             });
@@ -582,7 +586,7 @@ async function handleLogin(psid: string, rawText: string) {
         const safetag = rawText.trim().startsWith('@') ? rawText.trim() : `@${rawText.trim()}`;
         state.formData.safetag = safetag;
         try {
-            await axios.post(`${API_URL}/auth/otp/send`, { safetag, platform: 'instagram', platform_id: psid });
+            await axios.post(`${API_URL}/auth/otp/send`, { safetag, platform: 'messenger', platform_id: psid });
             state.step = 'VERIFY_OTP';
             await sendMsg(psid, qr(
                 `🔐 OTP Verification\n\nWe've sent a 6-digit code to your email and linked accounts.\n\nPlease enter the code:`,
@@ -600,13 +604,13 @@ async function handleLogin(psid: string, rawText: string) {
         try {
             const res = await axios.post(`${API_URL}/auth/otp/verify`, {
                 safetag:     state.formData.safetag,
-                platform:    'instagram',
+                platform:    'messenger',
                 platform_id: psid,
                 otp:         rawText.trim()
             });
             const profile = res.data.profile;
             delete userStates[psid];
-            await sendMsg(psid, { text: `👋 Welcome back, ${profile.first_name || 'there'}!\n\nYour Instagram is now linked to your Safeeely account.` });
+            await sendMsg(psid, { text: `👋 Welcome back, ${profile.first_name || 'there'}!\n\nYour Messenger is now linked to your Safeeely account.` });
             await sendNextOptions(psid, [{ title: '🛒 Create Txn', payload: 'CREATE_TXN' }]);
         } catch (err: any) {
             await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Invalid code.'}\n\nPlease enter the correct code:` });
@@ -629,15 +633,14 @@ async function handleCreateTxnText(psid: string, rawText: string, message: any) 
         await sendMsg(psid, qr('📎 Send a photo or file as an attachment (optional):', [{ title: '⏭️ Skip', payload: 'SKIP_ATTACHMENT' }]));
 
     } else if (state.step === 'ASK_ATTACHMENT') {
-        // Handle text attachment URL or skip
         if (message.attachments?.length) {
             const att = message.attachments.find((a: any) => ['image', 'file', 'video'].includes(a.type));
             state.formData.attachment_url = att?.payload?.url;
         }
         state.step = 'AWAITING_CURRENCY';
         await sendMsg(psid, qr('💱 Select currency:', [
-            { title: '🇳🇬 NGN', payload: 'CURRENCY_NGN' },
-            { title: '🇺🇸 USD', payload: 'CURRENCY_USD' },
+            { title: '🇳🇬 NGN', payload: 'CURRENCY_NGN'  },
+            { title: '🇺🇸 USD', payload: 'CURRENCY_USD'  },
             { title: '🔷 USDT', payload: 'CURRENCY_USDT' }
         ]));
 
@@ -697,6 +700,8 @@ async function handleCreateTxnText(psid: string, rawText: string, message: any) 
             }
         }
     }
+
+    void text; // suppress unused variable warning
 }
 
 async function handleDisputeText(psid: string, rawText: string) {
@@ -741,7 +746,7 @@ async function submitReview(psid: string, proofUrl?: string) {
     const fd    = state.formData;
     try {
         await axios.post(`${API_URL}/reviews`, {
-            transaction_id:  fd.txnId,
+            transaction_id:   fd.txnId,
             reviewer_safetag: fd.reviewerSafetag,
             reviewee_safetag: fd.revieweeSafetag,
             rating:           fd.rating,
@@ -799,9 +804,9 @@ async function showSmartTxnDraft(psid: string, draft: SmartTransactionDraft) {
         `Does this look correct? Reply to edit or tap confirm.`;
 
     await sendMsg(psid, qr(draftText, [
-        { title: '✅ Confirm',  payload: 'SMART_TXN_CONFIRM' },
-        { title: '✏️ Edit',    payload: 'SMART_TXN_EDIT'    },
-        { title: '❌ Cancel',  payload: 'SMART_TXN_CANCEL'  }
+        { title: '✅ Confirm', payload: 'SMART_TXN_CONFIRM' },
+        { title: '✏️ Edit',   payload: 'SMART_TXN_EDIT'    },
+        { title: '❌ Cancel', payload: 'SMART_TXN_CANCEL'  }
     ]));
     if (state) state.step = 'AWAITING_SMART_CONFIRM';
 }
@@ -867,7 +872,6 @@ async function handleMessage(psid: string, message: any) {
     // If logged in and no active state → smart transaction
     try {
         await getProfile(psid);
-        // User is registered — treat free text as smart transaction
         userStates[psid] = { mode: 'SMART_TXN', step: 'PROCESSING', smartDraft: {} };
         await sendMsg(psid, { text: '🎙️ Processing your request...' });
         try {
@@ -888,7 +892,6 @@ async function handleMessage(psid: string, message: any) {
             await sendNextOptions(psid, [{ title: '🛒 Create Txn', payload: 'CREATE_TXN' }]);
         }
     } catch (_) {
-        // Not registered
         await sendWelcome(psid);
     }
 }
@@ -896,8 +899,12 @@ async function handleMessage(psid: string, message: any) {
 // ─── Postback handler ─────────────────────────────────────────────────────────
 
 async function handlePostback(psid: string, payload: string) {
+    // ── Messenger Get Started ──────────────────────────────────────────────────
+    if (payload === 'GET_STARTED') {
+        await checkAndGreet(psid);
+
     // ── Auth ──────────────────────────────────────────────────────────────────
-    if (payload === 'AGREE_POLICY') {
+    } else if (payload === 'AGREE_POLICY') {
         await sendMsg(psid, qr("🚀 Let's get started!\n\nDo you already have a Safeeely account?", [
             { title: '🆕 Register', payload: 'CHOICE_REGISTER' },
             { title: '🔗 Log In',   payload: 'CHOICE_LOGIN'    }
@@ -943,7 +950,7 @@ async function handlePostback(psid: string, payload: string) {
         const state = userStates[psid];
         if (!state?.formData?.safetag) { await sendMsg(psid, { text: "❌ Session expired. Say 'Hello' to start over." }); return; }
         try {
-            await axios.post(`${API_URL}/auth/otp/send`, { safetag: state.formData.safetag, platform: 'instagram', platform_id: psid });
+            await axios.post(`${API_URL}/auth/otp/send`, { safetag: state.formData.safetag, platform: 'messenger', platform_id: psid });
             await sendMsg(psid, { text: '✅ New code sent to your email and linked accounts.' });
         } catch (err: any) {
             await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed to resend.'}` });
@@ -1175,9 +1182,8 @@ async function handlePostback(psid: string, payload: string) {
         }
 
     } else if (payload.startsWith('REVIEW_TXN_')) {
-        // FORMAT: REVIEW_TXN_{txnId}_{revieweeSafetag}
-        const parts          = payload.replace('REVIEW_TXN_', '').split('_');
-        const txnId          = parts[0];
+        const parts           = payload.replace('REVIEW_TXN_', '').split('_');
+        const txnId           = parts[0];
         const revieweeSafetag = parts.slice(1).join('_');
         try {
             const p = await getProfile(psid);
@@ -1319,16 +1325,16 @@ async function handlePostback(psid: string, payload: string) {
                 mode: 'CREATE_TXN',
                 step: 'AWAITING_CONFIRM',
                 formData: {
-                    role:                  draft.role,
-                    transaction_type:      draft.transaction_type || 'ONE_TIME',
-                    product_name:          draft.product_name,
-                    description:           draft.description || '',
-                    currency:              draft.currency,
-                    amount:                draft.amount,
-                    milestones:            draft.milestones,
-                    fee_allocation:        draft.fee_allocation,
-                    counterparty_safetag:  safetag,
-                    counterparty_profile:  profile
+                    role:                 draft.role,
+                    transaction_type:     draft.transaction_type || 'ONE_TIME',
+                    product_name:         draft.product_name,
+                    description:          draft.description || '',
+                    currency:             draft.currency,
+                    amount:               draft.amount,
+                    milestones:           draft.milestones,
+                    fee_allocation:       draft.fee_allocation,
+                    counterparty_safetag: safetag,
+                    counterparty_profile: profile
                 }
             };
             await showCounterpartyPreview(psid, profile, safetag);
@@ -1367,7 +1373,7 @@ app.get('/webhook', (req, res) => {
 
 app.post('/webhook', async (req, res) => {
     const body = req.body;
-    if (body.object === 'instagram') {
+    if (body.object === 'page') {
         if (body.entry?.length) {
             for (const entry of body.entry) {
                 if (!entry.messaging) continue;
@@ -1390,8 +1396,8 @@ app.post('/webhook', async (req, res) => {
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
-const PORT = process.env.INSTAGRAM_PORT || 10002;
+const PORT = process.env.MESSENGER_PORT || 10004;
 app.listen(PORT, async () => {
-    console.log(`📸 Instagram Webhook listener on port ${PORT}`);
+    console.log(`💬 Messenger Webhook listener on port ${PORT}`);
     await setupMenus();
 });

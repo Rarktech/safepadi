@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
 import { sendNotification } from '../services/notifications';
+import { sendEmail } from '../services/email';
 import multer from 'multer';
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -57,8 +58,14 @@ router.post('/register', async (req, res) => {
                 .single();
 
             if (referrerData) {
-                referredById = referrerData.id;
-                console.log(`✅ Referral code resolved to ID: ${referredById}`);
+                const normalizedCode = (data.referral_code.startsWith('@') ? data.referral_code : `@${data.referral_code}`).toLowerCase();
+                const normalizedNew = (data.safetag.startsWith('@') ? data.safetag : `@${data.safetag}`).toLowerCase();
+                if (normalizedCode === normalizedNew) {
+                    console.warn(`⚠️ Self-referral attempt blocked for safetag: ${data.safetag}`);
+                } else {
+                    referredById = referrerData.id;
+                    console.log(`✅ Referral code resolved to ID: ${referredById}`);
+                }
             } else {
                 console.warn(`⚠️ Referral code not found: ${data.referral_code}. Proceeding without attribution.`);
             }
@@ -86,7 +93,6 @@ router.post('/register', async (req, res) => {
 
         console.log('✨ Profile created successfully:', profile.id);
 
-        // Link account
         console.log('🔗 Linking account...');
         const { error: linkError } = await supabase
             .from('linked_accounts')
@@ -102,6 +108,37 @@ router.post('/register', async (req, res) => {
             throw linkError;
         }
 
+        // --- EARLY BIRD BADGE ---
+        try {
+            const { count } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
+            if (count !== null && count <= 100) {
+                await supabase.from('profile_badges').insert({
+                    profile_id: profile.id,
+                    badge_key: 'early_bird'
+                });
+                console.log(`🏆 Awarded Early Bird badge to ${profile.id} (Total users: ${count})`);
+            }
+        } catch (badgeErr) {
+            console.error('Failed to award Early Bird badge:', badgeErr);
+        }
+
+        // Welcome email (non-blocking)
+        const reviewsUrl = process.env.REVIEWS_URL || 'https://safeeely.com';
+        sendEmail({
+            to: profile.email,
+            subject: `Welcome to Safeeely, ${profile.first_name || profile.safetag}!`,
+            html: `
+                <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
+                    <h2 style="color: #0f172a;">Welcome to Safeeely! 🎉</h2>
+                    <p style="color: #475569;">Hi <b>${profile.first_name || profile.safetag}</b>, your account is ready.</p>
+                    <p style="color: #475569;"><b>Your Safetag:</b> <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px;">${profile.safetag}</code></p>
+                    <p style="color: #475569;">You can use your Safetag on any of our supported platforms — Telegram, Discord, WhatsApp, and more.</p>
+                    <a href="${reviewsUrl}" style="display:inline-block;margin-top:16px;padding:12px 24px;background:#0284c7;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;">Visit Safeeely</a>
+                    <p style="font-size: 13px; color: #94a3b8; margin-top: 40px;">If you did not create this account, please contact support@safeeely.com immediately.</p>
+                </div>
+            `
+        }).catch(e => console.error('Welcome email failed:', e.message));
+
         console.log('✅ Registration complete for:', data.safetag);
         return res.status(201).json(profile);
     } catch (err: any) {
@@ -115,24 +152,33 @@ router.get('/by_platform/:platform/:id', async (req, res) => {
     const { platform, id } = req.params;
     console.log(`🔍 Lookup profile by platform: ${platform}, id: ${id}`);
 
-    const { data, error } = await supabase
+    const { data: linkedAcc, error: linkedError } = await supabase
         .from('linked_accounts')
-        .select('profile:profiles!inner(*)')
+        .select('*')
         .eq('platform', platform)
         .eq('platform_id', id)
         .maybeSingle();
 
-    if (error) {
-        console.error(`❌ Lookup error for ${platform}:${id}:`, error);
-        return res.status(500).json({ error: error.message });
+    if (linkedError) {
+        console.error(`❌ Linked account error for ${platform}:${id}:`, linkedError);
+        return res.status(500).json({ error: linkedError.message });
     }
 
-    if (!data) {
+    if (!linkedAcc) {
         console.warn(`⚠️ No linked account found for ${platform}:${id}`);
         return res.status(404).json({ error: 'Linked account not found' });
     }
 
-    const profile = (data as any).profile;
+    const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', linkedAcc.profile_id)
+        .maybeSingle();
+
+    if (profileError) {
+        console.error(`❌ Profile error for ${platform}:${id}:`, profileError);
+        return res.status(500).json({ error: profileError.message });
+    }
     console.log(`✅ Found profile for ${platform}:${id}:`, profile?.safetag);
     res.json(profile);
 });
@@ -195,33 +241,130 @@ router.get('/:safetag/balance', async (req, res) => {
 
         if (!profile) return res.status(404).json({ error: 'Profile not found' });
 
-        const { data: txns, error } = await supabase
+        const { data: txns, error: txnError } = await supabase
             .from('transactions')
-            .select('amount, currency, fee_amount, fee_allocation')
+            .select('id, amount, currency, fee_amount, fee_allocation, transaction_type, status, milestones:transaction_milestones(*)')
             .eq('seller_id', profile.id)
-            .eq('status', 'FINALIZED');
+            .or('status.eq.FINALIZED,transaction_type.eq.MILESTONE');
 
-        if (error) throw error;
+        if (txnError) throw txnError;
+
+        const { data: withdrawals, error: withdrawalError } = await supabase
+            .from('withdrawals')
+            .select('amount, currency, status')
+            .eq('profile_id', profile.id)
+            .neq('status', 'REJECTED');
+
+        if (withdrawalError) throw withdrawalError;
 
         const balances: Record<string, number> = {};
 
         txns.forEach(t => {
-            let credit = Number(t.amount);
-            if (t.fee_allocation === 'seller') {
-                credit -= Number(t.fee_amount);
-            } else if (t.fee_allocation === 'split') {
-                credit -= (Number(t.fee_amount) / 2);
+            let amountToCredit = 0;
+            
+            if (t.transaction_type === 'ONE_TIME' && t.status === 'FINALIZED') {
+                amountToCredit = Number(t.amount);
+                // Subtract fee if applicable
+                if (t.fee_allocation === 'seller') {
+                    amountToCredit -= Number(t.fee_amount);
+                } else if (t.fee_allocation === 'split') {
+                    amountToCredit -= (Number(t.fee_amount) / 2);
+                }
+            } else if (t.transaction_type === 'MILESTONE') {
+                const releasedMilestones = t.milestones?.filter((m: any) => m.status === 'RELEASED') || [];
+                const releasedTotal = releasedMilestones.reduce((sum: number, m: any) => sum + Number(m.amount), 0);
+                
+                if (releasedTotal > 0) {
+                    amountToCredit = releasedTotal;
+                    
+                    // Handle fee deduction for milestones
+                    // If the transaction is FINALIZED, we deduct the full fee.
+                    // If it's still ongoing but some milestones are released, we deduct the fee proportionally?
+                    // To keep it simple and safe for the platform, we'll deduct the FULL fee from the first release(s) 
+                    // or just deduct it proportionally. Proportionally is fairer.
+                    const totalProjectAmount = Number(t.amount);
+                    const totalFee = Number(t.fee_amount);
+                    const feeToDeduct = t.fee_allocation === 'seller' ? totalFee : (t.fee_allocation === 'split' ? totalFee / 2 : 0);
+                    
+                    if (feeToDeduct > 0 && totalProjectAmount > 0) {
+                        const proportion = releasedTotal / totalProjectAmount;
+                        amountToCredit -= (feeToDeduct * proportion);
+                    }
+                }
             }
 
-            balances[t.currency] = (balances[t.currency] || 0) + credit;
+            if (amountToCredit > 0) {
+                balances[t.currency] = (balances[t.currency] || 0) + amountToCredit;
+            }
+        });
+
+        // Add referral commission earnings
+        const { data: referralCommissions } = await supabase
+            .from('referral_commissions')
+            .select('amount, currency')
+            .eq('referrer_id', profile.id)
+            .eq('status', 'COMPLETED');
+
+        referralCommissions?.forEach((rc: any) => {
+            balances[rc.currency] = (balances[rc.currency] || 0) + Number(rc.amount);
+        });
+
+        // Subtract withdrawals
+        withdrawals?.forEach(w => {
+            if (balances[w.currency] !== undefined) {
+                balances[w.currency] -= Number(w.amount);
+            }
         });
 
         const formattedBalances = Object.entries(balances).map(([currency, amount]) => ({
             currency,
-            amount: Number(amount.toFixed(2))
+            amount: Number(Math.max(0, amount).toFixed(2)) // Ensure balance doesn't go below 0 due to rounding
         }));
 
         res.json({ balances: formattedBalances });
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// Get badges for a profile
+router.get('/:safetag/badges', async (req, res) => {
+    try {
+        const { safetag } = req.params;
+        const withAt = safetag.startsWith('@') ? safetag : `@${safetag}`;
+        const withoutAt = safetag.startsWith('@') ? safetag.slice(1) : safetag;
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('id')
+            .or(`safetag.ilike.${withAt},safetag.ilike.${withoutAt}`)
+            .maybeSingle();
+
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+        const { data: badges, error } = await supabase
+            .from('profile_badges')
+            .select('*')
+            .eq('profile_id', profile.id);
+
+        if (error) throw error;
+
+        const BADGE_CONFIG: Record<string, { label: string, emoji: string }> = {
+            'early_bird': { label: 'Early Bird', emoji: '🐣' },
+            'whale_buyer': { label: 'Whale Buyer', emoji: '🐋' },
+            'trusted_seller': { label: 'Trusted Seller', emoji: '🛡️' },
+            'zero_drama': { label: 'Zero Drama', emoji: '🕊️' },
+            'verified_kyc': { label: 'KYC Verified', emoji: '✅' }
+        };
+
+        const result = (badges || []).map(b => ({
+            key: b.badge_key,
+            label: BADGE_CONFIG[b.badge_key]?.label || b.badge_key,
+            emoji: BADGE_CONFIG[b.badge_key]?.emoji || '🏅',
+            awarded_at: b.created_at
+        }));
+
+        res.json(result);
     } catch (err: any) {
         res.status(400).json({ error: err.message });
     }

@@ -73,7 +73,7 @@ export default function AdminSidebar() {
             {/* Header */}
             <div className="p-8 pb-4">
                 <div className="flex items-center gap-2 mb-8">
-                    <img src="/sidebar-logo.png" alt="Safeeely Logo" className="h-12 w-auto object-contain drop-shadow-sm" />
+                    <img src="/logo-main.svg" alt="Safeeely Logo" className="h-12 w-auto object-contain drop-shadow-sm" />
                 </div>
             </div>
 

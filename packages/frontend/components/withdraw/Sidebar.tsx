@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { Wallet, Settings, LogOut, ArrowRightLeft, Send, Home, Activity, Users } from 'lucide-react';
 
@@ -41,7 +41,7 @@ export const SidebarContent = ({ currentView, setCurrentView, onClose }: Sidebar
                     className="flex items-center gap-2 mb-10 px-2 cursor-pointer"
                     onClick={() => handleViewChange('dashboard')}
                 >
-                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-400 to-[#16a34a] flex items-center justify-center text-white font-bold text-lg shadow-sm">S</div>
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-400 to-[#10b981] flex items-center justify-center text-white font-bold text-lg shadow-sm">S</div>
                     <span className="font-bold text-xl tracking-tight text-white">Safeeely</span>
                 </div>
 

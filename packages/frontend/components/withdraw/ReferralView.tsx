@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect } from 'react';
 import { Card as ShadcnCard, CardContent as ShadcnCardContent, CardHeader as ShadcnCardHeader, CardTitle as ShadcnCardTitle, CardDescription as ShadcnCardDescription } from "@/components/ui/card";
@@ -13,9 +13,13 @@ import api from '@/lib/api';
 import QRCode from "react-qr-code";
 import { SheetWithdrawal } from '@/components/withdraw/SheetWithdrawal';
 
-interface ReferralStats {
+interface CurrencyEarning {
+    currency: string;
     totalEarned: number;
-    availableCommission: number;
+}
+
+interface ReferralStats {
+    earningsByCurrency: CurrencyEarning[];
     tier1Count: number;
     tier2Count: number;
     recentActivity: any[];
@@ -27,18 +31,19 @@ export const ReferralView = ({ profile }: { profile: any }) => {
     const [showQr, setShowQr] = useState(false);
     const [showWithdraw, setShowWithdraw] = useState(false);
     const [stats, setStats] = useState<ReferralStats>({
-        totalEarned: 0,
-        availableCommission: 0,
+        earningsByCurrency: [],
         tier1Count: 0,
         tier2Count: 0,
         recentActivity: [],
         leaderboard: []
     });
     const [loading, setLoading] = useState(true);
+    const [rates, setRates] = useState({ tier1Percent: 10, tier2Percent: 5 });
 
     useEffect(() => {
         if (profile?.safetag) {
             fetchStats();
+            fetchRates();
         }
     }, [profile]);
 
@@ -51,6 +56,18 @@ export const ReferralView = ({ profile }: { profile: any }) => {
             toast.error('Failed to load referral stats');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchRates = async () => {
+        try {
+            const { data } = await api.get('/referrals/rates');
+            setRates({
+                tier1Percent: Math.round(data.referral_tier1_percent * 100 * 100) / 100,
+                tier2Percent: Math.round(data.referral_tier2_percent * 100 * 100) / 100,
+            });
+        } catch {
+            // Non-fatal: keep default 10%/5% display
         }
     };
 
@@ -78,19 +95,35 @@ export const ReferralView = ({ profile }: { profile: any }) => {
                     className="h-14 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-black shadow-xl px-8 flex items-center justify-center gap-2"
                 >
                     <DollarSign size={18} />
-                    Withdraw ${stats.availableCommission.toFixed(2)}
+                    Withdraw Earnings
                 </Button>
             </div>
 
             {/* Top Stats */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <ShadcnCard className="bg-gradient-to-br from-[#16a34a] to-[#10b981] border-none rounded-[32px] shadow-lg shadow-emerald-500/20 text-white overflow-hidden relative">
+                {/* Earnings — one card per currency, or empty state */}
+                <ShadcnCard className="bg-gradient-to-br from-[#10b981] to-[#10b981] border-none rounded-[32px] shadow-lg shadow-emerald-500/20 text-white overflow-hidden relative">
                     <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-white/10 rounded-full blur-2xl"></div>
                     <ShadcnCardHeader className="pb-2">
-                        <ShadcnCardDescription className="font-bold text-emerald-100 uppercase tracking-widest text-[10px]">Total Earned</ShadcnCardDescription>
-                        <ShadcnCardTitle className="text-4xl font-black tracking-tight border-none shadow-none mt-1">
-                            ${stats.totalEarned.toFixed(2)}
-                        </ShadcnCardTitle>
+                        <ShadcnCardDescription className="font-bold text-emerald-100 uppercase tracking-widest text-[10px]">Commissions Earned</ShadcnCardDescription>
+                        {stats.earningsByCurrency.length === 0 ? (
+                            <ShadcnCardTitle className="text-2xl font-black tracking-tight border-none shadow-none mt-1 text-emerald-100">
+                                None yet
+                            </ShadcnCardTitle>
+                        ) : (
+                            <div className="mt-1 space-y-1">
+                                {stats.earningsByCurrency.map((e) => (
+                                    <div key={e.currency} className="flex items-baseline gap-2">
+                                        <span className="text-3xl font-black tracking-tight">
+                                            {['USD','NGN','EUR','GBP'].includes(e.currency)
+                                                ? `${({USD:'$',NGN:'₦',EUR:'€',GBP:'£'} as Record<string,string>)[e.currency]}${e.totalEarned.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`
+                                                : `${parseFloat(e.totalEarned.toFixed(8))}`}
+                                        </span>
+                                        <span className="text-sm font-bold text-emerald-100">{e.currency}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </ShadcnCardHeader>
                     <ShadcnCardContent>
                         <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-md">
@@ -101,7 +134,7 @@ export const ReferralView = ({ profile }: { profile: any }) => {
 
                 <ShadcnCard className="bg-white border-slate-100 rounded-[32px] shadow-sm relative overflow-hidden">
                     <ShadcnCardHeader className="pb-2">
-                        <ShadcnCardDescription className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">Tier 1 Referrals (10%)</ShadcnCardDescription>
+                        <ShadcnCardDescription className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">Tier 1 Referrals ({rates.tier1Percent}%)</ShadcnCardDescription>
                         <ShadcnCardTitle className="text-4xl font-black tracking-tight text-slate-900 border-none shadow-none mt-1">
                             {stats.tier1Count}
                         </ShadcnCardTitle>
@@ -115,7 +148,7 @@ export const ReferralView = ({ profile }: { profile: any }) => {
 
                 <ShadcnCard className="bg-white border-slate-100 rounded-[32px] shadow-sm relative overflow-hidden">
                     <ShadcnCardHeader className="pb-2">
-                        <ShadcnCardDescription className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">Tier 2 Referrals (5%)</ShadcnCardDescription>
+                        <ShadcnCardDescription className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">Tier 2 Referrals ({rates.tier2Percent}%)</ShadcnCardDescription>
                         <ShadcnCardTitle className="text-4xl font-black tracking-tight text-slate-900 border-none shadow-none mt-1">
                             {stats.tier2Count}
                         </ShadcnCardTitle>
@@ -309,9 +342,7 @@ export const ReferralView = ({ profile }: { profile: any }) => {
                 isOpen={showWithdraw}
                 onClose={() => setShowWithdraw(false)}
                 safetag={profile?.safetag || ''}
-                balances={[
-                    { currency: 'USD', amount: stats.availableCommission }
-                ]}
+                balances={stats.earningsByCurrency.map(e => ({ currency: e.currency, amount: e.totalEarned }))}
                 onSuccess={() => {
                     setShowWithdraw(false);
                     toast.success('Referral earnings withdrawal submitted!');

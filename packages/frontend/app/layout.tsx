@@ -4,6 +4,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Safeeely | Secure Your Deals",
   description: "AI-powered escrow protection for social media trades, freelance gigs, and crypto.",
+  icons: {
+    icon: "/logo-mark.svg",
+  },
 };
 
 import { Toaster } from "@/components/ui/sonner";

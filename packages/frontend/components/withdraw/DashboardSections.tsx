@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { DollarSign, Bitcoin, Euro, ArrowRightLeft, Activity, Wallet } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -160,7 +160,7 @@ export const WithdrawBanner = ({ onWithdraw }: { onWithdraw?: () => void }) => (
             </div>
             <Button
                 onClick={onWithdraw}
-                className="w-full bg-[#16a34a] hover:bg-[#15803d] text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-900/20 active:scale-[0.98] transition-all"
+                className="w-full bg-[#10b981] hover:bg-[#059669] text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-900/20 active:scale-[0.98] transition-all"
             >
                 Withdraw Now
             </Button>

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState } from 'react';
 import {
@@ -176,7 +176,7 @@ export const SheetWithdrawal = ({
                             {/* Step Indicator */}
                             <div className="flex items-center gap-2 mb-10">
                                 {[1, 2, 3].map(s => (
-                                    <div key={s} className={`h-1.5 flex-1 rounded-full transition-all ${step >= s ? 'bg-[#16a34a]' : 'bg-slate-200'}`} />
+                                    <div key={s} className={`h-1.5 flex-1 rounded-full transition-all ${step >= s ? 'bg-[#10b981]' : 'bg-slate-200'}`} />
                                 ))}
                             </div>
 
@@ -192,7 +192,7 @@ export const SheetWithdrawal = ({
                                                         setSelectedCurrency(b.currency);
                                                         setWithdrawalType(['USDT', 'BTC', 'ETH'].includes(b.currency) ? 'crypto' : 'bank');
                                                     }}
-                                                    className={`p-5 rounded-3xl border-2 transition-all flex items-center gap-4 text-left ${selectedCurrency === b.currency ? 'border-[#16a34a] bg-emerald-50/50 shadow-lg shadow-emerald-500/5' : 'border-white bg-white hover:border-slate-100 shadow-sm'}`}
+                                                    className={`p-5 rounded-3xl border-2 transition-all flex items-center gap-4 text-left ${selectedCurrency === b.currency ? 'border-[#10b981] bg-emerald-50/50 shadow-lg shadow-emerald-500/5' : 'border-white bg-white hover:border-slate-100 shadow-sm'}`}
                                                 >
                                                     <div className={`w-12 h-12 rounded-2xl flex-shrink-0 flex items-center justify-center p-2 ${selectedCurrency === b.currency ? 'bg-white shadow-sm' : 'bg-slate-50'}`}>
                                                         {CURRENCY_ICONS[b.currency] || <DollarSign size={20} />}
@@ -213,7 +213,7 @@ export const SheetWithdrawal = ({
                                                 placeholder="0.00"
                                                 value={amount}
                                                 onChange={handleAmountChange}
-                                                className="h-16 bg-white border-none rounded-[24px] px-6 text-2xl font-black focus:ring-2 focus:ring-[#16a34a] transition-all shadow-sm"
+                                                className="h-16 bg-white border-none rounded-[24px] px-6 text-2xl font-black focus:ring-2 focus:ring-[#10b981] transition-all shadow-sm"
                                             />
                                             <div className="absolute right-4 top-1/2 -translate-y-1/2">
                                                 <button
@@ -221,7 +221,7 @@ export const SheetWithdrawal = ({
                                                         const bal = balances.find(b => b.currency === selectedCurrency)?.amount || 0;
                                                         setAmount(formatWithCommas(bal.toString()));
                                                     }}
-                                                    className="px-4 py-2 bg-[#16a34a] text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md shadow-emerald-500/10 active:scale-95 transition-all"
+                                                    className="px-4 py-2 bg-[#10b981] text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md shadow-emerald-500/10 active:scale-95 transition-all"
                                                 >
                                                     MAX
                                                 </button>
@@ -232,7 +232,7 @@ export const SheetWithdrawal = ({
                                     <Button
                                         onClick={() => setStep(2)}
                                         disabled={!amount || Number(amount.replace(/,/g, '')) <= 0}
-                                        className="w-full h-16 bg-[#16a34a] hover:bg-[#15803d] text-white rounded-[24px] text-lg font-black shadow-xl shadow-emerald-500/20 active:scale-[0.98] transition-all mt-4 flex items-center justify-center gap-2"
+                                        className="w-full h-16 bg-[#10b981] hover:bg-[#059669] text-white rounded-[24px] text-lg font-black shadow-xl shadow-emerald-500/20 active:scale-[0.98] transition-all mt-4 flex items-center justify-center gap-2"
                                     >
                                         Continue
                                         <ArrowRight size={20} />
@@ -253,7 +253,7 @@ export const SheetWithdrawal = ({
                                                         setSelectedMethod(m);
                                                         setWithdrawalType(m.type);
                                                     }}
-                                                    className={`w-full p-5 rounded-3xl border-2 transition-all flex items-center justify-between text-left ${selectedMethod?.id === m.id ? 'border-[#16a34a] bg-emerald-50/30' : 'border-white bg-white hover:border-slate-100 shadow-sm'}`}
+                                                    className={`w-full p-5 rounded-3xl border-2 transition-all flex items-center justify-between text-left ${selectedMethod?.id === m.id ? 'border-[#10b981] bg-emerald-50/30' : 'border-white bg-white hover:border-slate-100 shadow-sm'}`}
                                                 >
                                                     <div className="flex items-center gap-4">
                                                         <div className="w-12 h-12 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center p-2">
@@ -266,7 +266,7 @@ export const SheetWithdrawal = ({
                                                             </span>
                                                         </div>
                                                     </div>
-                                                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedMethod?.id === m.id ? 'border-[#16a34a] bg-[#16a34a]' : 'border-slate-200'}`}>
+                                                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedMethod?.id === m.id ? 'border-[#10b981] bg-[#10b981]' : 'border-slate-200'}`}>
                                                         {selectedMethod?.id === m.id && <CheckCircle2 size={16} className="text-white" />}
                                                     </div>
                                                 </button>
@@ -281,13 +281,13 @@ export const SheetWithdrawal = ({
                                                         setShowCryptoPicker(true);
                                                     }
                                                 }}
-                                                className="w-full p-5 rounded-3xl border-2 border-dashed border-slate-200 bg-white hover:border-[#16a34a] hover:bg-emerald-50/20 transition-all flex items-center gap-4 group"
+                                                className="w-full p-5 rounded-3xl border-2 border-dashed border-slate-200 bg-white hover:border-[#10b981] hover:bg-emerald-50/20 transition-all flex items-center gap-4 group"
                                             >
-                                                <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-[#16a34a] group-hover:bg-emerald-50">
+                                                <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-[#10b981] group-hover:bg-emerald-50">
                                                     <Plus size={24} />
                                                 </div>
                                                 <div className="flex flex-col text-left">
-                                                    <span className="font-bold text-[#16a34a]">Add new {withdrawalType === 'bank' ? 'bank' : 'wallet'}</span>
+                                                    <span className="font-bold text-[#10b981]">Add new {withdrawalType === 'bank' ? 'bank' : 'wallet'}</span>
                                                     <span className="text-xs text-slate-400">{withdrawalType === 'bank' ? 'Search from bank details' : 'Select asset and chain'}</span>
                                                 </div>
                                             </button>
@@ -329,7 +329,7 @@ export const SheetWithdrawal = ({
                                                     id="save"
                                                     checked={saveForFuture}
                                                     onChange={(e) => setSaveForFuture(e.target.checked)}
-                                                    className="w-5 h-5 rounded-lg border-slate-300 text-[#16a34a] focus:ring-[#16a34a]"
+                                                    className="w-5 h-5 rounded-lg border-slate-300 text-[#10b981] focus:ring-[#10b981]"
                                                 />
                                                 <label htmlFor="save" className="text-xs font-bold text-slate-500">Save for future use</label>
                                             </div>
@@ -353,7 +353,7 @@ export const SheetWithdrawal = ({
                                                         <button
                                                             key={chain}
                                                             onClick={() => setCryptoChain(chain)}
-                                                            className={`p-3 rounded-xl border-2 text-[10px] font-black uppercase tracking-wider transition-all ${cryptoChain === chain ? 'border-[#16a34a] bg-emerald-50/50 text-[#16a34a]' : 'border-slate-50 bg-slate-50 text-slate-400'}`}
+                                                            className={`p-3 rounded-xl border-2 text-[10px] font-black uppercase tracking-wider transition-all ${cryptoChain === chain ? 'border-[#10b981] bg-emerald-50/50 text-[#10b981]' : 'border-slate-50 bg-slate-50 text-slate-400'}`}
                                                         >
                                                             {chain}
                                                         </button>
@@ -377,7 +377,7 @@ export const SheetWithdrawal = ({
                                                     id="save-crypto"
                                                     checked={saveForFuture}
                                                     onChange={(e) => setSaveForFuture(e.target.checked)}
-                                                    className="w-5 h-5 rounded-lg border-slate-300 text-[#16a34a] focus:ring-[#16a34a]"
+                                                    className="w-5 h-5 rounded-lg border-slate-300 text-[#10b981] focus:ring-[#10b981]"
                                                 />
                                                 <label htmlFor="save-crypto" className="text-xs font-bold text-slate-500">Save for future use</label>
                                             </div>
@@ -443,7 +443,7 @@ export const SheetWithdrawal = ({
                                         <Button
                                             onClick={handleWithdraw}
                                             disabled={loading}
-                                            className="h-16 flex-[2] bg-[#16a34a] hover:bg-[#15803d] text-white rounded-[24px] font-black shadow-xl shadow-emerald-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                                            className="h-16 flex-[2] bg-[#10b981] hover:bg-[#059669] text-white rounded-[24px] font-black shadow-xl shadow-emerald-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
                                         >
                                             {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : 'Confirm withdrawal'}
                                         </Button>
@@ -503,7 +503,7 @@ export const SheetWithdrawal = ({
                                 placeholder="Search Banks"
                                 value={pickerSearch}
                                 onChange={(e) => setPickerSearch(e.target.value)}
-                                className="bg-white/5 border-none rounded-2xl pl-12 h-14 font-bold text-base focus-visible:ring-1 focus-visible:ring-[#16a34a]"
+                                className="bg-white/5 border-none rounded-2xl pl-12 h-14 font-bold text-base focus-visible:ring-1 focus-visible:ring-[#10b981]"
                             />
                             <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
                         </div>
@@ -542,7 +542,7 @@ export const SheetWithdrawal = ({
                                                         setSelectedBank(bank);
                                                         setShowBankPicker(false);
                                                     }}
-                                                    className="p-4 bg-[#242628] rounded-2xl flex items-center gap-3 border border-white/5 hover:border-[#16a34a]/30 transition-all text-left"
+                                                    className="p-4 bg-[#242628] rounded-2xl flex items-center gap-3 border border-white/5 hover:border-[#10b981]/30 transition-all text-left"
                                                 >
                                                     <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-1.5 flex-shrink-0">
                                                         <img src={bank.logo} className="w-full h-full object-contain" />
@@ -564,7 +564,7 @@ export const SheetWithdrawal = ({
                                                         setSelectedBank(bank);
                                                         setShowBankPicker(false);
                                                     }}
-                                                    className="w-full p-4 flex items-center gap-4 rounded-2xl bg-[#242628] border border-white/5 hover:border-[#16a34a]/30 transition-all text-left group"
+                                                    className="w-full p-4 flex items-center gap-4 rounded-2xl bg-[#242628] border border-white/5 hover:border-[#10b981]/30 transition-all text-left group"
                                                 >
                                                     <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-1.5 flex-shrink-0">
                                                         <img src={bank.logo} className="w-full h-full object-contain" />
@@ -625,7 +625,7 @@ export const SheetWithdrawal = ({
                                 placeholder="Search Coins"
                                 value={pickerSearch}
                                 onChange={(e) => setPickerSearch(e.target.value)}
-                                className="bg-white/5 border-none rounded-2xl pl-12 h-14 font-bold text-lg focus-visible:ring-1 focus-visible:ring-[#16a34a]"
+                                className="bg-white/5 border-none rounded-2xl pl-12 h-14 font-bold text-lg focus-visible:ring-1 focus-visible:ring-[#10b981]"
                             />
                             <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
                         </div>
@@ -669,7 +669,7 @@ export const SheetWithdrawal = ({
                                                         setShowCryptoPicker(false);
                                                         setCryptoChain(asset.chains[0]);
                                                     }}
-                                                    className="p-4 bg-[#242628] rounded-2xl flex items-center gap-3 border border-white/5 hover:border-[#16a34a]/30 transition-all text-left"
+                                                    className="p-4 bg-[#242628] rounded-2xl flex items-center gap-3 border border-white/5 hover:border-[#10b981]/30 transition-all text-left"
                                                 >
                                                     <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-1.5 flex-shrink-0">
                                                         <img src={asset.logo} className="w-full h-full object-contain" />

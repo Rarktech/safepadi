@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude mcp *)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\user\\\\Desktop\\\\safepadi\" -Directory | Select-Object -First 20 | ForEach-Object { $_.FullName })",
+      "Bash(curl -s http://localhost:3000/api/referrals/rates)",
+      "Bash(curl -s \"http://localhost:3000/api/referrals/rarktech/stats\")",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const o=JSON.parse\\(d\\);console.log\\(JSON.stringify\\({earningsByCurrency:o.earningsByCurrency,tier1Count:o.tier1Count,tier2Count:o.tier2Count},null,2\\)\\)}\\)\")",
+      "Bash(curl -s http://localhost:3000/api/referrals/rarktech/stats)",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const o=JSON.parse\\(d\\);console.log\\('Keys:', Object.keys\\(o\\).join\\(', '\\)\\);console.log\\('earningsByCurrency:', JSON.stringify\\(o.earningsByCurrency\\)\\)}\\)\")",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const o=JSON.parse\\(d\\);console.log\\('Keys:', Object.keys\\(o\\).join\\(', '\\)\\)}\\)\")",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const o=JSON.parse\\(d\\);console.log\\('earningsByCurrency' in o ? '✅ NEW API active' : '❌ OLD API still running'\\)}\\)\")",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\user\\\\Desktop\\\\safepadi\" -Recurse -Directory | Where-Object { $_.Name -match \"\\(telegram|discord|shared\\)\" } | Select-Object -ExpandProperty FullName | Select-Object -First 20)",
+      "Bash(npx ts-node *)",
+      "Bash(npx tsc *)"
+    ]
+  },
+  "disabledMcpjsonServers": [
+    "supabase",
+    "playwright"
+  ]
+}

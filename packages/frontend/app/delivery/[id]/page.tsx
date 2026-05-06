@@ -245,7 +245,7 @@ export default function DeliveryPortalPage() {
                             <Button
                                 onClick={handleConfirmReceipt}
                                 disabled={confirming}
-                                className="bg-[#16a34a] hover:bg-[#15803d] text-white font-black h-16 rounded-[24px] text-lg shadow-xl shadow-green-200 flex items-center gap-3 w-full"
+                                className="bg-[#10b981] hover:bg-[#059669] text-white font-black h-16 rounded-[24px] text-lg shadow-xl shadow-green-200 flex items-center gap-3 w-full"
                             >
                                 {confirming ? (
                                     <Loader2 className="w-6 h-6 animate-spin" />

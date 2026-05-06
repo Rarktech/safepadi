@@ -7,7 +7,8 @@ export const registrationScene = new Scenes.WizardScene(
     'registration_wizard',
     // Step 0: Privacy Policy Agreement
     async (ctx: any) => {
-        const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
+        let reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
+        if (reviewsUrl.includes('localhost')) reviewsUrl = reviewsUrl.replace('localhost', '127.0.0.1');
         await ctx.reply('👋 <b>Welcome to Safeeely!</b>\n\nYour trusted escrow service for secure social media transactions.\n\n🔒 Secure | 🌍 Cross-Platform | ⚡ Fast\n\nBefore we begin, please review and agree to our Privacy Policy to protect your data.', {
             parse_mode: 'HTML',
             reply_markup: {
@@ -134,22 +135,63 @@ export const registrationScene = new Scenes.WizardScene(
             return;
         }
         ctx.wizard.state.formData.email = email;
-        await ctx.reply(`📝 Registration Step 4/8\n\n📧 We've sent a verification code to: ${email}\n\nPlease enter the 6-digit code: (Enter 123456 to bypass)`);
-        return ctx.wizard.next();
+        try {
+            await axios.post(`${API_URL}/auth/email-otp/send`, { email });
+            await ctx.reply(`📝 Registration Step 4/8\n\n📧 We've sent a verification code to: ${email}\n\nPlease enter the 6-digit code:`, {
+                reply_markup: {
+                    inline_keyboard: [[{ text: '🔄 Resend Code', callback_data: 'resend_email_otp' }]]
+                }
+            });
+            return ctx.wizard.next();
+        } catch (err: any) {
+            await ctx.reply(`❌ ${err.response?.data?.error || 'Failed to send verification code. Please try again.'}`);
+        }
     },
     // Step 6: Handle Email OTP (Reg)
     async (ctx: any) => {
-        const otp = ctx.message.text;
-        if (otp !== '123456') {
-            await ctx.reply('❌ Invalid code\n\nPlease enter 123456 to continue:');
-            return;
+        if (ctx.callbackQuery?.data === 'resend_email_otp') {
+            await ctx.answerCbQuery();
+            try {
+                await axios.post(`${API_URL}/auth/email-otp/send`, { email: ctx.wizard.state.formData.email });
+                await ctx.reply('✅ New verification code sent to your email.');
+            } catch (err: any) {
+                await ctx.reply(`❌ ${err.response?.data?.error || 'Failed to resend. Please try again.'}`);
+            }
+            return; // stay on this step
         }
-        await ctx.reply('📝 Registration Step 5/8\n\n✏️ Choose Your Safetag\n\nPlease enter your preferred Safetag (e.g. @john_doe):');
-        return ctx.wizard.next();
+        const code = ctx.message?.text;
+        if (!code) return;
+        try {
+            await axios.post(`${API_URL}/auth/email-otp/verify`, { email: ctx.wizard.state.formData.email, code });
+            await ctx.reply('📝 Registration Step 5/8\n\n✏️ Choose Your Safetag\n\nPlease enter your preferred Safetag (e.g. @john_doe):');
+            return ctx.wizard.next();
+        } catch (err: any) {
+            await ctx.reply(`❌ ${err.response?.data?.error || 'Invalid code.'}\n\nPlease enter the correct 6-digit code:`, {
+                reply_markup: {
+                    inline_keyboard: [[{ text: '🔄 Resend Code', callback_data: 'resend_email_otp' }]]
+                }
+            });
+        }
     },
     // Step 7: Finalize Registration
     async (ctx: any) => {
+        if (!ctx.message?.text) return;
         const safetag = ctx.message.text.startsWith('@') ? ctx.message.text : `@${ctx.message.text}`;
+
+        // Check safetag availability before the final API call
+        try {
+            await axios.get(`${API_URL}/profiles/by_safetag/${encodeURIComponent(safetag)}`);
+            // If no error, safetag is taken
+            await ctx.reply(`❌ Safetag ${safetag} is already taken.\n\nPlease choose a different one:`);
+            return;
+        } catch (err: any) {
+            if (err.response?.status !== 404) {
+                await ctx.reply('❌ Could not verify safetag availability. Please try again.');
+                return;
+            }
+            // 404 = available, continue
+        }
+
         ctx.wizard.state.formData.safetag = safetag;
 
         try {

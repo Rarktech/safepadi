@@ -1,0 +1,23 @@
+{
+  "name": "@safepal/messenger",
+  "version": "1.0.0",
+  "description": "Safeeely Facebook Messenger Bot",
+  "main": "src/bot.ts",
+  "scripts": {
+    "start": "npx ts-node --transpile-only -r tsconfig-paths/register src/bot.ts",
+    "dev": "nodemon --watch src -e ts,json --exec ts-node src/bot.ts"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.4",
+    "nodemon": "^3.0.2",
+    "ts-node": "^10.9.1",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.3.3"
+  }
+}

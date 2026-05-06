@@ -489,7 +489,7 @@ router.get('/customers/:id', async (req, res) => {
         const { count: referralCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('referred_by_id', id);
         
         // Fetch Referral Commissions
-        const { data: commissions } = await supabase.from('referral_commissions').select('amount').eq('referrer_id', id).eq('status', 'PAID');
+        const { data: commissions } = await supabase.from('referral_commissions').select('amount').eq('referrer_id', id).eq('status', 'COMPLETED');
         const referralEarned = commissions?.reduce((s, c) => s + Number(c.amount), 0) || 0;
 
         // Fetch Withdrawals for Balance Calculation
@@ -1069,6 +1069,88 @@ router.post('/kyc/:id/reject', async (req, res) => {
 
         res.json({ success: true, message: 'KYC rejected' });
     } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- PLATFORM SETTINGS ---
+
+router.get('/settings', async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('platform_settings')
+            .select('key, value');
+        if (error) throw error;
+
+        const settings: Record<string, number> = {};
+        (data || []).forEach((row: any) => {
+            settings[row.key] = parseFloat(row.value);
+        });
+        res.json(settings);
+    } catch (err: any) {
+        console.error('GET /admin/settings error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.patch('/settings', async (req, res) => {
+    try {
+        const adminReq = req as any;
+        if (adminReq.admin?.role !== 'SUPER_ADMIN') {
+            return res.status(403).json({ error: 'Only Super Admins can modify platform settings' });
+        }
+
+        const allowed = ['platform_fee_rate', 'referral_tier1_percent', 'referral_tier2_percent'];
+        const updates = req.body as Record<string, number>;
+
+        const unknownKeys = Object.keys(updates).filter(k => !allowed.includes(k));
+        if (unknownKeys.length > 0) {
+            return res.status(400).json({ error: `Unknown settings keys: ${unknownKeys.join(', ')}` });
+        }
+
+        const feeRate = updates.platform_fee_rate ?? null;
+        const t1 = updates.referral_tier1_percent ?? null;
+        const t2 = updates.referral_tier2_percent ?? null;
+
+        if (feeRate !== null && (feeRate < 0 || feeRate > 0.50)) {
+            return res.status(400).json({ error: 'platform_fee_rate must be between 0 and 0.50 (0–50%)' });
+        }
+        if (t1 !== null && (t1 < 0 || t1 > 1)) {
+            return res.status(400).json({ error: 'referral_tier1_percent must be between 0 and 1 (0–100%)' });
+        }
+        if (t2 !== null && (t2 < 0 || t2 > 1)) {
+            return res.status(400).json({ error: 'referral_tier2_percent must be between 0 and 1 (0–100%)' });
+        }
+
+        if (t1 !== null || t2 !== null) {
+            const { data: current } = await supabase
+                .from('platform_settings')
+                .select('key, value')
+                .in('key', ['referral_tier1_percent', 'referral_tier2_percent']);
+
+            const currentMap: Record<string, number> = {};
+            (current || []).forEach((r: any) => { currentMap[r.key] = parseFloat(r.value); });
+
+            const effectiveTier1 = t1 !== null ? t1 : (currentMap['referral_tier1_percent'] ?? 0.10);
+            const effectiveTier2 = t2 !== null ? t2 : (currentMap['referral_tier2_percent'] ?? 0.05);
+
+            if (effectiveTier1 + effectiveTier2 > 1.0) {
+                return res.status(400).json({
+                    error: `Tier 1 (${(effectiveTier1 * 100).toFixed(2)}%) + Tier 2 (${(effectiveTier2 * 100).toFixed(2)}%) cannot exceed 100% of the platform fee`
+                });
+            }
+        }
+
+        for (const [key, value] of Object.entries(updates)) {
+            const { error } = await supabase
+                .from('platform_settings')
+                .upsert({ key, value: String(value), updated_at: new Date().toISOString() });
+            if (error) throw error;
+        }
+
+        res.json({ success: true, message: 'Settings updated successfully' });
+    } catch (err: any) {
+        console.error('PATCH /admin/settings error:', err);
         res.status(500).json({ error: err.message });
     }
 });

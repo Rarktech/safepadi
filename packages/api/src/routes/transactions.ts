@@ -26,7 +26,12 @@ const CreateTransactionSchema = z.object({
     amount: z.number(),
     currency: z.string(),
     fee_allocation: z.enum(['buyer', 'seller', 'split']),
-    initiator_safetag: z.string().optional()
+    initiator_safetag: z.string().optional(),
+    transaction_type: z.enum(['ONE_TIME', 'MILESTONE']).default('ONE_TIME'),
+    milestones: z.array(z.object({
+        title: z.string(),
+        amount: z.number()
+    })).optional()
 });
 
 router.post('/create', async (req, res) => {
@@ -50,8 +55,18 @@ router.post('/create', async (req, res) => {
             return res.status(400).json({ error: 'USER_BLOCKED', safetag: data.seller_safetag, party: 'seller' });
         }
 
-        // Calculate fees (mock 5%)
-        const feeRate = 0.05;
+        // Fetch platform fee rate from admin settings (fallback: 5%)
+        let feeRate = 0.05;
+        try {
+            const { data: feeRateSetting } = await supabase
+                .from('platform_settings')
+                .select('value')
+                .eq('key', 'platform_fee_rate')
+                .single();
+            if (feeRateSetting) feeRate = parseFloat(feeRateSetting.value);
+        } catch {
+            console.warn('Could not load platform_fee_rate from settings, using default 5%');
+        }
         const feeAmount = data.amount * feeRate;
         const totalAmount = data.fee_allocation === 'buyer' ? data.amount + feeAmount : data.amount;
 
@@ -80,13 +95,29 @@ router.post('/create', async (req, res) => {
                     fee_allocation: data.fee_allocation,
                     fee_amount: feeAmount,
                     total_amount: totalAmount,
-                    status: 'PENDING_SELLER_ACCEPTANCE'
+                    status: 'PENDING_SELLER_ACCEPTANCE',
+                    transaction_type: data.transaction_type
                 })
                 .select()
                 .single();
 
             if (!insertError) {
                 txn = newTxn;
+                if (data.transaction_type === 'MILESTONE' && data.milestones && data.milestones.length > 0) {
+                    const milestoneInserts = data.milestones.map((m, idx) => ({
+                        transaction_id: txn.id,
+                        index_num: idx + 1,
+                        title: m.title,
+                        amount: m.amount,
+                        status: 'PENDING'
+                    }));
+                    const { error: milestoneError } = await supabase
+                        .from('transaction_milestones')
+                        .insert(milestoneInserts);
+                    if (milestoneError) {
+                        console.error('❌ Failed to insert milestones:', milestoneError);
+                    }
+                }
                 break;
             }
 
@@ -108,7 +139,8 @@ router.post('/create', async (req, res) => {
         console.log('✨ Transaction record created:', txn.txn_code);
 
         // Determine who to notify: Notify the person who is NOT the one who initiated.
-        const isBuyerInitiated = data.initiator_safetag === data.buyer_safetag || !data.initiator_safetag;
+        const normTag = (tag: string) => tag.startsWith('@') ? tag : `@${tag}`;
+        const isBuyerInitiated = !data.initiator_safetag || normTag(data.initiator_safetag) === normTag(data.buyer_safetag);
         const recipientId = isBuyerInitiated ? seller.id : buyer.id;
         const recipientTag = isBuyerInitiated ? data.seller_safetag : data.buyer_safetag;
         const initiatorTag = isBuyerInitiated ? data.buyer_safetag : data.seller_safetag;
@@ -140,7 +172,15 @@ router.post('/create', async (req, res) => {
             const isVerified = initiatorProfile?.kyc_status === 'VERIFIED';
             const verifiedLabel = isVerified ? '✅Verified' : '❌ Verified';
 
-            const msg = `🔔 <b>New Transaction Request!</b>\n\nYou've received a transaction request from <b>${otherTag} (${verifiedLabel})</b>\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txnCode}</b>\n${isBuyerInitiated ? '🛒' : '💼'} Product/Service: <b>${data.product_name}</b>\n📝 Description: ${data.description || 'N/A'}\n💰 Amount: <b>${data.amount} ${data.currency}</b>\n💵 Fee: <b>${feeAmount.toFixed(2)} ${data.currency}</b> (${data.fee_allocation})\n💳 Total: <b>${totalAmount.toFixed(2)} ${data.currency}</b>\n👤 ${who}: <code>${otherTag}</code> (${verifiedLabel})\n⭐ ${who} Rating: ${avgR} ${avgR === 'No' ? 'reviews yet' : `/ 5 (${rCount} reviews)`}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+            const isMilestone = data.transaction_type === 'MILESTONE';
+            const projectType = isMilestone ? '🪜 Milestone Project' : (isBuyerInitiated ? '🛒 Product' : '💼 Service');
+            
+            let milestoneText = '';
+            if (isMilestone && data.milestones) {
+                milestoneText = `\n📍 **Phases:**\n` + data.milestones.map((m, i) => `   ${i+1}. ${m.title} (${m.amount} ${data.currency})`).join('\n');
+            }
+
+            const msg = `🔔 <b>New Transaction Request!</b>\n\nYou've received a transaction request from <b>${otherTag} (${verifiedLabel})</b>\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txnCode}</b>\n${projectType}: <b>${data.product_name}</b>\n📝 Description: ${data.description || 'N/A'}${milestoneText}\n💰 Total Amount: <b>${data.amount} ${data.currency}</b>\n💵 Fee: <b>${feeAmount.toFixed(2)} ${data.currency}</b> (${data.fee_allocation})\n💳 Escrow Total: <b>${totalAmount.toFixed(2)} ${data.currency}</b>\n👤 ${who}: <code>${otherTag}</code> (${verifiedLabel})\n⭐ ${who} Rating: ${avgR} ${avgR === 'No' ? 'reviews yet' : `/ 5 (${rCount} reviews)`}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
             sendNotification(linkedAccounts.platform, linkedAccounts.platform_id, msg, [
                 { label: '✅ Accept', customId: `txn_action_accept|${txn.id}` },
@@ -206,7 +246,7 @@ router.get('/:id', async (req, res) => {
             console.log('  -> Step: Code Lookup');
             const result = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('txn_code', id)
                 .single();
             data = result.data;
@@ -215,7 +255,7 @@ router.get('/:id', async (req, res) => {
             console.log('  -> Step: UUID Lookup');
             const result = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('id', id)
                 .single();
             data = result.data;
@@ -224,7 +264,7 @@ router.get('/:id', async (req, res) => {
             console.log('  -> Step: Fallback Lookup');
             const result = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('txn_code', id)
                 .single();
             data = result.data;
@@ -326,7 +366,7 @@ router.patch('/:id/status', async (req, res) => {
         if (id.startsWith('TXN-')) {
             const result = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('txn_code', id)
                 .single();
             txn = result.data;
@@ -334,7 +374,7 @@ router.patch('/:id/status', async (req, res) => {
         } else if (isUUID(id)) {
             const result = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('id', id)
                 .single();
             txn = result.data;
@@ -342,7 +382,7 @@ router.patch('/:id/status', async (req, res) => {
         } else {
             const retry = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('txn_code', id)
                 .single();
             txn = retry.data;
@@ -413,6 +453,22 @@ router.patch('/:id/status', async (req, res) => {
                 const buyerId = txn.buyer_id;
 
                 if (buyerId && txn.fee_amount > 0) {
+                    // Fetch referral commission rates from admin settings (fallback: 10% / 5%)
+                    let tier1Percent = 0.10;
+                    let tier2Percent = 0.05;
+                    try {
+                        const { data: rateSettings } = await supabase
+                            .from('platform_settings')
+                            .select('key, value')
+                            .in('key', ['referral_tier1_percent', 'referral_tier2_percent']);
+                        (rateSettings || []).forEach((s: any) => {
+                            if (s.key === 'referral_tier1_percent') tier1Percent = parseFloat(s.value);
+                            if (s.key === 'referral_tier2_percent') tier2Percent = parseFloat(s.value);
+                        });
+                    } catch {
+                        console.warn('Could not load referral percentages from settings, using defaults');
+                    }
+
                     // Fetch the buyer's Tier 1 Referrer
                     const { data: buyerProfile } = await supabase
                         .from('profiles')
@@ -422,7 +478,7 @@ router.patch('/:id/status', async (req, res) => {
 
                     if (buyerProfile && buyerProfile.referred_by_id) {
                         const tier1ReferrerId = buyerProfile.referred_by_id;
-                        const tier1Amount = txn.fee_amount * 0.10; // 10%
+                        const tier1Amount = txn.fee_amount * tier1Percent;
 
                         // Insert Tier 1
                         await supabase.from('referral_commissions').insert({
@@ -445,7 +501,7 @@ router.patch('/:id/status', async (req, res) => {
 
                         if (tier1Profile && tier1Profile.referred_by_id) {
                             const tier2ReferrerId = tier1Profile.referred_by_id;
-                            const tier2Amount = txn.fee_amount * 0.05; // 5%
+                            const tier2Amount = txn.fee_amount * tier2Percent;
 
                             // Insert Tier 2
                             await supabase.from('referral_commissions').insert({
@@ -467,6 +523,62 @@ router.patch('/:id/status', async (req, res) => {
             }
         }
         // --- END COMMISSION ENGINE ---
+
+        // --- GAMIFIED BADGES ENGINE ---
+        if (newStatus === 'FINALIZED') {
+            try {
+                // Background execution, don't await blocking to prevent slowing down the request
+                const checkAndAwardBadges = async (sellerId: string, buyerId: string) => {
+                    try {
+                        // 1. Check Whale Buyer
+                        const { data: buyerTxns } = await supabase.from('transactions').select('total_amount').eq('buyer_id', buyerId).eq('status', 'FINALIZED');
+                        if (buyerTxns) {
+                            const totalSpent = buyerTxns.reduce((sum, t) => sum + Number(t.total_amount), 0);
+                            if (totalSpent >= 1000000) {
+                                const { error: e1 } = await supabase.from('profile_badges').insert({ profile_id: buyerId, badge_key: 'whale_buyer' });
+                                if (!e1) console.log(`🏆 Awarded Whale Buyer badge to ${buyerId}`);
+                            }
+                        }
+                        
+                        // 2. Check Trusted Seller & Zero Drama
+                        const { data: sellerTxns } = await supabase.from('transactions').select('id, status').eq('seller_id', sellerId);
+                        if (sellerTxns) {
+                            const finalizedCount = sellerTxns.filter((t) => t.status === 'FINALIZED').length;
+                            
+                            // Zero Drama: 20 completed, no disputes
+                            // Since disputes are linked by transaction_id
+                            const txnIds = sellerTxns.map(t => t.id);
+                            if (txnIds.length > 0 && finalizedCount >= 20) {
+                                const { data: sellerDisputes } = await supabase.from('disputes').select('id').in('transaction_id', txnIds);
+                                if (!sellerDisputes || sellerDisputes.length === 0) {
+                                    const { error: e2 } = await supabase.from('profile_badges').insert({ profile_id: sellerId, badge_key: 'zero_drama' });
+                                    if (!e2) console.log(`🏆 Awarded Zero Drama badge to ${sellerId}`);
+                                }
+                            }
+                            
+                            // Trusted Seller: 10 completed, rating > 4.5
+                            if (finalizedCount >= 10) {
+                                const { data: sellerReviews } = await supabase.from('reviews').select('rating').eq('reviewee_id', sellerId);
+                                if (sellerReviews && sellerReviews.length > 0) {
+                                    const avgRating = sellerReviews.reduce((sum, r) => sum + r.rating, 0) / sellerReviews.length;
+                                    if (avgRating >= 4.5) {
+                                        const { error: e3 } = await supabase.from('profile_badges').insert({ profile_id: sellerId, badge_key: 'trusted_seller' });
+                                        if (!e3) console.log(`🏆 Awarded Trusted Seller badge to ${sellerId}`);
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Badge awarding logic failed:', e);
+                    }
+                };
+                
+                checkAndAwardBadges(txn.seller_id, txn.buyer_id);
+            } catch (badgeErr) {
+                console.error('❌ Failed to trigger badges check:', badgeErr);
+            }
+        }
+        // --- END GAMIFIED BADGES ENGINE ---
 
         // Notify the OTHER party
         let effectiveUpdaterTag = updater_safetag;
@@ -639,6 +751,82 @@ router.patch('/:id/status', async (req, res) => {
     }
 });
 
+router.patch('/:id/milestones/:mId/status', async (req, res) => {
+    try {
+        const { id, mId } = req.params;
+        const { status, proof_url } = req.body; // status can be COMPLETED, RELEASED
+
+        const { data: txn } = await supabase
+            .from('transactions')
+            .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
+            .eq('id', id)
+            .single();
+
+        if (!txn) return res.status(404).json({ error: 'Transaction not found' });
+
+        const milestone = txn.milestones?.find((m: any) => m.id === mId);
+        if (!milestone) return res.status(404).json({ error: 'Milestone not found' });
+
+        const updates: any = { status };
+        if (proof_url) updates.proof_url = proof_url;
+        updates.updated_at = new Date().toISOString();
+
+        const { error: updateError } = await supabase
+            .from('transaction_milestones')
+            .update(updates)
+            .eq('id', mId);
+
+        if (updateError) throw updateError;
+
+        // Parent status logic
+        let newParentStatus = txn.status;
+        const allMilestones = txn.milestones.map((m: any) => m.id === mId ? { ...m, ...updates } : m);
+        
+        const allCompletedOrReleased = allMilestones.every((m: any) => m.status === 'COMPLETED' || m.status === 'RELEASED');
+        const allReleased = allMilestones.every((m: any) => m.status === 'RELEASED');
+
+        if (allReleased) {
+            newParentStatus = 'FINALIZED';
+            // Here we should trigger the full finalize logic (like in /status)
+            // For now, update the parent status
+            await supabase.from('transactions').update({ status: 'FINALIZED' }).eq('id', txn.id);
+        } else if (allCompletedOrReleased) {
+            newParentStatus = 'AWAITING_PROOF'; // or COMPLETED_BY_SELLER
+            await supabase.from('transactions').update({ status: 'COMPLETED_BY_SELLER' }).eq('id', txn.id);
+        }
+
+        // Notify counterparties based on the action
+        try {
+            const buyerMsg = status === 'COMPLETED' 
+                ? `📦 <b>Milestone Completed</b>\n\nThe seller has marked "<b>${milestone.title}</b>" as completed. Please review and release the funds if satisfied.`
+                : `💸 <b>Milestone Released</b>\n\nYou have released the funds for "<b>${milestone.title}</b>".`;
+            
+            const sellerMsg = status === 'COMPLETED'
+                ? `✅ <b>Milestone Submitted</b>\n\nYou've marked "<b>${milestone.title}</b>" as completed. Awaiting buyer's release.`
+                : `💰 <b>Funds Received!</b>\n\nThe buyer has released the funds for "<b>${milestone.title}</b>". They are now available in your balance.`;
+
+            const buyerAcc = await supabase.from('linked_accounts').select('*').eq('profile_id', txn.buyer_id).eq('is_primary', true).maybeSingle();
+            const sellerAcc = await supabase.from('linked_accounts').select('*').eq('profile_id', txn.seller_id).eq('is_primary', true).maybeSingle();
+
+            if (buyerAcc.data) await sendNotification(buyerAcc.data.platform, buyerAcc.data.platform_id, buyerMsg);
+            if (sellerAcc.data) await sendNotification(sellerAcc.data.platform, sellerAcc.data.platform_id, sellerMsg);
+
+            if (allReleased) {
+                 const finalMsg = `🎉 <b>Project Finalized!</b>\n\nAll milestones for "<b>${txn.product_name}</b>" have been completed and released. The transaction is now officially finalized.`;
+                 if (buyerAcc.data) await sendNotification(buyerAcc.data.platform, buyerAcc.data.platform_id, finalMsg);
+                 if (sellerAcc.data) await sendNotification(sellerAcc.data.platform, sellerAcc.data.platform_id, finalMsg);
+            }
+        } catch (e: any) {
+            console.error('Milestone notification error:', e.message);
+        }
+
+        res.json({ success: true, parent_status: newParentStatus });
+    } catch (err: any) {
+        console.error('🔥 Milestone Status Error:', err.message);
+        res.status(400).json({ error: err.message });
+    }
+});
+
 router.post('/:id/upload-proofs', async (req, res) => {
     const { id } = req.params;
     const { proofs } = req.body;
@@ -649,7 +837,7 @@ router.post('/:id/upload-proofs', async (req, res) => {
         if (typeof id === 'string' && id.startsWith('TXN-')) {
             const result = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('txn_code', id)
                 .single();
             txn = result.data;
@@ -657,7 +845,7 @@ router.post('/:id/upload-proofs', async (req, res) => {
         } else if (isUUID(id)) {
             const result = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('id', id)
                 .single();
             txn = result.data;
@@ -665,7 +853,7 @@ router.post('/:id/upload-proofs', async (req, res) => {
         } else {
             const result = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('txn_code', id)
                 .single();
             txn = result.data;
@@ -753,7 +941,7 @@ router.post('/:id/upload-proof', async (req, res) => {
         if (typeof id === 'string' && id.startsWith('TXN-')) {
             const result = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('txn_code', id)
                 .single();
             txn = result.data;
@@ -761,7 +949,7 @@ router.post('/:id/upload-proof', async (req, res) => {
         } else if (isUUID(id)) {
             const result = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('id', id)
                 .single();
             txn = result.data;
@@ -769,7 +957,7 @@ router.post('/:id/upload-proof', async (req, res) => {
         } else {
             const result = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('txn_code', id)
                 .single();
             txn = result.data;
@@ -847,7 +1035,7 @@ router.post('/:id/pay', async (req, res) => {
         if (typeof id === 'string' && id.startsWith('TXN-')) {
             const result = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('txn_code', id)
                 .single();
             txn = result.data;
@@ -855,7 +1043,7 @@ router.post('/:id/pay', async (req, res) => {
         } else if (isUUID(id)) {
             const result = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('id', id)
                 .single();
             txn = result.data;
@@ -863,7 +1051,7 @@ router.post('/:id/pay', async (req, res) => {
         } else {
             const result = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('txn_code', id)
                 .single();
             txn = result.data;
@@ -940,7 +1128,7 @@ router.post('/:id/initialize-payment', async (req, res) => {
         if (typeof id === 'string' && id.startsWith('TXN-')) {
             const result = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('txn_code', id)
                 .single();
             txn = result.data;
@@ -948,7 +1136,7 @@ router.post('/:id/initialize-payment', async (req, res) => {
         } else if (isUUID(id)) {
             const result = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('id', id)
                 .single();
             txn = result.data;
@@ -956,7 +1144,7 @@ router.post('/:id/initialize-payment', async (req, res) => {
         } else {
             const result = await supabase
                 .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                 .eq('txn_code', id)
                 .single();
             txn = result.data;

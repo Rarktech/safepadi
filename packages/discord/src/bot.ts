@@ -3,6 +3,7 @@ import * as dotenv from 'dotenv';
 import axios from 'axios';
 import path from 'path';
 import http from 'http';
+import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
 
 if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
@@ -98,6 +99,8 @@ process.on('uncaughtException', (error) => {
 
 const reviewStates = new Collection<string, { txnId: string, stars?: number, proofUrl?: string, role?: string }>();
 const AWAITING_REVIEW_REMARK = new Collection<string, boolean>();
+const smartTxnSessions = new Collection<string, SmartTransactionDraft>();
+const regDrafts = new Collection<string, { firstName: string, lastName: string, email: string, safetag: string, referralCode: string }>();
 const txnDrafts = new Collection<string, {
     role: string,
     product: string,
@@ -105,7 +108,9 @@ const txnDrafts = new Collection<string, {
     currency?: string,
     amount?: string,
     other?: string,
-    fee_allocation?: string
+    fee_allocation?: string,
+    transaction_type?: 'ONE_TIME' | 'MILESTONE',
+    milestones?: { title: string, amount: number }[]
 }>();
 
 const formatMessageForDiscord = (text: string): string => {
@@ -162,38 +167,163 @@ client.on('messageCreate', async (message) => {
 
     console.log(`💬 Discord msg from ${message.author.tag}: ${message.content}`);
 
-    // Handle Image Proof Uploads (Delivery or Review)
+    // Handle Attachments (Proof Images vs AI Voice Notes)
     if (message.attachments.size > 0) {
+        const attachment = message.attachments.first()!;
+        const isImage = attachment.contentType?.startsWith('image/') || attachment.name.toLowerCase().endsWith('.png') || attachment.name.toLowerCase().endsWith('.jpg') || attachment.name.toLowerCase().endsWith('.jpeg');
+        const isAudio = attachment.contentType?.startsWith('audio/') || attachment.name.toLowerCase().endsWith('.ogg') || attachment.name.toLowerCase().endsWith('.mp3') || attachment.name.toLowerCase().includes('voice-message');
+
         try {
             const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${message.author.id}`);
             const mySafetag = profileRes.data.safetag;
 
-            // Check if user is in review flow and awaiting proof
-            const reviewState = reviewStates.get(message.author.id);
-            if (reviewState && reviewState.stars && !reviewState.proofUrl) {
-                reviewState.proofUrl = message.attachments.first()?.url;
-                await message.reply('✅ **Proof Attached!** Now, please provide a brief remark/comment for your review:');
-                AWAITING_REVIEW_REMARK.set(message.author.id, true);
+            // 🎙️ VOICE AI: If it's audio, process as Smart Transaction
+            if (isAudio) {
+                await message.reply("🎙️ **Processing your voice request...**");
+                try {
+                    const response = await axios.get(attachment.url, { responseType: 'arraybuffer' });
+                    const audioBuffer = Buffer.from(response.data);
+                    const mimeType = attachment.contentType || 'audio/ogg';
+
+                    const existingDraft = smartTxnSessions.get(message.author.id);
+                    const aiResult = await processSmartTransaction('', audioBuffer, mimeType, existingDraft);
+                    
+                    smartTxnSessions.set(message.author.id, aiResult.draft);
+
+                    if (aiResult.is_complete) {
+                        const draft = aiResult.draft;
+                        const desc = draft.description ? `\n📝 **Description:** ${draft.description}` : '';
+                        
+                        let milestoneText = '';
+                        if (draft.transaction_type === 'MILESTONE' && draft.milestones) {
+                            milestoneText = `\n\n🪜 **Milestones:**\n` + draft.milestones.map((m, i) => `   ${i+1}. ${m.title} (${m.amount} ${draft.currency})`).join('\n');
+                        }
+
+                        const draftText = `✨ **Smart Transaction Draft**\n\nPlease review your transaction details:\n\n🛒 **Product:** ${draft.product_name}${desc}\n📦 **Type:** ${draft.transaction_type}\n👤 **Counterparty:** ${draft.counterparty_safetag}\n💰 **Total Amount:** ${draft.amount} ${draft.currency}\n💵 **Fee Allocation:** ${draft.fee_allocation}\n💠 **Your Role:** ${draft.role}${milestoneText}\n\nDoes this look correct? You can reply to edit or click confirm below.`;
+                        
+                        if (message.guild) {
+                            try {
+                                await message.author.send({
+                                    content: draftText,
+                                    components: [{
+                                        type: 1,
+                                        components: [
+                                            { type: 2, label: '✅ Confirm & Proceed', style: 3, customId: 'smart_txn_confirm' },
+                                            { type: 2, label: '❌ Cancel', style: 4, customId: 'smart_txn_cancel' }
+                                        ]
+                                    }]
+                                });
+                                await message.reply("✨ **Draft Created!** I've sent the details to your DMs for privacy. Please check them to confirm.");
+                            } catch (dmErr) {
+                                await message.reply("⚠️ **I couldn't DM you.** Please enable DMs from server members so I can send you the private draft.");
+                            }
+                        } else {
+                            await message.reply({
+                                content: draftText,
+                                components: [{
+                                    type: 1,
+                                    components: [
+                                        { type: 2, label: '✅ Confirm & Proceed', style: 3, customId: 'smart_txn_confirm' },
+                                        { type: 2, label: '❌ Cancel', style: 4, customId: 'smart_txn_cancel' }
+                                    ]
+                                }]
+                            });
+                        }
+                    } else {
+                        await message.reply(aiResult.follow_up_question || "Please provide the missing details.");
+                    }
+                } catch (e: any) {
+                    console.error('Smart Txn Error:', e.message);
+                    await message.reply("❌ Sorry, I had trouble processing that voice note. Please try again.");
+                }
                 return;
             }
 
-            const txnsRes = await axios.get(`${API_URL}/transactions`, {
-                params: { seller_safetag: mySafetag, status: 'AWAITING_PROOF' }
-            });
+            // 🖼️ IMAGE PROOF: If it's an image, check if awaiting proof
+            if (isImage) {
+                // Check if user is in review flow and awaiting proof
+                const reviewState = reviewStates.get(message.author.id);
+                if (reviewState && reviewState.stars && !reviewState.proofUrl) {
+                    reviewState.proofUrl = attachment.url;
+                    await message.reply('✅ **Proof Attached!** Now, please provide a brief remark/comment for your review:');
+                    AWAITING_REVIEW_REMARK.set(message.author.id, true);
+                    return;
+                }
 
-            if (txnsRes.data && txnsRes.data.length > 0) {
-                const txn = txnsRes.data[0];
-                const proofUrl = message.attachments.first()?.url;
+                const txnsRes = await axios.get(`${API_URL}/transactions`, {
+                    params: { seller_safetag: mySafetag, status: 'AWAITING_PROOF' }
+                });
 
-                if (proofUrl) {
+                if (txnsRes.data && txnsRes.data.length > 0) {
+                    const txn = txnsRes.data[0];
                     await axios.post(`${API_URL}/transactions/${txn.id}/upload-proof`, {
-                        proof_url: proofUrl
+                        proof_url: attachment.url
                     });
-                    return; // Stop processing further
+                    await message.reply(`✅ **Proof Uploaded** for transaction **${txn.txn_code}**!`);
+                    return;
                 }
             }
         } catch (err: any) {
-            console.error('Discord Image Upload Error:', err.message);
+            console.error('Discord Attachment Error:', err.message);
+        }
+    }
+
+    // Handle Text AI Processing (if not a command)
+    if (!message.content.startsWith('!') && !AWAITING_REVIEW_REMARK.has(message.author.id)) {
+        const existingDraft = smartTxnSessions.get(message.author.id);
+        // Only process as AI if it looks like a transaction intent or there's an ongoing session
+        if (existingDraft || message.content.split(' ').length > 3) {
+            try {
+                const aiResult = await processSmartTransaction(message.content, undefined, undefined, existingDraft);
+                smartTxnSessions.set(message.author.id, aiResult.draft);
+
+                if (aiResult.is_complete) {
+                    const draft = aiResult.draft;
+                    const desc = draft.description ? `\n📝 **Description:** ${draft.description}` : '';
+                    
+                    let milestoneText = '';
+                    if (draft.transaction_type === 'MILESTONE' && draft.milestones) {
+                        milestoneText = `\n\n🪜 **Milestones:**\n` + draft.milestones.map((m, i) => `   ${i+1}. ${m.title} (${m.amount} ${draft.currency})`).join('\n');
+                    }
+
+                    const draftText = `✨ **Smart Transaction Draft**\n\nPlease review your transaction details:\n\n🛒 **Product:** ${draft.product_name}${desc}\n📦 **Type:** ${draft.transaction_type}\n👤 **Counterparty:** ${draft.counterparty_safetag}\n💰 **Total Amount:** ${draft.amount} ${draft.currency}\n💵 **Fee Allocation:** ${draft.fee_allocation}\n💠 **Your Role:** ${draft.role}${milestoneText}\n\nDoes this look correct? You can reply to edit or click confirm below.`;
+                    
+                    if (message.guild) {
+                        try {
+                            await message.author.send({
+                                content: draftText,
+                                components: [{
+                                    type: 1,
+                                    components: [
+                                        { type: 2, label: '✅ Confirm & Proceed', style: 3, customId: 'smart_txn_confirm' },
+                                        { type: 2, label: '❌ Cancel', style: 4, customId: 'smart_txn_cancel' }
+                                    ]
+                                }]
+                            });
+                            await message.reply("✨ **Draft Created!** I've sent the details to your DMs for privacy. Please check them to confirm.");
+                        } catch (dmErr) {
+                            await message.reply("⚠️ **I couldn't DM you.** Please enable DMs from server members so I can send you the private draft.");
+                        }
+                    } else {
+                        await message.reply({
+                            content: draftText,
+                            components: [{
+                                type: 1,
+                                components: [
+                                    { type: 2, label: '✅ Confirm & Proceed', style: 3, customId: 'smart_txn_confirm' },
+                                    { type: 2, label: '❌ Cancel', style: 4, customId: 'smart_txn_cancel' }
+                                ]
+                            }]
+                        });
+                    }
+                } else if (existingDraft || aiResult.follow_up_question) {
+                     // Only reply if there was an actual follow-up or session
+                     await message.reply(aiResult.follow_up_question || "Please provide more details.");
+                }
+            } catch (e) {
+                console.error('Text AI Error:', e);
+            }
+            return;
         }
     }
 
@@ -253,6 +383,10 @@ client.on('messageCreate', async (message) => {
         try {
             const response = await axios.get(`${API_URL}/profiles/by_platform/discord/${message.author.id}`);
             if (response.data && response.data.safetag) {
+                if (response.data.is_deactivated) {
+                    await message.reply('⚠️ Your Safeeely account has been deactivated. Please contact support@safeeely.com if you believe this is a mistake.');
+                    return;
+                }
                 await sendMainMenu(message);
             }
         } catch (err: any) {
@@ -334,6 +468,102 @@ client.on('interactionCreate', async (interaction) => {
                 }
             }
 
+            if (customId.startsWith('txn_pay_')) {
+                const txnId = customId.replace('txn_pay_', '');
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
+                try {
+                    await axios.post(`${API_URL}/transactions/${txnId}/pay`);
+                    await interaction.editReply({ content: '⏳ **Payment Processing...**\n\nWe\'re verifying your payment. This may take a few minutes.\n\nPlease wait while we confirm...' });
+                } catch (err: any) {
+                    await interaction.editReply({ content: `❌ Payment failed: ${err.response?.data?.error || err.message}` });
+                }
+                return;
+            }
+
+            if (customId.startsWith('view_txn_details|')) {
+                const txnId = customId.split('|')[1];
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
+                try {
+                    const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
+                    const myTag = profileRes.data.safetag;
+                    const res = await axios.get(`${API_URL}/transactions/${txnId}`);
+                    const t = res.data;
+                    const otherTag = t.buyer.safetag === myTag ? t.seller.safetag : t.buyer.safetag;
+
+                    let milestoneInfo = '';
+                    const mButtons: any[] = [];
+                    if (t.transaction_type === 'MILESTONE' && t.milestones?.length > 0) {
+                        milestoneInfo = '\n\n🪜 **Milestone Progress:**\n';
+                        t.milestones.sort((a: any, b: any) => a.index_num - b.index_num).forEach((m: any) => {
+                            const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
+                            milestoneInfo += `${statusEmoji} ${m.title}: **${m.amount} ${t.currency}** (${m.status})\n`;
+                            if (m.status === 'PENDING' && myTag === t.seller.safetag && t.status === 'PAID') {
+                                mButtons.push({ type: 2, label: `📦 Complete "${m.title.slice(0,20)}"`, style: 1, custom_id: `m_status|${t.id}|${m.id}|COMPLETED` });
+                            } else if (m.status === 'COMPLETED' && myTag === t.buyer.safetag) {
+                                mButtons.push({ type: 2, label: `💸 Release "${m.title.slice(0,20)}"`, style: 3, custom_id: `m_status|${t.id}|${m.id}|RELEASED` });
+                            }
+                        });
+                    }
+
+                    const msg = `📋 **Transaction Details**\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 ID: **${t.txn_code}**\n📦 Type: **${t.transaction_type}**\n🛒 Product: **${t.product_name}**\n📝 Desc: ${t.description || 'N/A'}\n💰 Total: **${t.amount} ${t.currency}**\n💵 Fee: **${(t.fee_amount || 0).toFixed(2)} ${t.currency}** (${t.fee_allocation})\n💳 Escrow: **${(t.total_amount || 0).toFixed(2)} ${t.currency}**\n👤 Buyer: \`${t.buyer.safetag}\`\n👤 Seller: \`${t.seller.safetag}\`\n💠 Status: **${t.status.replace(/_/g, ' ')}**${milestoneInfo}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+                    const components: any[] = [];
+                    if (mButtons.length > 0) {
+                        for (let i = 0; i < mButtons.length; i += 5) components.push({ type: 1, components: mButtons.slice(i, i + 5) });
+                    }
+                    const navButtons: any[] = [
+                        { type: 2, label: '🔙 Back', style: 2, custom_id: 'my_txns' },
+                        { type: 2, label: '⭐ Reviews', style: 5, url: `${REVIEWS_URL}/reviews/${encodeURIComponent(otherTag)}?viewer=${encodeURIComponent(myTag)}` }
+                    ];
+                    const isOngoing = ['PENDING_SELLER_ACCEPTANCE', 'ACCEPTED', 'PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(t.status);
+                    if (isOngoing) navButtons.push({ type: 2, label: '🚀 Action', style: 1, custom_id: `txn_resume|${t.id}` });
+                    components.push({ type: 1, components: navButtons });
+                    await interaction.editReply({ content: msg, components });
+                } catch (err: any) { await interaction.editReply({ content: `❌ Error: ${err.message}` }); }
+                return;
+            }
+
+            if (customId.startsWith('m_status|')) {
+                if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
+                const parts = customId.split('|');
+                const txnId = parts[1];
+                const mId = parts[2];
+                const status = parts[3];
+
+                try {
+                    await axios.patch(`${API_URL}/transactions/${txnId}/milestones/${mId}/status`, { status });
+                    
+                    // Refresh view
+                    const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
+                    const myTag = profileRes.data.safetag;
+                    const res = await axios.get(`${API_URL}/transactions/${txnId}`);
+                    const t = res.data;
+
+                    let milestoneInfo = '\n\n🪜 **Milestone Progress:**\n';
+                    const mButtons: any[] = [];
+                    t.milestones.sort((a: any, b: any) => a.index_num - b.index_num).forEach((m: any) => {
+                        const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
+                        milestoneInfo += `${statusEmoji} ${m.title}: **${m.amount} ${t.currency}** (${m.status})\n`;
+                        if (m.status === 'PENDING' && myTag === t.seller.safetag && t.status === 'PAID') {
+                            mButtons.push({ type: 2, label: `📦 Complete "${m.title.slice(0,20)}"`, style: 1, custom_id: `m_status|${t.id}|${m.id}|COMPLETED` });
+                        } else if (m.status === 'COMPLETED' && myTag === t.buyer.safetag) {
+                            mButtons.push({ type: 2, label: `💸 Release "${m.title.slice(0,20)}"`, style: 3, custom_id: `m_status|${t.id}|${m.id}|RELEASED` });
+                        }
+                    });
+
+                    const msg = `📋 **Transaction Details**\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 ID: **${t.txn_code}**\n📦 Type: **${t.transaction_type}**\n🛒 Product: **${t.product_name}**\n💠 Status: **${t.status.replace(/_/g, ' ')}**${milestoneInfo}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+                    const components: any[] = [];
+                    if (mButtons.length > 0) components.push({ type: 1, components: mButtons.slice(0, 5) });
+                    components.push({ type: 1, components: [{ type: 2, label: '🔙 Back', style: 2, custom_id: 'my_txns' }] });
+
+                    await interaction.editReply({ content: msg, components });
+                    return;
+                } catch (err: any) {
+                    console.error('Milestone Update Error:', err.message);
+                    await interaction.followUp({ content: '❌ Failed to update milestone.', ephemeral: true }).catch(() => {});
+                    return;
+                }
+            }
+
             if (interaction.replied || interaction.deferred) return;
 
             if (customId.startsWith('start_registration')) {
@@ -384,10 +614,25 @@ client.on('interactionCreate', async (interaction) => {
                 });
             } else if (customId.startsWith('txn_role|')) {
                 const role = customId.split('|')[1];
+                await interaction.reply({
+                    content: `📦 **Project Type: ${role.toUpperCase()}**\n\nChoose the type of transaction:`,
+                    components: [
+                        {
+                            type: 1,
+                            components: [
+                                { type: 2, label: '⚡ One-Time Payment', style: 1, custom_id: `txn_type|${role}|ONE_TIME` },
+                                { type: 2, label: '🪜 Milestone-Based Project', style: 2, custom_id: `txn_type|${role}|MILESTONE` }
+                            ]
+                        }
+                    ],
+                    ephemeral: true
+                });
+            } else if (customId.startsWith('txn_type|')) {
+                const [_, role, type] = customId.split('|');
                 // @ts-ignore
                 await interaction.showModal({
                     title: `📦 ${role.toUpperCase()} - Product Details`,
-                    custom_id: `txn_modal_step1|${role}`,
+                    custom_id: `txn_modal_step1|${role}|${type}`,
                     components: [
                         { type: 1, components: [{ type: 4, custom_id: 'product_name', label: 'What is the Product/Service?', style: 1, placeholder: 'e.g. Instagram Account @handle', required: true }] },
                         { type: 1, components: [{ type: 4, custom_id: 'description', label: 'Detailed Description', style: 2, placeholder: 'Include specs, condition, or special requirements...', required: true }] }
@@ -399,13 +644,56 @@ client.on('interactionCreate', async (interaction) => {
                 if (!draft) return interaction.reply({ content: '❌ Transaction state lost. Please start over.', ephemeral: true });
                 draft.currency = currency;
 
+                if (draft.transaction_type === 'MILESTONE') {
+                    await interaction.reply({
+                        content: `🪜 **Milestone Setup**\n\nCurrency: **${currency}**\n\nNo phases added yet. Please add your first milestone phase:`,
+                        components: [{
+                            type: 1,
+                            components: [{ type: 2, label: '➕ Add Milestone Phase', style: 1, custom_id: 'txn_milestone_add' }]
+                        }],
+                        ephemeral: true
+                    });
+                } else {
+                    // @ts-ignore
+                    await interaction.showModal({
+                        title: '💰 Transaction Amount',
+                        custom_id: `txn_modal_amount`,
+                        components: [
+                            { type: 1, components: [{ type: 4, custom_id: 'amount', label: `Amount in ${currency}`, style: 1, placeholder: 'Enter numbers only, e.g. 5000', required: true }] }
+                        ]
+                    });
+                }
+            } else if (customId === 'txn_milestone_add') {
+                const draft = txnDrafts.get(interaction.user.id);
+                if (!draft) return interaction.reply({ content: '❌ Transaction state lost.', ephemeral: true });
                 // @ts-ignore
                 await interaction.showModal({
-                    title: '💰 Transaction Amount',
-                    custom_id: `txn_modal_amount`,
+                    title: '🪜 Add Milestone Phase',
+                    custom_id: 'txn_modal_milestone',
                     components: [
-                        { type: 1, components: [{ type: 4, custom_id: 'amount', label: `Amount in ${currency}`, style: 1, placeholder: 'Enter numbers only, e.g. 5000', required: true }] }
+                        { type: 1, components: [{ type: 4, custom_id: 'title', label: 'Phase Title', style: 1, placeholder: 'e.g. Initial Deposit', required: true }] },
+                        { type: 1, components: [{ type: 4, custom_id: 'amount', label: `Amount in ${draft.currency}`, style: 1, placeholder: 'e.g. 1000', required: true }] }
                     ]
+                });
+            } else if (customId === 'txn_milestone_finish') {
+                const draft = txnDrafts.get(interaction.user.id);
+                if (!draft) return interaction.reply({ content: '❌ Transaction state lost.', ephemeral: true });
+                const amount = parseFloat(draft.amount || '0');
+                const fee = amount * 0.05;
+
+                await interaction.reply({
+                    content: `💵 **Fee Allocation**\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nWho pays the **5% transaction fee**?\n\n💰 Total Amount: **${amount} ${draft.currency}**\n💵 Total Fee: **${fee.toFixed(2)} ${draft.currency}**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+                    components: [
+                        {
+                            type: 1,
+                            components: [
+                                { type: 2, label: '👤 Buyer (Pays 100%)', style: 2, custom_id: 'txn_fee_select|buyer' },
+                                { type: 2, label: '💰 Seller (Pays 100%)', style: 2, custom_id: 'txn_fee_select|seller' },
+                                { type: 2, label: '🤝 Split (50/50)', style: 2, custom_id: 'txn_fee_select|split' }
+                            ]
+                        }
+                    ],
+                    ephemeral: true
                 });
             } else if (customId.startsWith('txn_fee_select|')) {
                 const fee_allocation = customId.split('|')[1];
@@ -421,8 +709,56 @@ client.on('interactionCreate', async (interaction) => {
                         { type: 1, components: [{ type: 4, custom_id: 'other_party', label: 'Other Party Safetag', style: 1, placeholder: 'e.g. @john_doe', required: true }] }
                     ]
                 });
+            } else if (customId === 'txn_profile_confirm') {
+                const draft = txnDrafts.get(interaction.user.id);
+                if (!draft) return interaction.reply({ content: '❌ Transaction state lost.', ephemeral: true });
+                
+                const amount = parseFloat(draft.amount || '0');
+                const feeAllocation = draft.fee_allocation || 'buyer';
+                const fee = amount * 0.05;
+                const total = feeAllocation === 'buyer' ? amount + fee : (feeAllocation === 'split' ? amount + (fee / 2) : amount);
+
+                let mList = '';
+                if (draft.transaction_type === 'MILESTONE' && draft.milestones) {
+                    mList = '\n📍 **Milestones:**\n' + draft.milestones.map((m, i) => `   ${i+1}. ${m.title} - ${m.amount} ${draft.currency}`).join('\n');
+                }
+
+                const summary = `📋 **Transaction Summary**\n\nPlease review your transaction details:\n\n` +
+                    `🛒 Product/Service: **${draft.product}**\n` +
+                    `📝 Description: **${draft.desc || 'No description'}**${mList}\n` +
+                    `💰 Amount: **${amount} ${draft.currency}**\n` +
+                    `💵 Fee: **${fee.toFixed(2)} ${draft.currency} (${feeAllocation})**\n` +
+                    `💳 Total: **${total.toFixed(2)} ${draft.currency}**\n` +
+                    `👤 ${draft.role === 'buyer' ? 'Seller' : 'Buyer'}: \`${draft.other}\``;
+
+                await interaction.update({
+                    content: summary,
+                    components: [
+                        {
+                            type: 1,
+                            components: [
+                                { type: 2, label: '1️⃣ ✅ Confirm', style: 3, custom_id: `txn_confirm_final` },
+                                { type: 2, label: '2️⃣ ❌ Cancel', style: 4, custom_id: 'txn_cancel' },
+                                { type: 2, label: '3️⃣ ✏️ Edit', style: 2, custom_id: 'txn_profile_back' }
+                            ]
+                        }
+                    ]
+                });
+            } else if (customId === 'txn_profile_back') {
+                const draft = txnDrafts.get(interaction.user.id);
+                if (!draft) return interaction.reply({ content: '❌ Transaction state lost.', ephemeral: true });
+                
+                // Show modal again to change safetag
+                // @ts-ignore
+                await interaction.showModal({
+                    title: '👤 Counterparty Details',
+                    custom_id: `txn_modal_other`,
+                    components: [
+                        { type: 1, components: [{ type: 4, custom_id: 'other_party', label: 'Other Party Safetag', style: 1, placeholder: 'e.g. @john_doe', required: true }] }
+                    ]
+                });
             } else if (customId === 'txn_confirm_final') {
-                await interaction.deferReply({ ephemeral: true });
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
                 const draft = txnDrafts.get(interaction.user.id);
                 if (!draft) return interaction.editReply('❌ Draft missing.');
                 try {
@@ -436,12 +772,33 @@ client.on('interactionCreate', async (interaction) => {
                         amount: parseFloat(draft.amount || '0'),
                         currency: draft.currency,
                         fee_allocation: draft.fee_allocation?.toLowerCase(),
-                        initiator_safetag: creatorTag
+                        initiator_safetag: creatorTag,
+                        transaction_type: draft.transaction_type,
+                        milestones: draft.milestones
                     });
                     txnDrafts.delete(interaction.user.id);
+
+                    const roleLabel = draft.role === 'buyer' ? 'seller' : 'buyer';
+                    const finalMsg = `✅ **Transaction Created!**\n\n` +
+                        `Your transaction has been created and sent to the ${roleLabel}.\n\n` +
+                        `📋 **Transaction ID: ${res.data.txn_code}**\n` +
+                        `👤 **${roleLabel.charAt(0).toUpperCase() + roleLabel.slice(1)}: ${draft.other}**\n` +
+                        `💰 **Amount: ${draft.amount} ${draft.currency}**\n\n` +
+                        `📬 **You'll be notified when:**\n` +
+                        `• ${roleLabel.charAt(0).toUpperCase() + roleLabel.slice(1)} accepts your request\n` +
+                        `• Payment is required\n` +
+                        `• Delivery is confirmed\n\n` +
+                        `⏳ **Current Status: Awaiting ${roleLabel.charAt(0).toUpperCase() + roleLabel.slice(1)} Acceptance**`;
+
                     await interaction.editReply({
-                        content: `✅ **Transaction Created Successfully!**\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 ID: **${res.data.txn_code}**\n🛒 Product: **${draft.product}**\n💰 Total: **${draft.amount} ${draft.currency}**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📬 The other party has been notified and must accept to proceed.`,
-                        components: [{ type: 1, components: [{ type: 2, label: '🏠 Main Menu', style: 2, custom_id: 'main_menu' }] }]
+                        content: finalMsg,
+                        components: [{ 
+                            type: 1, 
+                            components: [
+                                { type: 2, label: '1️⃣ 👁️ View Transaction', style: 1, custom_id: `view_txn_details|${res.data.id}` },
+                                { type: 2, label: '2️⃣ 🔙 Main Menu', style: 2, custom_id: 'main_menu' }
+                            ] 
+                        }]
                     });
                 } catch (err: any) {
                     const errData = err.response?.data;
@@ -553,7 +910,17 @@ client.on('interactionCreate', async (interaction) => {
                     const cleanSafetag = safetag.startsWith('@') ? safetag : `@${safetag}`;
                     const referralLink = `${REVIEWS_URL}/${cleanSafetag}`;
 
-                    const msg = `🎁 **My Referrals**\n\nInvite friends and earn up to **1.5% commision for life on all secured purchases**!\n\n🔗 **Your Invite Link:**\n\`${referralLink}\`\n\n📊 **Statistics:**\n👥 Tier 1 Referrals: **${stats.tier1Count}**\n👥 Tier 2 Referrals: **${stats.tier2Count}**\n💰 Total Earned: **$${stats.totalEarned.toFixed(2)}**\n💵 Available: **$${stats.availableCommission.toFixed(2)}**`;
+                    const fmtAmt = (amount: number, currency: string) => {
+                        const sym: Record<string, string> = { USD: '$', NGN: '₦', EUR: '€', GBP: '£' };
+                        return sym[currency]
+                            ? `${sym[currency]}${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                            : `${parseFloat(amount.toFixed(8))} ${currency}`;
+                    };
+                    const earningsLines = stats.earningsByCurrency?.length
+                        ? stats.earningsByCurrency.map((e: any) => `  • **${fmtAmt(e.totalEarned, e.currency)}**`).join('\n')
+                        : '  • None yet';
+
+                    const msg = `🎁 **My Referrals**\n\nInvite friends and earn up to **1.5% commision for life on all secured purchases**!\n\n🔗 **Your Invite Link:**\n\`${referralLink}\`\n\n📊 **Statistics:**\n👥 Tier 1 Referrals: **${stats.tier1Count}**\n👥 Tier 2 Referrals: **${stats.tier2Count}**\n💰 **Commissions Earned:**\n${earningsLines}`;
 
                     const components = [{
                         type: 1, components: [
@@ -590,14 +957,24 @@ client.on('interactionCreate', async (interaction) => {
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
                     const safetag = profileRes.data.safetag;
-                    const sRes = await axios.get(`${API_URL}/reviews/stats/${safetag}`);
+                    const [sRes, bRes] = await Promise.all([
+                        axios.get(`${API_URL}/reviews/stats/${safetag}`),
+                        axios.get(`${API_URL}/profiles/${safetag}/badges`)
+                    ]);
+                    
                     const { average_rating, review_count } = sRes.data;
+                    const badges = bRes.data;
 
                     const rating = average_rating || 0;
                     const starsInt = Math.round(rating);
                     const stars = '⭐'.repeat(starsInt) + '☆'.repeat(5 - starsInt);
 
-                    const msg = `⭐ **Reviews & Ratings**\n\nYou have a trust score of **${rating.toFixed(1)}/5 ${stars}** (based on **${review_count}** reviews).\n\nYou can view your full review history on our external platform.`;
+                    let badgeList = '';
+                    if (badges && badges.length > 0) {
+                        badgeList = '\n🏆 **Badges:** ' + badges.map((b: any) => `${b.emoji} ${b.label}`).join(' | ');
+                    }
+
+                    const msg = `⭐ **Reviews & Ratings**\n\nYou have a trust score of **${rating.toFixed(1)}/5 ${stars}** (based on **${review_count}** reviews).${badgeList}\n\nYou can view your full review history on our external platform.`;
 
                     await interaction.editReply({
                         content: msg,
@@ -625,12 +1002,36 @@ client.on('interactionCreate', async (interaction) => {
                             type: 1,
                             components: [
                                 { type: 2, label: '❌ Delete Account', style: 4, custom_id: 'start_deletion' },
-                                { type: 2, label: '🛡️ KYC Settings', style: 5, url: `${REVIEWS_URL}/kyc?viewer=${encodeURIComponent(p.safetag)}` },
+                                { type: 2, label: '⚙️ Other Settings', style: 2, custom_id: 'other_settings' },
                                 { type: 2, label: '🏠 Main Menu', style: 2, custom_id: 'main_menu' }
                             ]
                         }]
                     });
                 } catch (err: any) { await interaction.editReply(`❌ Error: ${err.message}`); }
+            } else if (customId === 'other_settings') {
+                await interaction.deferReply({ ephemeral: true });
+                try {
+                    const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
+                    const p = profileRes.data;
+                    const kycUrl = `${REVIEWS_URL}/kyc?viewer=${encodeURIComponent(p.safetag)}`;
+                    await interaction.editReply({
+                        content: '⚙️ **Other Settings**\n\nManage linked accounts and identity verification:',
+                        components: [{
+                            type: 1,
+                            components: [
+                                { type: 2, label: '🔗 Linked Accounts', style: 2, custom_id: 'linked_accounts' },
+                                { type: 2, label: '🛡️ KYC Verification ↗️', style: 5, url: kycUrl },
+                                { type: 2, label: '🔙 Back', style: 2, custom_id: 'settings' }
+                            ]
+                        }]
+                    });
+                } catch (err: any) { await interaction.editReply(`❌ Error: ${err.message}`); }
+            } else if (customId === 'linked_accounts') {
+                await interaction.reply({
+                    content: '🔗 **Linked Accounts**\n\nYour account is linked to this Discord profile.\n\nTo link other platforms, log in via WhatsApp, Instagram, or Telegram using your safetag.',
+                    components: [{ type: 1, components: [{ type: 2, label: '🔙 Back', style: 2, custom_id: 'other_settings' }] }],
+                    ephemeral: true
+                });
             } else if (customId === 'start_deletion') {
                 await interaction.reply({
                     content: '⚠️ **Account Deletion**\n\n' +
@@ -681,22 +1082,48 @@ client.on('interactionCreate', async (interaction) => {
 
                     const otherTag = t.buyer.safetag === myTag ? t.seller.safetag : t.buyer.safetag;
 
-                    const msg = `📋 **Transaction Details**\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 ID: **${t.txn_code}**\n🛒 Product: **${t.product_name}**\n📝 Desc: ${t.description || 'N/A'}\n💰 Amount: **${t.amount} ${t.currency}**\n💵 Fee: **${t.fee_amount.toFixed(2)} ${t.currency}** (${t.fee_allocation})\n💳 Total: **${t.total_amount.toFixed(2)} ${t.currency}**\n👤 Buyer: \`${t.buyer.safetag}\`\n👤 Seller: \`${t.seller.safetag}\`\n💠 Status: **${t.status.replace(/_/g, ' ')}**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+                    let milestoneInfo = '';
+                    const mButtons: any[] = [];
 
-                    const components: any[] = [
-                        {
-                            type: 1,
-                            components: [
-                                { type: 2, label: '🔙 Back', style: 2, custom_id: 'my_txns' },
-                                { type: 2, label: '⭐ View Counterparty Reviews', style: 5, url: `${REVIEWS_URL}/reviews/${encodeURIComponent(otherTag)}?viewer=${encodeURIComponent(myTag)}` }
-                            ]
+                    if (t.transaction_type === 'MILESTONE' && t.milestones && t.milestones.length > 0) {
+                        milestoneInfo = '\n\n🪜 **Milestone Progress:**\n';
+                        t.milestones.sort((a: any, b: any) => a.index_num - b.index_num).forEach((m: any, idx: number) => {
+                            const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
+                            milestoneInfo += `${statusEmoji} ${m.title}: **${m.amount} ${t.currency}** (${m.status})\n`;
+                            
+                            // Milestone actions
+                            if (m.status === 'PENDING' && myTag === t.seller.safetag && t.status === 'PAID') {
+                                mButtons.push({ type: 2, label: `📦 Complete "${m.title.slice(0,20)}"`, style: 1, custom_id: `m_status|${t.id}|${m.id}|COMPLETED` });
+                            } else if (m.status === 'COMPLETED' && myTag === t.buyer.safetag) {
+                                mButtons.push({ type: 2, label: `💸 Release "${m.title.slice(0,20)}"`, style: 3, custom_id: `m_status|${t.id}|${m.id}|RELEASED` });
+                            }
+                        });
+                    }
+
+                    const msg = `📋 **Transaction Details**\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 ID: **${t.txn_code}**\n📦 Type: **${t.transaction_type}**\n🛒 Product: **${t.product_name}**\n📝 Desc: ${t.description || 'N/A'}\n💰 Total: **${t.amount} ${t.currency}**\n💵 Fee: **${t.fee_amount.toFixed(2)} ${t.currency}** (${t.fee_allocation})\n💳 Escrow: **${t.total_amount.toFixed(2)} ${t.currency}**\n👤 Buyer: \`${t.buyer.safetag}\`\n👤 Seller: \`${t.seller.safetag}\`\n💠 Status: **${t.status.replace(/_/g, ' ')}**${milestoneInfo}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+
+                    const components: any[] = [];
+                    
+                    // Add milestone actions first
+                    if (mButtons.length > 0) {
+                        for (let i = 0; i < mButtons.length; i += 5) {
+                            components.push({ type: 1, components: mButtons.slice(i, i + 5) });
                         }
+                    }
+
+                    const navButtons: any[] = [
+                        { type: 2, label: '🔙 Back', style: 2, custom_id: 'my_txns' },
+                        { type: 2, label: '⭐ Counterparty Reviews', style: 5, url: `${REVIEWS_URL}/reviews/${encodeURIComponent(otherTag)}?viewer=${encodeURIComponent(myTag)}` }
                     ];
 
                     const isOngoing = ['PENDING_SELLER_ACCEPTANCE', 'ACCEPTED', 'PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(t.status);
-                    if (isOngoing) {
-                        components[0].components.push({ type: 2, label: '🚀 Action', style: 1, custom_id: `txn_resume|${t.id}` });
+                    if (isOngoing && t.transaction_type === 'ONE_TIME') {
+                        navButtons.push({ type: 2, label: '🚀 Action', style: 1, custom_id: `txn_resume|${t.id}` });
+                    } else if (t.status === 'PENDING_SELLER_ACCEPTANCE' || t.status === 'ACCEPTED') {
+                        navButtons.push({ type: 2, label: '🚀 Action', style: 1, custom_id: `txn_resume|${t.id}` });
                     }
+
+                    components.push({ type: 1, components: navButtons });
 
                     await interaction.editReply({ content: msg, components });
                 } catch (err: any) { await interaction.editReply(`❌ Error: ${err.message}`); }
@@ -708,6 +1135,115 @@ client.on('interactionCreate', async (interaction) => {
                     content: `🛒 **Transaction: ${draft?.product}**\nRole: **${draft?.role?.toUpperCase()}**\nCurrency: **${currency}**`,
                     components: [{ type: 1, components: [{ type: 2, label: '🔢 Enter Details', style: 1, custom_id: `txn_continue` }] }]
                 });
+            } else if (customId === 'smart_txn_confirm') {
+                console.log(`✅ Processing smart_txn_confirm for ${interaction.user.tag}`);
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
+                const draft = smartTxnSessions.get(interaction.user.id);
+                if (!draft) return interaction.editReply("❌ AI Session expired.");
+                smartTxnSessions.delete(interaction.user.id);
+                
+                const rawOther = (draft as any).counterparty_safetag || '';
+                const otherSafetag = rawOther.startsWith('@') ? rawOther : `@${rawOther}`;
+
+                // Convert AI draft to manual draft format to reuse final logic
+                txnDrafts.set(interaction.user.id, {
+                    role: draft.role!,
+                    product: draft.product_name!,
+                    desc: draft.description || '',
+                    amount: draft.amount?.toString(),
+                    currency: draft.currency,
+                    other: otherSafetag,
+                    fee_allocation: draft.fee_allocation,
+                    transaction_type: draft.transaction_type as any,
+                    milestones: draft.milestones
+                });
+                try {
+                    const statsRes = await axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(otherSafetag)}`);
+                    const { average_rating, review_count } = statsRes.data;
+
+                    const amount = parseFloat(draft.amount || '0');
+                    const fee = amount * 0.05;
+                    const total = draft.fee_allocation === 'buyer' ? amount + fee : (draft.fee_allocation === 'split' ? amount + (fee / 2) : amount);
+
+                    let mList = '';
+                    if (draft.transaction_type === 'MILESTONE' && draft.milestones) {
+                        mList = '\n📍 **Milestones:**\n' + draft.milestones.map((m, i) => `   ${i+1}. ${m.title} - ${m.amount} ${draft.currency}`).join('\n');
+                    }
+
+                    const summary = `✨ **AI Draft Summary**\n\nPlease review your transaction details:\n\n` +
+                        `📦 Type: **${draft.transaction_type || 'ONE_TIME'}**\n` +
+                        `🛒 Product/Service: **${draft.product_name}**\n` +
+                        `📝 Description: **${draft.description || 'No description'}**${mList}\n` +
+                        `💰 Amount: **${amount} ${draft.currency}**\n` +
+                        `💵 Fee: **${fee.toFixed(2)} ${draft.currency} (${draft.fee_allocation})**\n` +
+                        `💳 Total: **${total.toFixed(2)} ${draft.currency}**\n` +
+                        `👤 ${draft.role === 'buyer' ? 'Seller' : 'Buyer'}: \`${otherSafetag}\`\n` +
+                        `⭐ ${draft.role === 'buyer' ? 'Seller' : 'Buyer'} Rating: **${(average_rating || 0).toFixed(1)}/5** (${review_count} reviews)\n\n` +
+                        `Proceed with creating this transaction?`;
+                    
+                    await interaction.editReply({
+                        content: summary,
+                        components: [{
+                            type: 1,
+                            components: [
+                                { type: 2, label: '✅ Create Transaction', style: 3, custom_id: 'txn_confirm_final' },
+                                { type: 2, label: '❌ Cancel', style: 4, custom_id: 'txn_cancel' }
+                            ]
+                        }]
+                    });
+                } catch (e) {
+                    console.error('Smart Txn Confirm Error:', e);
+                    await interaction.editReply(`❌ Counterparty **${otherSafetag}** not found.`);
+                }
+            } else if (customId === 'smart_txn_cancel') {
+                console.log(`❌ Processing smart_txn_cancel for ${interaction.user.tag}`);
+                if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
+                smartTxnSessions.delete(interaction.user.id);
+                if (!interaction.deferred && !interaction.replied) await interaction.update({ content: '❌ AI Draft Cancelled.', components: [] });
+                else await interaction.editReply({ content: '❌ AI Draft Cancelled.', components: [] });
+            } else if (customId.startsWith('verify_otp_btn|')) {
+                const safetag = customId.split('|')[1];
+                // @ts-ignore
+                await interaction.showModal({
+                    title: '🔐 Enter OTP',
+                    custom_id: `otp_verify_modal|${safetag}`,
+                    components: [{ type: 1, components: [{ type: 4, custom_id: 'otp_code', label: 'Enter your 6-digit OTP', style: 1, placeholder: '123456', required: true, min_length: 6, max_length: 6 }] }]
+                });
+            } else if (customId.startsWith('resend_login_otp|')) {
+                const safetag = customId.split('|')[1];
+                if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
+                try {
+                    await axios.post(`${API_URL}/auth/otp/send`, { safetag, platform: 'discord', platform_id: interaction.user.id });
+                    await interaction.editReply({
+                        content: `✅ New OTP sent to your linked accounts.\n\n🔐 Enter it to link this Discord account:`,
+                        components: [{ type: 1, components: [{ type: 2, label: '🔢 Enter OTP', style: 1, custom_id: `verify_otp_btn|${safetag}` }, { type: 2, label: '🔄 Resend OTP', style: 2, custom_id: `resend_login_otp|${safetag}` }] }]
+                    });
+                } catch (err: any) {
+                    await interaction.editReply(`❌ Error: ${err.response?.data?.error || 'Failed to resend.'}`);
+                }
+            } else if (customId === 'verify_reg_email_btn') {
+                // @ts-ignore
+                await interaction.showModal({
+                    title: '📧 Email Verification',
+                    custom_id: 'reg_email_otp_modal',
+                    components: [{ type: 1, components: [{ type: 4, custom_id: 'email_code', label: 'Enter 6-digit code from your email', style: 1, placeholder: '123456', required: true, min_length: 6, max_length: 6 }] }]
+                });
+            } else if (customId === 'resend_reg_email_otp') {
+                if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
+                const draft = regDrafts.get(interaction.user.id);
+                if (!draft) {
+                    await interaction.editReply('❌ Registration session expired. Please type !start and begin again.');
+                    return;
+                }
+                try {
+                    await axios.post(`${API_URL}/auth/email-otp/send`, { email: draft.email });
+                    await interaction.editReply({
+                        content: `✅ New code sent to **${draft.email}**.\nEnter it to complete registration:`,
+                        components: [{ type: 1, components: [{ type: 2, label: '📧 Enter Email Code', style: 1, custom_id: 'verify_reg_email_btn' }, { type: 2, label: '🔄 Resend Code', style: 2, custom_id: 'resend_reg_email_otp' }] }]
+                    });
+                } catch (err: any) {
+                    await interaction.editReply(`❌ ${err.response?.data?.error || 'Failed to resend.'}`);
+                }
             }
         }
 
@@ -721,12 +1257,26 @@ client.on('interactionCreate', async (interaction) => {
                 const email = interaction.fields.getTextInputValue('email');
                 const safetag = interaction.fields.getTextInputValue('safetag');
                 const finalSafetag = safetag.startsWith('@') ? safetag : `@${safetag}`;
+
+                // Check safetag availability
                 try {
-                    const payload: any = { safetag: finalSafetag, email, first_name: firstName, last_name: lastName, primary_platform: 'discord', platform_id: interaction.user.id };
-                    if (referralCode) payload.referral_code = referralCode;
-                    await axios.post(`${API_URL}/profiles/register`, payload);
-                    await interaction.editReply(`🎉 **Registered!** Your Safetag is **${finalSafetag}**`);
-                    await sendMainMenu(interaction);
+                    await axios.get(`${API_URL}/profiles/by_safetag/${encodeURIComponent(finalSafetag)}`);
+                    return await interaction.editReply(`❌ Safetag **${finalSafetag}** is already taken. Please try again with a different one.`);
+                } catch (tagErr: any) {
+                    if (tagErr.response?.status !== 404) {
+                        return await interaction.editReply('❌ Could not verify safetag availability. Please try again.');
+                    }
+                    // 404 = available, continue
+                }
+
+                // Send email OTP
+                try {
+                    await axios.post(`${API_URL}/auth/email-otp/send`, { email });
+                    regDrafts.set(interaction.user.id, { firstName, lastName, email, safetag: finalSafetag, referralCode });
+                    await interaction.editReply({
+                        content: `📧 **Verify Your Email**\n\nWe've sent a 6-digit code to **${email}**.\nEnter it to complete registration:`,
+                        components: [{ type: 1, components: [{ type: 2, label: '📧 Enter Email Code', style: 1, custom_id: 'verify_reg_email_btn' }, { type: 2, label: '🔄 Resend Code', style: 2, custom_id: 'resend_reg_email_otp' }] }]
+                    });
                 } catch (err: any) { await interaction.editReply(`❌ Failed: ${err.response?.data?.error || err.message}`); }
             } else if (customId === 'login_modal') {
                 const safetag = interaction.fields.getTextInputValue('safetag');
@@ -736,9 +1286,34 @@ client.on('interactionCreate', async (interaction) => {
                     await axios.post(`${API_URL}/auth/otp/send`, { safetag: cleanTag, platform: 'discord', platform_id: interaction.user.id });
                     await interaction.editReply({
                         content: `🔐 **OTP Sent** to your linked accounts.\nPlease enter it to link this Discord:`,
-                        components: [{ type: 1, components: [{ type: 2, label: '🔢 Enter OTP', style: 1, custom_id: `verify_otp_btn|${cleanTag}` }] }]
+                        components: [{ type: 1, components: [{ type: 2, label: '🔢 Enter OTP', style: 1, custom_id: `verify_otp_btn|${cleanTag}` }, { type: 2, label: '🔄 Resend OTP', style: 2, custom_id: `resend_login_otp|${cleanTag}` }] }]
                     });
                 } catch (err: any) { await interaction.editReply(`❌ Error: ${err.response?.data?.error || 'Failed.'}`); }
+            } else if (customId === 'reg_email_otp_modal') {
+                await interaction.deferReply({ ephemeral: true });
+                const code = interaction.fields.getTextInputValue('email_code');
+                const draft = regDrafts.get(interaction.user.id);
+                if (!draft) {
+                    return await interaction.editReply('❌ Registration session expired. Please type !start and begin again.');
+                }
+                // Verify email OTP
+                try {
+                    await axios.post(`${API_URL}/auth/email-otp/verify`, { email: draft.email, code });
+                } catch (err: any) {
+                    return await interaction.editReply({
+                        content: `❌ ${err.response?.data?.error || 'Invalid code.'} Try again:`,
+                        components: [{ type: 1, components: [{ type: 2, label: '📧 Enter Email Code', style: 1, custom_id: 'verify_reg_email_btn' }, { type: 2, label: '🔄 Resend Code', style: 2, custom_id: 'resend_reg_email_otp' }] }]
+                    });
+                }
+                // Email verified — register profile
+                try {
+                    const payload: any = { safetag: draft.safetag, email: draft.email, first_name: draft.firstName, last_name: draft.lastName, primary_platform: 'discord', platform_id: interaction.user.id };
+                    if (draft.referralCode) payload.referral_code = draft.referralCode;
+                    await axios.post(`${API_URL}/profiles/register`, payload);
+                    regDrafts.delete(interaction.user.id);
+                    await interaction.editReply(`🎉 **Registered!** Your Safetag is **${draft.safetag}**`);
+                    await sendMainMenu(interaction);
+                } catch (err: any) { await interaction.editReply(`❌ Failed: ${err.response?.data?.error || err.message}`); }
             } else if (customId.startsWith('otp_verify_modal|')) {
                 const safetag = customId.split('|')[1];
                 const otp = interaction.fields.getTextInputValue('otp_code');
@@ -758,14 +1333,21 @@ client.on('interactionCreate', async (interaction) => {
                     await interaction.editReply({ content: `✅ **Dispute Raised!** The transaction is frozen.`, components: [{ type: 1, components: [{ type: 2, label: '🏠 Menu', style: 2, custom_id: 'main_menu' }] }] });
                 } catch (err: any) { await interaction.editReply(`❌ Failed: ${err.message}`); }
             } else if (customId.startsWith('txn_modal_step1|')) {
-                const role = customId.split('|')[1];
+                const parts = customId.split('|');
+                const role = parts[1];
+                const type = parts[2] as 'ONE_TIME' | 'MILESTONE';
+                
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
+
                 txnDrafts.set(interaction.user.id, {
                     role,
+                    transaction_type: type,
+                    milestones: [],
                     product: interaction.fields.getTextInputValue('product_name'),
                     desc: interaction.fields.getTextInputValue('description')
                 });
 
-                await interaction.reply({
+                await interaction.editReply({
                     content: '💱 **Choose Currency**\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nSelect the currency for this transaction:\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
                     components: [
                         {
@@ -776,18 +1358,47 @@ client.on('interactionCreate', async (interaction) => {
                                 { type: 2, label: '🪙 USDT (Tether)', style: 2, custom_id: 'txn_curr_select|USDT', emoji: { name: '🪙' } }
                             ]
                         }
-                    ],
-                    ephemeral: true
+                    ]
                 });
-            } else if (customId === 'txn_modal_amount') {
+            } else if (customId === 'txn_modal_milestone') {
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
+                const title = interaction.fields.getTextInputValue('title');
                 const amountStr = interaction.fields.getTextInputValue('amount');
                 const amount = parseFloat(amountStr);
                 if (isNaN(amount) || amount <= 0) {
-                    return interaction.reply({ content: '❌ Invalid amount. Please enter a valid number (e.g. 5000).', ephemeral: true });
+                    return interaction.editReply('❌ Invalid amount. Please enter a valid number.');
                 }
 
                 const draft = txnDrafts.get(interaction.user.id);
-                if (!draft) return interaction.reply({ content: '❌ Transaction state lost.', ephemeral: true });
+                if (!draft) return interaction.editReply('❌ Transaction state lost.');
+                
+                draft.milestones?.push({ title, amount });
+                
+                const total = draft.milestones?.reduce((sum, m) => sum + m.amount, 0) || 0;
+                draft.amount = total.toString();
+
+                let mList = draft.milestones?.map((m, i) => `${i+1}. **${m.title}**: ${m.amount} ${draft.currency}`).join('\n');
+                
+                await interaction.editReply({
+                    content: `✅ **Milestone Added: ${title}**\n\n📍 **Current Phases:**\n${mList}\n\n💰 Total Project Amount: **${total} ${draft.currency}**`,
+                    components: [{
+                        type: 1,
+                        components: [
+                            { type: 2, label: '➕ Add Another Phase', style: 1, custom_id: 'txn_milestone_add' },
+                            { type: 2, label: '✅ Finish & Set Fees', style: 2, custom_id: 'txn_milestone_finish' }
+                        ]
+                    }]
+                });
+            } else if (customId === 'txn_modal_amount') {
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
+                const amountStr = interaction.fields.getTextInputValue('amount');
+                const amount = parseFloat(amountStr);
+                if (isNaN(amount) || amount <= 0) {
+                    return interaction.editReply('❌ Invalid amount. Please enter a valid number (e.g. 5000).');
+                }
+
+                const draft = txnDrafts.get(interaction.user.id);
+                if (!draft) return interaction.editReply('❌ Transaction state lost.');
                 draft.amount = amountStr;
 
                 const fee = amount * 0.05;
@@ -807,51 +1418,47 @@ client.on('interactionCreate', async (interaction) => {
                     ephemeral: true
                 });
             } else if (customId === 'txn_modal_other') {
-                await interaction.deferReply({ ephemeral: true });
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
                 const other = interaction.fields.getTextInputValue('other_party');
+                const otherSafetag = other.startsWith('@') ? other : `@${other}`;
                 const draft = txnDrafts.get(interaction.user.id);
-                if (!draft) return interaction.editReply('❌ State lost.');
-
-                const cleanOther = other.startsWith('@') ? other : `@${other}`;
-                draft.other = cleanOther;
+                if (!draft) return interaction.editReply({ content: '❌ Transaction state lost.' });
+                draft.other = otherSafetag;
 
                 try {
-                    const res = await axios.get(`${API_URL}/profiles/by_safetag/${encodeURIComponent(cleanOther)}`);
-                    const statsRes = await axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(cleanOther)}`);
+                    const profileRes = await axios.get(`${API_URL}/profiles/by_safetag/${encodeURIComponent(otherSafetag)}`);
+                    const statsRes = await axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(otherSafetag)}`);
+                    const profile = profileRes.data;
                     const { average_rating, review_count } = statsRes.data;
 
-                    const rating = average_rating || 0;
-                    const starsInt = Math.round(rating);
-                    const stars = '⭐'.repeat(starsInt) + '☆'.repeat(5 - starsInt);
-
-                    const amount = parseFloat(draft.amount || '0');
-                    const feeAllocation = draft.fee_allocation || 'buyer';
-                    const fee = amount * 0.05;
-                    const total = feeAllocation === 'buyer' ? amount + fee : (feeAllocation === 'split' ? amount + (fee / 2) : amount);
-
-                    const profile = res.data;
-                    const isVerified = profile.kyc_status === 'VERIFIED';
-                    const verifiedEmoji = isVerified ? '✅🪪' : '❌🪪';
-                    const verifiedText = isVerified ? 'Verified' : 'Verified'; 
-
-                    const summary = `📋 **Transaction Summary**\n\nPlease review the details carefully:\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🛒 Product: **${draft.product}**\n📝 Desc: ${draft.desc}\n💰 Amount: **${draft.amount} ${draft.currency}**\n💵 Fee: **${fee.toFixed(2)} ${draft.currency}** (${feeAllocation})\n💳 Total: **${total.toFixed(2)} ${draft.currency}**\n👤 Party: \`${cleanOther}\` ${verifiedEmoji} ${verifiedText}\n⭐ Rating: **${rating.toFixed(1)}/5 ${stars}** (${review_count} reviews)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nProceed with creating this transaction?`;
+                    const ratingStr = review_count > 0 ? `${average_rating.toFixed(1)}/5` : 'No reviews yet';
+                    const ratingSuffix = review_count > 0 ? `(${review_count} reviews)` : '';
+                    
+                    const profileType = draft.role === 'buyer' ? 'Seller' : 'Buyer';
+                    
+                    const profilePreview = `👤 **${profileType} Profile**\n\n` +
+                        `\`${otherSafetag}\`\n` +
+                        `⭐ **Rating: ${ratingStr} ${ratingSuffix}**\n` +
+                        `${verifiedEmoji} 💳 **${verifiedText} ${profileType}**\n\n` +
+                        `Continue with this ${profileType.toLowerCase()}?`;
 
                     await interaction.editReply({
-                        content: summary,
+                        content: profilePreview,
                         components: [
                             {
                                 type: 1,
                                 components: [
-                                    { type: 2, label: '✅ Yes, Create', style: 3, custom_id: `txn_confirm_final`, emoji: { name: '✅' } },
-                                    { type: 2, label: '❌ No, Cancel', style: 4, custom_id: 'txn_cancel', emoji: { name: '❌' } },
-                                    { type: 2, label: '⭐ View Reviews', style: 5, url: `${REVIEWS_URL}/reviews/${encodeURIComponent(cleanOther)}` }
+                                    { type: 2, label: '✅ Yes, Continue', style: 3, custom_id: `txn_profile_confirm` },
+                                    { type: 2, label: '❌ No, Change', style: 4, custom_id: 'txn_cancel' },
+                                    { type: 2, label: '⭐ View Reviews', style: 5, url: `${REVIEWS_URL}/reviews/${encodeURIComponent(otherSafetag)}` }
                                 ]
                             }
                         ]
                     });
                 } catch (err: any) {
-                    await interaction.editReply(`❌ User **${cleanOther}** not found. Please ensure the Safetag is correct.`);
+                    await interaction.editReply(`❌ User **${otherSafetag}** not found. Please ensure the Safetag is correct.`);
                 }
+
             } else if (customId === 'deletion_feedback_modal') {
                 await interaction.deferReply({ ephemeral: true });
                 const reason = interaction.fields.getTextInputValue('reason') || 'No feedback provided';
@@ -879,9 +1486,14 @@ client.on('interactionCreate', async (interaction) => {
         });
         if (interaction.isRepliable()) {
             try {
-                if (interaction.replied || interaction.deferred) await interaction.followUp({ content: `❌ Error: ${err.message}`, ephemeral: true });
-                else await interaction.reply({ content: `❌ Error: ${err.message}`, ephemeral: true });
-            } catch (e) { }
+                if (interaction.replied || interaction.deferred) {
+                    await interaction.followUp({ content: `❌ Error: ${err.message}`, ephemeral: true }).catch(() => {});
+                } else {
+                    await interaction.reply({ content: `❌ Error: ${err.message}`, ephemeral: true }).catch(() => {});
+                }
+            } catch (e) { 
+                console.error('Failed to send error message to user:', e.message);
+            }
         }
     }
 });

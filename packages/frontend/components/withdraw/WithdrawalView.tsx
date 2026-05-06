@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState } from 'react';
 import {
@@ -142,7 +142,7 @@ export const WithdrawalView = ({
                         </div>
                         <Button
                             onClick={() => onInternalWithdraw('USD')}
-                            className="bg-[#16a34a] hover:bg-[#15803d] text-white px-8 py-6 rounded-2xl text-xs font-black shadow-xl shadow-emerald-500/20 active:scale-[0.95] transition-all flex items-center justify-center gap-3 w-full"
+                            className="bg-[#10b981] hover:bg-[#059669] text-white px-8 py-6 rounded-2xl text-xs font-black shadow-xl shadow-emerald-500/20 active:scale-[0.95] transition-all flex items-center justify-center gap-3 w-full"
                         >
                             Withdraw earnings
                         </Button>
@@ -166,7 +166,7 @@ export const WithdrawalView = ({
                         ) : (Array.isArray(methods) && methods.length > 0) ? (
                             <div className="space-y-4">
                                 {methods.map((m) => (
-                                    <div key={m.id} className="p-5 rounded-2xl border border-slate-50 bg-slate-50/30 flex items-center justify-between group hover:border-[#16a34a]/30 transition-all">
+                                    <div key={m.id} className="p-5 rounded-2xl border border-slate-50 bg-slate-50/30 flex items-center justify-between group hover:border-[#10b981]/30 transition-all">
                                         <div className="flex items-center gap-4">
                                             <div className="w-12 h-12 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center p-2">
                                                 <img
@@ -203,7 +203,7 @@ export const WithdrawalView = ({
                                 <Button
                                     onClick={() => setIsConnectModalOpen(true)}
                                     variant="outline"
-                                    className="w-full h-14 rounded-2xl border-dashed border-slate-200 text-slate-400 font-bold hover:border-[#16a34a] hover:text-[#16a34a] hover:bg-emerald-50/20 transition-all flex items-center justify-center gap-3"
+                                    className="w-full h-14 rounded-2xl border-dashed border-slate-200 text-slate-400 font-bold hover:border-[#10b981] hover:text-[#10b981] hover:bg-emerald-50/20 transition-all flex items-center justify-center gap-3"
                                 >
                                     <Plus size={18} />
                                     Add Another Method
@@ -293,9 +293,9 @@ export const WithdrawalView = ({
                                 <Line
                                     type="monotone"
                                     dataKey="earnings"
-                                    stroke="#16a34a"
+                                    stroke="#10b981"
                                     strokeWidth={3}
-                                    dot={{ r: 4, fill: '#16a34a', strokeWidth: 2, stroke: '#fff' }}
+                                    dot={{ r: 4, fill: '#10b981', strokeWidth: 2, stroke: '#fff' }}
                                     activeDot={{ r: 6, strokeWidth: 0 }}
                                 />
                             </LineChart>

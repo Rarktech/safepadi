@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useMemo } from 'react';
 import {
@@ -119,13 +119,13 @@ export const ConnectMethodModal = ({ isOpen, onClose, safetag, onSuccess }: Conn
                             <div className="flex gap-2">
                                 <button
                                     onClick={() => setType('bank')}
-                                    className={cn("px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all", type === 'bank' ? "bg-[#16a34a] text-white" : "bg-white/5 text-slate-400")}
+                                    className={cn("px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all", type === 'bank' ? "bg-[#10b981] text-white" : "bg-white/5 text-slate-400")}
                                 >
                                     Banks
                                 </button>
                                 <button
                                     onClick={() => setType('crypto')}
-                                    className={cn("px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all", type === 'crypto' ? "bg-[#16a34a] text-white" : "bg-white/5 text-slate-400")}
+                                    className={cn("px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all", type === 'crypto' ? "bg-[#10b981] text-white" : "bg-white/5 text-slate-400")}
                                 >
                                     Crypto
                                 </button>
@@ -141,7 +141,7 @@ export const ConnectMethodModal = ({ isOpen, onClose, safetag, onSuccess }: Conn
                             <div className="mb-6">
                                 <h2 className="text-xl font-black mb-2 tracking-tight">Add Account</h2>
                                 <div className="flex items-center gap-1.5">
-                                    <div className="flex-1 h-1 bg-[#16a34a] rounded-full" />
+                                    <div className="flex-1 h-1 bg-[#10b981] rounded-full" />
                                     <div className="flex-1 h-1 bg-white/5 rounded-full" />
                                     <div className="flex-1 h-1 bg-white/5 rounded-full" />
                                     <div className="flex-1 h-1 bg-white/5 rounded-full" />
@@ -156,7 +156,7 @@ export const ConnectMethodModal = ({ isOpen, onClose, safetag, onSuccess }: Conn
                                         placeholder={type === 'bank' ? "Search Banks" : "Search Crypto"}
                                         value={search}
                                         onChange={(e) => setSearch(e.target.value)}
-                                        className="bg-white/5 border-none h-12 pl-12 rounded-2xl focus-visible:ring-1 focus-visible:ring-[#16a34a] text-sm font-bold"
+                                        className="bg-white/5 border-none h-12 pl-12 rounded-2xl focus-visible:ring-1 focus-visible:ring-[#10b981] text-sm font-bold"
                                     />
                                 </div>
                             </div>
@@ -192,7 +192,7 @@ export const ConnectMethodModal = ({ isOpen, onClose, safetag, onSuccess }: Conn
                                                 <button
                                                     key={i}
                                                     onClick={() => type === 'bank' ? handleSelectBank(item) : handleSelectCrypto(item)}
-                                                    className="bg-[#242628] hover:border-[#16a34a]/30 p-4 rounded-2xl flex items-center gap-3 border border-white/5 transition-all"
+                                                    className="bg-[#242628] hover:border-[#10b981]/30 p-4 rounded-2xl flex items-center gap-3 border border-white/5 transition-all"
                                                 >
                                                     <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-1.5 flex-shrink-0">
                                                         <img src={item.logo} className="w-full h-full object-contain" />
@@ -230,7 +230,7 @@ export const ConnectMethodModal = ({ isOpen, onClose, safetag, onSuccess }: Conn
                                         </button>
 
                                         <p className="text-xs font-bold text-slate-600">
-                                            Struggling to find your bank? <span className="text-[#16a34a] border-b border-[#16a34a]">Contact Us</span>
+                                            Struggling to find your bank? <span className="text-[#10b981] border-b border-[#10b981]">Contact Us</span>
                                         </p>
                                     </div>
                                 </div>
@@ -261,7 +261,7 @@ export const ConnectMethodModal = ({ isOpen, onClose, safetag, onSuccess }: Conn
                                                     placeholder="0123456789"
                                                     value={accountNumber}
                                                     onChange={(e) => setAccountNumber(e.target.value)}
-                                                    className="bg-white/5 border-none h-14 pl-12 rounded-2xl focus-visible:ring-1 focus-visible:ring-[#16a34a] text-base font-black tracking-widest"
+                                                    className="bg-white/5 border-none h-14 pl-12 rounded-2xl focus-visible:ring-1 focus-visible:ring-[#10b981] text-base font-black tracking-widest"
                                                 />
                                             </div>
                                         </div>
@@ -273,7 +273,7 @@ export const ConnectMethodModal = ({ isOpen, onClose, safetag, onSuccess }: Conn
                                                     placeholder="Full Account Name"
                                                     value={accountName}
                                                     onChange={(e) => setAccountName(e.target.value)}
-                                                    className="bg-white/5 border-none h-14 pl-12 rounded-2xl focus-visible:ring-1 focus-visible:ring-[#16a34a] text-base font-bold"
+                                                    className="bg-white/5 border-none h-14 pl-12 rounded-2xl focus-visible:ring-1 focus-visible:ring-[#10b981] text-base font-bold"
                                                 />
                                             </div>
                                         </div>
@@ -288,7 +288,7 @@ export const ConnectMethodModal = ({ isOpen, onClose, safetag, onSuccess }: Conn
                                                     placeholder="Paste address here"
                                                     value={walletAddress}
                                                     onChange={(e) => setWalletAddress(e.target.value)}
-                                                    className="bg-white/5 border-none h-14 pl-12 rounded-2xl focus-visible:ring-1 focus-visible:ring-[#16a34a] text-xs font-bold font-mono"
+                                                    className="bg-white/5 border-none h-14 pl-12 rounded-2xl focus-visible:ring-1 focus-visible:ring-[#10b981] text-xs font-bold font-mono"
                                                 />
                                             </div>
                                         </div>
@@ -299,7 +299,7 @@ export const ConnectMethodModal = ({ isOpen, onClose, safetag, onSuccess }: Conn
                                                     <button
                                                         key={chain}
                                                         onClick={() => setCryptoChain(chain)}
-                                                        className={cn("p-3 rounded-2xl border text-[9px] font-black uppercase tracking-wider transition-all", cryptoChain === chain ? "bg-[#16a34a] border-[#16a34a] text-white shadow-lg shadow-emerald-500/20" : "bg-white/5 border-white/5 text-slate-500")}
+                                                        className={cn("p-3 rounded-2xl border text-[9px] font-black uppercase tracking-wider transition-all", cryptoChain === chain ? "bg-[#10b981] border-[#10b981] text-white shadow-lg shadow-emerald-500/20" : "bg-white/5 border-white/5 text-slate-500")}
                                                     >
                                                         {chain}
                                                     </button>
@@ -313,7 +313,7 @@ export const ConnectMethodModal = ({ isOpen, onClose, safetag, onSuccess }: Conn
                             <Button
                                 onClick={handleSave}
                                 disabled={loading || (type === 'bank' ? !accountNumber || !accountName : !walletAddress || !cryptoChain)}
-                                className="w-full h-14 bg-[#16a34a] hover:bg-[#15803d] text-white rounded-[20px] text-base font-black shadow-xl shadow-emerald-500/10 mb-6 active:scale-[0.98] transition-all"
+                                className="w-full h-14 bg-[#10b981] hover:bg-[#059669] text-white rounded-[20px] text-base font-black shadow-xl shadow-emerald-500/10 mb-6 active:scale-[0.98] transition-all"
                             >
                                 {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : 'Connect Now'}
                             </Button>

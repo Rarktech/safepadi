@@ -26,7 +26,7 @@ app.get('/health', (req, res) => {
 
 // --- SESSION MANAGEMENT ---
 interface UserState {
-    state: 'IDLE' | 'ROLE_SELECTION' | 'PRODUCT_NAME' | 'PRODUCT_DESCRIPTION' | 'ATTACHMENTS' | 'CURRENCY_SELECTION' | 'PRICE_INPUT' | 'FEE_ALLOCATION' | 'COUNTERPARTY_SAFETAG' | 'CONFIRMATION';
+    state: 'IDLE' | 'ROLE_SELECTION' | 'PRODUCT_NAME' | 'PRODUCT_DESCRIPTION' | 'ATTACHMENTS' | 'CURRENCY_SELECTION' | 'PRICE_INPUT' | 'FEE_ALLOCATION' | 'COUNTERPARTY_SAFETAG' | 'CONFIRMATION' | 'DISPUTE_REASON' | 'REVIEW_RATING' | 'REVIEW_COMMENT';
     formData: {
         role?: 'buyer' | 'seller';
         product_name?: string;
@@ -37,6 +37,10 @@ interface UserState {
         other_safetag?: string;
         other_id?: string;
         other_rating?: string;
+        dispute_txn_id?: string;
+        review_txn_id?: string;
+        review_other?: string;
+        review_rating?: number;
     };
 }
 
@@ -151,6 +155,13 @@ app.post('/webhook/:token', (req, res) => {
             // 2. Check if user is registered via API (we use Jivo client_id as the platform_id)
             try {
                 const profileRes = await axios.get(`${API_URL}/profiles/by_platform/apple/${clientId}`);
+                if (profileRes.data?.is_deactivated) {
+                    await sendJivoChatMessage(clientId, chatId, {
+                        type: 'TEXT',
+                        text: '⚠️ Your Safeeely account has been deactivated. Please contact support@safeeely.com if you believe this is a mistake.'
+                    });
+                    return;
+                }
                 const session = getSession(clientId);
                 const safetag = profileRes.data.safetag;
 
@@ -179,8 +190,39 @@ app.post('/webhook/:token', (req, res) => {
                     return;
                 }
 
+                // --- REFERRALS ---
+                if (messageText.includes('referral')) {
+                    try {
+                        const fmtAmt = (amount: number, currency: string) => {
+                            const sym: Record<string, string> = { USD: '$', NGN: '₦', EUR: '€', GBP: '£' };
+                            return sym[currency]
+                                ? `${sym[currency]}${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                : `${parseFloat(amount.toFixed(8))} ${currency}`;
+                        };
+
+                        const statsRes = await axios.get(`${API_URL}/referrals/${encodeURIComponent(safetag)}/stats`);
+                        const stats = statsRes.data;
+
+                        const cleanSafetag = safetag.startsWith('@') ? safetag : `@${safetag}`;
+                        const referralLink = `${FRONTEND_URL}/${cleanSafetag}`;
+                        const withdrawLink = `${FRONTEND_URL}/withdraw/${encodeURIComponent(safetag)}?viewer=${encodeURIComponent(safetag)}#referrals`;
+
+                        const earningsLines = stats.earningsByCurrency?.length
+                            ? stats.earningsByCurrency.map((e: any) => `  • ${fmtAmt(e.totalEarned, e.currency)}`).join('\n')
+                            : '  • None yet';
+
+                        await sendJivoChatMessage(clientId, chatId, {
+                            type: 'TEXT',
+                            text: `🎁 My Referrals\n\nInvite friends and earn up to 1.5% commission for life on all secured purchases!\n\n🔗 Your Invite Link:\n${referralLink}\n\n📊 Statistics:\n👥 Tier 1 Referrals: ${stats.tier1Count}\n👥 Tier 2 Referrals: ${stats.tier2Count}\n💰 Commissions Earned:\n${earningsLines}\n\n💸 Withdraw your earnings:\n${withdrawLink}`
+                        });
+                    } catch (e: any) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ Could not load referral stats: ${e.message}` });
+                    }
+                    return;
+                }
+
                 // --- TRANSACTION WIZARD STATE MACHINE ---
-                
+
                 // Transition: Menu -> Transaction Wizard
                 if (messageText.includes('create transaction') || messageText === '1') {
                     session.state = 'ROLE_SELECTION';
@@ -393,6 +435,194 @@ app.post('/webhook/:token', (req, res) => {
                     } else {
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '❌ Transaction cancelled.' });
                         resetSession(clientId);
+                    }
+                    return;
+                }
+
+                // --- DISPUTE_REASON state input ---
+                if (session.state === 'DISPUTE_REASON') {
+                    const txnId = session.formData.dispute_txn_id!;
+                    try {
+                        await axios.post(`${API_URL}/disputes`, { transaction_id: txnId, reason: messageText, raised_by_safetag: safetag });
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '✅ Dispute raised. The transaction has been frozen. Our team will review it shortly.' });
+                    } catch (err: any) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to raise dispute.'}` });
+                    }
+                    resetSession(clientId);
+                    return;
+                }
+
+                // --- REVIEW_RATING state — expects button id like 'review_5' ---
+                if (session.state === 'REVIEW_RATING') {
+                    const match = messageText.match(/^review_(\d)$/);
+                    if (match) {
+                        session.formData.review_rating = parseInt(match[1], 10);
+                        session.state = 'REVIEW_COMMENT';
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '💬 Please leave a comment about your experience (or type "skip" to skip):' });
+                    }
+                    return;
+                }
+
+                // --- REVIEW_COMMENT state ---
+                if (session.state === 'REVIEW_COMMENT') {
+                    const txnId = session.formData.review_txn_id!;
+                    const other = session.formData.review_other!;
+                    const rating = session.formData.review_rating || 5;
+                    const remark = messageText === 'skip' ? '' : messageText;
+                    try {
+                        await axios.post(`${API_URL}/reviews`, { transaction_id: txnId, reviewer_safetag: safetag, reviewee_safetag: other, rating, remark });
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '🎉 Thank you for leaving a review! This helps make buying and selling safer for everyone.' });
+                    } catch (err: any) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to submit review.'}` });
+                    }
+                    resetSession(clientId);
+                    return;
+                }
+
+                // --- NOTIFICATION ACTION BUTTONS ---
+                if (messageText.startsWith('txn_action_accept|')) {
+                    const txnId = messageText.replace('txn_action_accept|', '');
+                    try {
+                        await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'accept', updater_safetag: safetag });
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '✅ Transaction accepted! The buyer will be notified to make payment.' });
+                    } catch (err: any) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to accept.'}` });
+                    }
+                    return;
+                }
+
+                if (messageText.startsWith('txn_action_decline|')) {
+                    const txnId = messageText.replace('txn_action_decline|', '');
+                    try {
+                        await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'decline', updater_safetag: safetag });
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '❌ Transaction declined.' });
+                    } catch (err: any) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to decline.'}` });
+                    }
+                    return;
+                }
+
+                if (messageText.startsWith('txn_action_complete_prompt|')) {
+                    const txnId = messageText.replace('txn_action_complete_prompt|', '');
+                    const uploadUrl = `${FRONTEND_URL}/upload/${txnId}`;
+                    await sendJivoChatMessage(clientId, chatId, {
+                        type: 'BUTTONS',
+                        title: '📦 Mark as Delivered',
+                        text: 'Have you completed your part of the agreement?',
+                        force_reply: true,
+                        buttons: [
+                            { text: '✅ Yes, Mark Complete', id: `txn_action_complete_yes|${txnId}`, description: 'Mark delivery as done', subtitle: 'Mark delivery as done' },
+                            { text: '⏭️ Skip Proof Upload', id: `txn_action_complete_skip|${txnId}`, description: 'Mark done without documents', subtitle: 'Mark done without documents' }
+                        ]
+                    });
+                    await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `📎 Upload proof of delivery:\n${uploadUrl}` });
+                    return;
+                }
+
+                if (messageText.startsWith('txn_action_complete_yes|') || messageText.startsWith('txn_action_complete_skip|')) {
+                    const isSkip = messageText.startsWith('txn_action_complete_skip|');
+                    const txnId = messageText.replace(isSkip ? 'txn_action_complete_skip|' : 'txn_action_complete_yes|', '');
+                    try {
+                        await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: isSkip ? 'complete_skip' : 'complete_confirmed', updater_safetag: safetag });
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '✅ Delivery marked! The buyer has been notified to confirm receipt.' });
+                    } catch (err: any) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to mark complete.'}` });
+                    }
+                    return;
+                }
+
+                if (messageText.startsWith('txn_action_confirm_receipt|')) {
+                    const txnId = messageText.replace('txn_action_confirm_receipt|', '');
+                    try {
+                        const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'confirm_receipt', updater_safetag: safetag });
+                        const msg = (res.data.follow_up_msg || '🎉 Receipt confirmed! Funds have been released to the seller.').replace(/<[^>]*>/g, '');
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: msg });
+                    } catch (err: any) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to confirm receipt.'}` });
+                    }
+                    return;
+                }
+
+                if (messageText.startsWith('txn_pay_')) {
+                    const txnId = messageText.replace('txn_pay_', '');
+                    await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `💳 Tap the link below to complete your secure payment:\n${FRONTEND_URL}/pay/${txnId}` });
+                    return;
+                }
+
+                if (messageText.startsWith('view_txn_details|')) {
+                    const txnId = messageText.replace('view_txn_details|', '');
+                    try {
+                        const res = await axios.get(`${API_URL}/transactions/${txnId}`);
+                        const t = res.data;
+                        const isBuyer = safetag === t.buyer.safetag;
+                        const other = isBuyer ? t.seller.safetag : t.buyer.safetag;
+                        const statusLabels: Record<string, string> = {
+                            PENDING_SELLER_ACCEPTANCE: '⏳ Awaiting Acceptance', ACCEPTED: '✅ Accepted',
+                            PAID: '💳 Paid', AWAITING_PROOF: '📎 Awaiting Proof',
+                            COMPLETED_BY_SELLER: '📦 Marked Complete', COMPLETED: '✅ Completed',
+                            DISPUTED: '⚠️ Disputed', CANCELLED: '❌ Cancelled', FINALIZED: '🎉 Finalized'
+                        };
+                        const detail = `📋 Transaction Details\n\n🆔 ID: ${t.txn_code}\n📦 Product: ${t.product_name}\n📝 Description: ${t.description || 'N/A'}\n💰 Amount: ${t.amount} ${t.currency}\n👤 ${isBuyer ? 'Seller' : 'Buyer'}: ${other}\n📊 Status: ${statusLabels[t.status] || t.status}`;
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: detail });
+                        if (t.status === 'PENDING_SELLER_ACCEPTANCE' && !isBuyer) {
+                            await sendJivoChatMessage(clientId, chatId, { type: 'BUTTONS', title: 'Actions', text: 'What would you like to do?', force_reply: true, buttons: [
+                                { text: '✅ Accept', id: `txn_action_accept|${txnId}`, description: 'Accept this transaction', subtitle: 'Accept this transaction' },
+                                { text: '❌ Decline', id: `txn_action_decline|${txnId}`, description: 'Decline this transaction', subtitle: 'Decline this transaction' }
+                            ]});
+                        } else if (t.status === 'ACCEPTED' && isBuyer) {
+                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `💳 Make your payment here:\n${FRONTEND_URL}/pay/${txnId}` });
+                        } else if (t.status === 'PAID' && !isBuyer) {
+                            await sendJivoChatMessage(clientId, chatId, { type: 'BUTTONS', title: 'Actions', text: 'Ready to mark as delivered?', force_reply: true, buttons: [
+                                { text: '📦 Mark as Delivered', id: `txn_action_complete_prompt|${txnId}`, description: 'Mark order as complete', subtitle: 'Mark order as complete' }
+                            ]});
+                        } else if (t.status === 'COMPLETED_BY_SELLER' && isBuyer) {
+                            await sendJivoChatMessage(clientId, chatId, { type: 'BUTTONS', title: 'Actions', text: 'Have you received the delivery?', force_reply: true, buttons: [
+                                { text: '✅ Confirm Receipt', id: `txn_action_confirm_receipt|${txnId}`, description: 'Confirm you received the item', subtitle: 'Confirm you received the item' },
+                                { text: '❌ Raise Dispute', id: `txn_dispute_${txnId}`, description: 'Report a problem', subtitle: 'Report a problem' }
+                            ]});
+                        }
+                    } catch (err: any) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Could not load transaction.'}` });
+                    }
+                    return;
+                }
+
+                if (messageText.startsWith('txn_dispute_')) {
+                    const txnId = messageText.replace('txn_dispute_', '');
+                    session.state = 'DISPUTE_REASON';
+                    session.formData.dispute_txn_id = txnId;
+                    await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '⚠️ Please describe the reason for your dispute:\n\n(e.g., "The item was not delivered", "The credentials did not work")' });
+                    return;
+                }
+
+                if (messageText.startsWith('view_docs_')) {
+                    const txnId = messageText.replace('view_docs_', '');
+                    await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `📎 View delivery documents here:\n${FRONTEND_URL}/delivery/${txnId}` });
+                    return;
+                }
+
+                if (messageText.startsWith('leave_review_')) {
+                    const txnId = messageText.replace('leave_review_', '');
+                    try {
+                        const txnRes = await axios.get(`${API_URL}/transactions/${txnId}`);
+                        const t = txnRes.data;
+                        const other = safetag === t.buyer.safetag ? t.seller.safetag : t.buyer.safetag;
+                        session.state = 'REVIEW_RATING';
+                        session.formData.review_txn_id = txnId;
+                        session.formData.review_other = other;
+                        await sendJivoChatMessage(clientId, chatId, {
+                            type: 'BUTTONS',
+                            title: '⭐ Leave a Review',
+                            text: `Rate your experience with ${other}:`,
+                            force_reply: true,
+                            buttons: [
+                                { text: '⭐⭐⭐⭐⭐ 5 Stars', id: 'review_5', description: 'Excellent', subtitle: 'Excellent' },
+                                { text: '⭐⭐⭐⭐ 4 Stars', id: 'review_4', description: 'Good', subtitle: 'Good' },
+                                { text: '⭐⭐⭐ 3 Stars', id: 'review_3', description: 'Average', subtitle: 'Average' }
+                            ]
+                        });
+                    } catch (_) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '❌ Could not start review.' });
                     }
                     return;
                 }

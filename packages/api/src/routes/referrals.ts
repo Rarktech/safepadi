@@ -14,6 +14,27 @@ const supabase = createClient(process.env.SUPABASE_URL || '', process.env.SUPABA
 // Browser instance manager
 // Browser instance manager removed - handled by service
 
+// Public endpoint: returns current referral commission rates (no auth required)
+router.get('/rates', async (req, res) => {
+    try {
+        const { data } = await supabase
+            .from('platform_settings')
+            .select('key, value')
+            .in('key', ['referral_tier1_percent', 'referral_tier2_percent']);
+
+        const result: Record<string, number> = {
+            referral_tier1_percent: 0.10,
+            referral_tier2_percent: 0.05,
+        };
+        (data || []).forEach((row: any) => {
+            result[row.key] = parseFloat(row.value);
+        });
+        res.json(result);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 router.get('/:safetag/stats', async (req, res) => {
     try {
         const { safetag } = req.params;
@@ -75,14 +96,14 @@ router.get('/:safetag/stats', async (req, res) => {
 
         if (commErr) throw commErr;
 
-        let totalEarned = 0;
+        const earningsByCurrencyMap: Record<string, number> = {};
         const recentActivity: any[] = [];
         const leaderboardMap = new Map();
 
         if (commissions) {
             commissions.forEach((c: any) => {
                 if (c.status === 'COMPLETED') {
-                    totalEarned += Number(c.amount);
+                    earningsByCurrencyMap[c.currency] = (earningsByCurrencyMap[c.currency] || 0) + Number(c.amount);
                 }
 
                 // Push to recent activity
@@ -117,8 +138,10 @@ router.get('/:safetag/stats', async (req, res) => {
             });
         }
 
-        // Available Commission (Mocked to be the same as totalEarned until withdrawals are decoupled)
-        const availableCommission = totalEarned;
+        const earningsByCurrency = Object.entries(earningsByCurrencyMap).map(([currency, totalEarned]) => ({
+            currency,
+            totalEarned: Number(totalEarned.toFixed(8))
+        }));
 
         // Process Leaderboard: sort by highest earnings
         const leaderboard = Array.from(leaderboardMap.values())
@@ -126,8 +149,7 @@ router.get('/:safetag/stats', async (req, res) => {
             .slice(0, 10); // Top 10
 
         res.json({
-            totalEarned,
-            availableCommission,
+            earningsByCurrency,
             tier1Count: tier1Count || 0,
             tier2Count,
             recentActivity,

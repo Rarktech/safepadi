@@ -18,12 +18,38 @@ export async function sendNotification(platform: string, platformId: string, mes
     if (platform === 'telegram' && TELEGRAM_BOT_TOKEN) {
         // ... (Telegram logic unchanged)
         try {
-            const formattedMsg = message.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+            // Escape HTML entities but preserve the ones we actually want
+            const escapedMsg = message
+                .replace(/&/g, '&amp;')
+                .replace(/</g, (match, offset, fullText) => {
+                    // Don't escape if it looks like a tag we support
+                    const rest = fullText.slice(offset);
+                    if (rest.match(/^<\/?(b|code|i|em|strong)>/)) return match;
+                    return '&lt;';
+                })
+                .replace(/>/g, (match, offset, fullText) => {
+                    // Don't escape if it's the end of a tag we support
+                    const prev = fullText.slice(0, offset + 1);
+                    if (prev.match(/<\/?(b|code|i|em|strong)>$/)) return match;
+                    return '&gt;';
+                });
+            
+            // Convert any remaining Markdown to HTML
+            const formattedMsg = escapedMsg
+                .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+                .replace(/__(.*?)__/g, '<i>$1</i>')
+                .replace(/`(.*?)`/g, '<code>$1</code>');
+
+            log(`[Telegram] Final Payload Msg:\n${formattedMsg}`);
             const payload: any = { chat_id: platformId, parse_mode: 'HTML' };
             if (options && options.length > 0) {
                 payload.reply_markup = {
                     inline_keyboard: options.map(opt => [
-                        opt.url ? { text: opt.label, web_app: { url: opt.url } } : { text: opt.label, callback_data: opt.customId }
+                        opt.url 
+                            ? (opt.url.startsWith('https') 
+                                ? { text: opt.label, web_app: { url: opt.url } } 
+                                : { text: opt.label, url: opt.url })
+                            : { text: opt.label, callback_data: opt.customId }
                     ])
                 };
             }
@@ -44,7 +70,18 @@ export async function sendNotification(platform: string, platformId: string, mes
         try {
             const dm = await axios.post('https://discord.com/api/v10/users/@me/channels', { recipient_id: platformId }, { headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` } });
             const channelId = dm.data.id;
-            let formattedMessage = message.replace(/<[^>]*>/g, '').substring(0, 2000);
+            
+            // Convert HTML to Discord Markdown
+            let formattedMessage = message
+                .replace(/<b>(.*?)<\/b>/gi, '**$1**')
+                .replace(/<strong>(.*?)<\/strong>/gi, '**$1**')
+                .replace(/<i>(.*?)<\/i>/gi, '_$1_')
+                .replace(/<em>(.*?)<\/em>/gi, '_$1_')
+                .replace(/<code>(.*?)<\/code>/gi, '`$1`')
+                .replace(/<br\s*\/?>/gi, '\n')
+                .replace(/<[^>]*>/g, '') // Strip remaining tags
+                .substring(0, 2000);
+
             let payload: any = { content: formattedMessage };
             if (options && options.length > 0) {
                 payload.components = [{ type: 1, components: options.map(opt => ({ type: 2, label: opt.label, style: opt.url ? 5 : 2, url: opt.url, custom_id: opt.customId })) }];
@@ -126,6 +163,202 @@ export async function sendNotification(platform: string, platformId: string, mes
             const errorMsg = `❌ Apple Notification Error for ${platformId}: ${err.response?.data ? JSON.stringify(err.response.data) : err.message}`;
             log(errorMsg);
             console.error(errorMsg);
+        }
+
+    } else if (platform === 'instagram') {
+        const IG_TOKEN = process.env.INSTAGRAM_ACCESS_TOKEN;
+        if (!IG_TOKEN) { log(`⚠️ Instagram notification skipped — INSTAGRAM_ACCESS_TOKEN not set`); return; }
+        const IG_BASE = 'https://graph.facebook.com/v18.0';
+
+        const cleanMsg = message.replace(/<[^>]*>/g, '');
+
+        try {
+            // 1. Send image receipt if present
+            if (imageUrl) {
+                log(`🖼️ [Instagram] Sending receipt image to ${platformId}: ${imageUrl}`);
+                await axios.post(`${IG_BASE}/me/messages?access_token=${IG_TOKEN}`, {
+                    recipient: { id: platformId },
+                    message: { attachment: { type: 'image', payload: { url: imageUrl, is_reusable: true } } }
+                });
+            }
+
+            // 2. Build text or template payload
+            let msgPayload: any;
+            if (options && options.length > 0) {
+                const hasUrls = options.some(o => o.url);
+                if (hasUrls) {
+                    msgPayload = {
+                        attachment: {
+                            type: 'template',
+                            payload: {
+                                template_type: 'button',
+                                text: cleanMsg.substring(0, 640),
+                                buttons: options.slice(0, 3).map(opt =>
+                                    opt.url
+                                        ? { type: 'web_url',  url: opt.url,                       title: opt.label.substring(0, 20) }
+                                        : { type: 'postback', payload: opt.customId || opt.label,  title: opt.label.substring(0, 20) }
+                                )
+                            }
+                        }
+                    };
+                } else {
+                    msgPayload = {
+                        text: cleanMsg,
+                        quick_replies: options.slice(0, 13).map(opt => ({
+                            content_type: 'text',
+                            title:   opt.label.substring(0, 20),
+                            payload: opt.customId || opt.label
+                        }))
+                    };
+                }
+            } else {
+                msgPayload = { text: cleanMsg };
+            }
+
+            await axios.post(`${IG_BASE}/me/messages?access_token=${IG_TOKEN}`, {
+                recipient: { id: platformId },
+                message: msgPayload
+            });
+            log(`✅ [Instagram Notification] Sent to ${platformId}`);
+        } catch (err: any) {
+            log(`❌ Instagram Notification Error for ${platformId}: ${err.response?.data?.error?.message || err.message}`);
+        }
+    } else if (platform === 'whatsapp') {
+        const WA_TOKEN = process.env.WHATSAPP_TOKEN;
+        const WA_PHONE_ID = process.env.PHONE_NUMBER_ID;
+        if (!WA_TOKEN || !WA_PHONE_ID) { log(`⚠️ WhatsApp notification skipped — WHATSAPP_TOKEN or PHONE_NUMBER_ID not set`); return; }
+        const WA_BASE = `https://graph.facebook.com/v20.0/${WA_PHONE_ID}/messages`;
+        const headers = { Authorization: `Bearer ${WA_TOKEN}`, 'Content-Type': 'application/json' };
+        const cleanMsg = message.replace(/<[^>]*>/g, '');
+
+        try {
+            if (imageUrl) {
+                log(`🖼️ [WhatsApp] Sending receipt image to ${platformId}: ${imageUrl}`);
+                await axios.post(WA_BASE, {
+                    messaging_product: 'whatsapp',
+                    to: platformId,
+                    type: 'image',
+                    image: { link: imageUrl, caption: cleanMsg.substring(0, 1024) }
+                }, { headers });
+            } else if (options && options.length > 0) {
+                const urlOpts = options.filter(o => o.url);
+                const replyOpts = options.filter(o => !o.url);
+
+                if (replyOpts.length > 0) {
+                    // Send reply buttons (non-URL options) with the message text
+                    const buttons = replyOpts.slice(0, 3).map((opt, i) => ({
+                        type: 'reply',
+                        reply: { id: (opt.customId || `opt_${i}`).substring(0, 256), title: opt.label.substring(0, 20) }
+                    }));
+                    await axios.post(WA_BASE, {
+                        messaging_product: 'whatsapp',
+                        to: platformId,
+                        type: 'interactive',
+                        interactive: {
+                            type: 'button',
+                            body: { text: cleanMsg.substring(0, 1024) },
+                            action: { buttons }
+                        }
+                    }, { headers });
+                    // Then send each URL option as a separate CTA message
+                    for (const urlOpt of urlOpts) {
+                        await axios.post(WA_BASE, {
+                            messaging_product: 'whatsapp',
+                            to: platformId,
+                            type: 'interactive',
+                            interactive: {
+                                type: 'cta_url',
+                                body: { text: urlOpt.label.substring(0, 1024) },
+                                action: { name: 'cta_url', parameters: { display_text: urlOpt.label.substring(0, 20), url: urlOpt.url } }
+                            }
+                        }, { headers });
+                    }
+                } else {
+                    // URL-only options — send a single CTA URL
+                    const urlOpt = urlOpts[0];
+                    await axios.post(WA_BASE, {
+                        messaging_product: 'whatsapp',
+                        to: platformId,
+                        type: 'interactive',
+                        interactive: {
+                            type: 'cta_url',
+                            body: { text: cleanMsg.substring(0, 1024) },
+                            action: { name: 'cta_url', parameters: { display_text: urlOpt.label.substring(0, 20), url: urlOpt.url } }
+                        }
+                    }, { headers });
+                }
+            } else {
+                await axios.post(WA_BASE, {
+                    messaging_product: 'whatsapp',
+                    to: platformId,
+                    type: 'text',
+                    text: { body: cleanMsg.substring(0, 4096) }
+                }, { headers });
+            }
+            log(`✅ [WhatsApp Notification] Sent to ${platformId}`);
+        } catch (err: any) {
+            log(`❌ WhatsApp Notification Error for ${platformId}: ${err.response?.data?.error?.message || err.message}`);
+        }
+    } else if (platform === 'messenger') {
+        const MSG_TOKEN = process.env.MESSENGER_ACCESS_TOKEN;
+        if (!MSG_TOKEN) { log(`⚠️ Messenger notification skipped — MESSENGER_ACCESS_TOKEN not set`); return; }
+        const MSG_BASE = 'https://graph.facebook.com/v18.0';
+        const cleanMsg = message.replace(/<[^>]*>/g, '');
+
+        try {
+            // 1. Send image receipt if present
+            if (imageUrl) {
+                log(`🖼️ [Messenger] Sending receipt image to ${platformId}: ${imageUrl}`);
+                await axios.post(`${MSG_BASE}/me/messages?access_token=${MSG_TOKEN}`, {
+                    recipient: { id: platformId },
+                    message: { attachment: { type: 'image', payload: { url: imageUrl, is_reusable: true } } },
+                    messaging_type: 'MESSAGE_TAG',
+                    tag: 'ACCOUNT_UPDATE'
+                });
+            }
+
+            // 2. Build text or template payload
+            let msgPayload: any;
+            if (options && options.length > 0) {
+                const hasUrls = options.some(o => o.url);
+                if (hasUrls) {
+                    msgPayload = {
+                        attachment: {
+                            type: 'template',
+                            payload: {
+                                template_type: 'button',
+                                text: cleanMsg.substring(0, 640),
+                                buttons: options.slice(0, 3).map(opt =>
+                                    opt.url
+                                        ? { type: 'web_url',  url: opt.url,                      title: opt.label.substring(0, 20) }
+                                        : { type: 'postback', payload: opt.customId || opt.label, title: opt.label.substring(0, 20) }
+                                )
+                            }
+                        }
+                    };
+                } else {
+                    msgPayload = {
+                        text: cleanMsg,
+                        quick_replies: options.slice(0, 13).map(opt => ({
+                            content_type: 'text',
+                            title:   opt.label.substring(0, 20),
+                            payload: opt.customId || opt.label
+                        }))
+                    };
+                }
+            } else {
+                msgPayload = { text: cleanMsg };
+            }
+
+            await axios.post(`${MSG_BASE}/me/messages?access_token=${MSG_TOKEN}`, {
+                recipient: { id: platformId },
+                message: msgPayload,
+                messaging_type: 'MESSAGE_TAG',
+                tag: 'ACCOUNT_UPDATE'
+            });
+            log(`✅ [Messenger Notification] Sent to ${platformId}`);
+        } catch (err: any) {
+            log(`❌ Messenger Notification Error for ${platformId}: ${err.response?.data?.error?.message || err.message}`);
         }
     }
 }
