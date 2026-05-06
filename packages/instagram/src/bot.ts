@@ -1422,7 +1422,7 @@ app.post('/webhook', async (req, res) => {
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
-const PORT = process.env.INSTAGRAM_PORT || 10002;
+const PORT = process.env.PORT || process.env.INSTAGRAM_PORT || 10002;
 app.listen(PORT, async () => {
     console.log(`📸 Instagram Webhook listener on port ${PORT}`);
     await setupMenus();

@@ -1428,7 +1428,7 @@ app.post('/webhook', async (req, res) => {
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
-const PORT = process.env.MESSENGER_PORT || 10004;
+const PORT = process.env.PORT || process.env.MESSENGER_PORT || 10004;
 app.listen(PORT, async () => {
     console.log(`💬 Messenger Webhook listener on port ${PORT}`);
     await setupMenus();

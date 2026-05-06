@@ -12,7 +12,7 @@ if (process.env.NODE_ENV !== 'production') {
 const app = express();
 app.use(express.json());
 
-const PORT = process.env.APPLE_PORT || 10003;
+const PORT = process.env.PORT || process.env.APPLE_PORT || 10003;
 const API_URL = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
 // The frontend URL where the Magic Link modal will be hosted
 const FRONTEND_URL = process.env.REVIEWS_URL || 'http://localhost:3001';

@@ -1252,5 +1252,5 @@ app.post('/webhook', async (req, res) => {
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
-const PORT = process.env.WHATSAPP_PORT || 10001;
+const PORT = process.env.PORT || process.env.WHATSAPP_PORT || 10001;
 app.listen(PORT, () => console.log(`🌐 WhatsApp Webhook listener on port ${PORT}`));
