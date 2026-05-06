@@ -866,8 +866,12 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         const txnId = interactiveId.replace('COMPLETE_TXN_', '');
         try {
             const p = await getProfile(from);
-            await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_confirmed', updater_safetag: p.safetag });
-            await sendButtons(from, '📦 Marked as complete! The buyer will confirm receipt.', [{ id: 'MY_TXNS', title: '📋 My Txns' }, { id: 'MAIN_MENU', title: '🏠 Main Menu' }]);
+            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_prompt', updater_safetag: p.safetag });
+            const opts: any[] = res.data.follow_up_options || [];
+            const replyOpts = opts.filter((o: any) => !o.url);
+            const urlOpts = opts.filter((o: any) => o.url);
+            if (replyOpts.length > 0) await sendButtons(from, res.data.follow_up_msg?.replace(/<[^>]*>/g, '') || 'Mark delivery as completed?', replyOpts.slice(0, 3).map((o: any) => ({ id: o.customId, title: o.label.substring(0, 20) })));
+            for (const u of urlOpts) await sendCTAUrl(from, u.label, u.label.substring(0, 20), u.url);
         } catch (err: any) { await sendText(from, `❌ ${err.response?.data?.error || 'Failed.'}`); }
 
     } else if (interactiveId.startsWith('RECEIVED_TXN_')) {
@@ -888,6 +892,28 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
             const urlOpts = opts.filter((o: any) => o.url);
             if (replyOpts.length > 0) await sendButtons(from, res.data.follow_up_msg?.replace(/<[^>]*>/g, '') || 'Mark delivery as completed?', replyOpts.slice(0, 3).map((o: any) => ({ id: o.customId, title: o.label.substring(0, 20) })));
             for (const u of urlOpts) await sendCTAUrl(from, u.label, u.label.substring(0, 20), u.url);
+        } catch (err: any) { await sendText(from, `❌ ${err.response?.data?.error || 'Failed.'}`); }
+
+    } else if (interactiveId.startsWith('txn_action_complete_yes|')) {
+        const txnId = interactiveId.replace('txn_action_complete_yes|', '');
+        try {
+            const p = await getProfile(from);
+            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_yes', updater_safetag: p.safetag });
+            const opts: any[] = res.data.follow_up_options || [];
+            const replyOpts = opts.filter((o: any) => !o.url);
+            const urlOpts = opts.filter((o: any) => o.url);
+            const msg = res.data.follow_up_msg?.replace(/<[^>]*>/g, '') || '📎 Please upload proof of delivery.';
+            if (replyOpts.length > 0) await sendButtons(from, msg, replyOpts.slice(0, 3).map((o: any) => ({ id: o.customId, title: o.label.substring(0, 20) })));
+            else await sendText(from, msg);
+            for (const u of urlOpts) await sendCTAUrl(from, u.label, u.label.substring(0, 20), u.url);
+        } catch (err: any) { await sendText(from, `❌ ${err.response?.data?.error || 'Failed.'}`); }
+
+    } else if (interactiveId.startsWith('txn_action_complete_skip|')) {
+        const txnId = interactiveId.replace('txn_action_complete_skip|', '');
+        try {
+            const p = await getProfile(from);
+            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_skip', updater_safetag: p.safetag });
+            await sendButtons(from, res.data.follow_up_msg?.replace(/<[^>]*>/g, '') || '📦 Marked as complete! The buyer will be notified to confirm receipt.', [{ id: 'MY_TXNS', title: '📋 My Txns' }, { id: 'MAIN_MENU', title: '🏠 Main Menu' }]);
         } catch (err: any) { await sendText(from, `❌ ${err.response?.data?.error || 'Failed.'}`); }
 
     } else if (interactiveId.startsWith('txn_action_confirm_receipt|')) {

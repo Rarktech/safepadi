@@ -1099,9 +1099,15 @@ async function handlePostback(psid: string, payload: string) {
         const txnId = payload.replace('COMPLETE_TXN_', '');
         try {
             const p = await getProfile(psid);
-            await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_confirmed', updater_safetag: p.safetag });
-            await sendMsg(psid, { text: '📦 Marked as complete! The buyer will be notified to confirm receipt.' });
-            await sendNextOptions(psid);
+            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_prompt', updater_safetag: p.safetag });
+            const opts: any[] = res.data.follow_up_options || [];
+            const msg = (res.data.follow_up_msg || 'Mark delivery as completed?').replace(/<[^>]*>/g, '');
+            const replyOpts = opts.filter((o: any) => !o.url);
+            const urlOpts = opts.filter((o: any) => o.url);
+            if (replyOpts.length > 0) {
+                await sendMsg(psid, btnTemplate(msg, replyOpts.slice(0, 3).map((o: any) => ({ type: 'postback', title: o.label.substring(0, 20), payload: o.customId }))));
+            }
+            for (const u of urlOpts) await sendMsg(psid, btnTemplate(u.label, [{ type: 'web_url', url: u.url, title: u.label.substring(0, 20) }]));
         } catch (err: any) {
             await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed to mark complete.'}` });
         }
@@ -1130,6 +1136,32 @@ async function handlePostback(psid: string, payload: string) {
                 await sendMsg(psid, btnTemplate(msg, replyOpts.slice(0, 3).map((o: any) => ({ type: 'postback', title: o.label.substring(0, 20), payload: o.customId }))));
             }
             for (const u of urlOpts) await sendMsg(psid, btnTemplate(u.label, [{ type: 'web_url', url: u.url, title: u.label.substring(0, 20) }]));
+        } catch (err: any) { await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed.'}` }); }
+
+    } else if (payload.startsWith('txn_action_complete_yes|')) {
+        const txnId = payload.replace('txn_action_complete_yes|', '');
+        try {
+            const p = await getProfile(psid);
+            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_yes', updater_safetag: p.safetag });
+            const opts: any[] = res.data.follow_up_options || [];
+            const msg = (res.data.follow_up_msg || '📎 Please upload proof of delivery.').replace(/<[^>]*>/g, '');
+            const replyOpts = opts.filter((o: any) => !o.url);
+            const urlOpts = opts.filter((o: any) => o.url);
+            if (replyOpts.length > 0) {
+                await sendMsg(psid, btnTemplate(msg, replyOpts.slice(0, 3).map((o: any) => ({ type: 'postback', title: o.label.substring(0, 20), payload: o.customId }))));
+            } else {
+                await sendMsg(psid, { text: msg });
+            }
+            for (const u of urlOpts) await sendMsg(psid, btnTemplate(u.label, [{ type: 'web_url', url: u.url, title: u.label.substring(0, 20) }]));
+        } catch (err: any) { await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed.'}` }); }
+
+    } else if (payload.startsWith('txn_action_complete_skip|')) {
+        const txnId = payload.replace('txn_action_complete_skip|', '');
+        try {
+            const p = await getProfile(psid);
+            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_skip', updater_safetag: p.safetag });
+            await sendMsg(psid, { text: res.data.follow_up_msg?.replace(/<[^>]*>/g, '') || '📦 Marked as complete! The buyer will be notified to confirm receipt.' });
+            await sendNextOptions(psid);
         } catch (err: any) { await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed.'}` }); }
 
     } else if (payload.startsWith('txn_action_confirm_receipt|')) {
