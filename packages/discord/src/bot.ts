@@ -176,7 +176,7 @@ client.on('messageCreate', async (message) => {
             if (pendingRegDraft.referralCode) payload.referral_code = pendingRegDraft.referralCode;
             await axios.post(`${API_URL}/profiles/register`, payload);
             regDrafts.delete(message.author.id);
-            await message.reply(`🎉 **Registration Complete!** Your Safetag is **${pendingRegDraft.safetag}**\n\nWelcome to Safeeely! 🛡️`);
+            await message.reply(`🎉 **Registration Complete!**\n\n✅ You're all set!\n\nYour Safetag: **${pendingRegDraft.safetag}**\n📧 Email: ${pendingRegDraft.email}\n\n🔐 Your account is secure and ready to use`);
             await sendMainMenu(message);
         } catch (err: any) {
             await message.reply(`❌ ${err.response?.data?.error || 'Invalid code. Please try again or click Resend Code.'}`);
@@ -1239,12 +1239,8 @@ client.on('interactionCreate', async (interaction) => {
                     await interaction.editReply(`❌ Error: ${err.response?.data?.error || 'Failed to resend.'}`);
                 }
             } else if (customId === 'verify_reg_email_btn') {
-                // @ts-ignore
-                await interaction.showModal({
-                    title: '📧 Email Verification',
-                    custom_id: 'reg_email_otp_modal',
-                    components: [{ type: 1, components: [{ type: 4, custom_id: 'email_code', label: 'Enter 6-digit code from your email', style: 1, placeholder: '123456', required: true, min_length: 6, max_length: 6 }] }]
-                });
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                await interaction.editReply({ content: '📧 **Type your 6-digit code directly in this channel** and I\'ll complete your registration automatically.\n\n_(Example: type `123456` in the chat)_', components: [] });
             } else if (customId === 'resend_reg_email_otp') {
                 if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 const draft = regDrafts.get(interaction.user.id);
@@ -1328,7 +1324,7 @@ client.on('interactionCreate', async (interaction) => {
                     if (draft.referralCode) payload.referral_code = draft.referralCode;
                     await axios.post(`${API_URL}/profiles/register`, payload);
                     regDrafts.delete(interaction.user.id);
-                    await interaction.editReply(`🎉 **Registered!** Your Safetag is **${draft.safetag}**`);
+                    await interaction.editReply(`🎉 **Registration Complete!**\n\n✅ You're all set!\n\nYour Safetag: **${draft.safetag}**\n📧 Email: ${draft.email}\n\n🔐 Your account is secure and ready to use`);
                     await sendMainMenu(interaction);
                 } catch (err: any) { await interaction.editReply(`❌ Failed: ${err.response?.data?.error || err.message}`); }
             } else if (customId.startsWith('otp_verify_modal|')) {

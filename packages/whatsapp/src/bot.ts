@@ -1156,7 +1156,10 @@ app.post('/flow', async (req, res) => {
                 }
                 responsePayload = { data: { extension_message_response: { params: { flow_token: data.flow_token, result: 'success' } } } };
                 if (phone_number) {
-                    setTimeout(() => sendMainMenu(phone_number, '🎉 Registration Complete! Welcome to Safeeely!'), 1500);
+                    setTimeout(async () => {
+                        await sendText(phone_number, `🎉 Registration Complete!\n\n✅ You're all set!\n\nYour Safetag: ${safetag}\n📧 Email: ${email}\n\n🔐 Your account is secure and ready to use`);
+                        setTimeout(() => sendMainMenu(phone_number), 800);
+                    }, 1500);
                 }
                 break;
             }

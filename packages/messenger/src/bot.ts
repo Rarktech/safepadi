@@ -570,7 +570,7 @@ async function handleRegistration(psid: string, rawText: string) {
                 referral_code:    state.formData.referralCode
             });
             delete userStates[psid];
-            await sendMsg(psid, { text: '🎉 Registration Complete!\n\n✅ You\'re all set! Use the menu below to get started.' });
+            await sendMsg(psid, { text: `🎉 Registration Complete!\n\n✅ You're all set!\n\nYour Safetag: ${state.formData.safetag}\n📧 Email: ${state.formData.email}\n\n🔐 Your account is secure and ready to use` });
             await sendNextOptions(psid, [{ title: '🛒 Create Txn', payload: 'CREATE_TXN' }]);
         } catch (err: any) {
             delete userStates[psid];
