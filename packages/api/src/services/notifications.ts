@@ -2,6 +2,8 @@ import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { supabase } from '@safepal/shared';
+import { sendEmail } from './email';
 
 const LOG_FILE = 'c:\\Users\\user\\Desktop\\safepadi\\debug_notification.log';
 
@@ -360,5 +362,51 @@ export async function sendNotification(platform: string, platformId: string, mes
         } catch (err: any) {
             log(`❌ Messenger Notification Error for ${platformId}: ${err.response?.data?.error?.message || err.message}`);
         }
+    }
+}
+
+const META_PLATFORMS = ['whatsapp', 'instagram', 'messenger'];
+const WINDOW_24H_MS  = 24 * 60 * 60 * 1000;
+
+export async function sendReferralNotification(
+    referrerId: string,
+    platformMessage: string,
+    emailSubject: string,
+    emailHtml: string
+): Promise<void> {
+    try {
+        const { data: referrer } = await supabase
+            .from('profiles')
+            .select('email')
+            .eq('id', referrerId)
+            .single();
+        if (!referrer) return;
+
+        const { data: primary } = await supabase
+            .from('linked_accounts')
+            .select('platform, platform_id, last_message_at')
+            .eq('profile_id', referrerId)
+            .eq('is_primary', true)
+            .single();
+
+        if (!primary) {
+            sendEmail({ to: referrer.email, subject: emailSubject, html: emailHtml }).catch(() => {});
+            return;
+        }
+
+        if (META_PLATFORMS.includes(primary.platform)) {
+            const windowOpen = primary.last_message_at
+                ? (Date.now() - new Date(primary.last_message_at).getTime()) < WINDOW_24H_MS
+                : false;
+            if (windowOpen) {
+                await sendNotification(primary.platform, primary.platform_id, platformMessage);
+            } else {
+                sendEmail({ to: referrer.email, subject: emailSubject, html: emailHtml }).catch(() => {});
+            }
+        } else {
+            await sendNotification(primary.platform, primary.platform_id, platformMessage);
+        }
+    } catch (err: any) {
+        log(`❌ sendReferralNotification error for referrer ${referrerId}: ${err.message}`);
     }
 }

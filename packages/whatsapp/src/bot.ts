@@ -43,6 +43,7 @@ const smartTxnSessions: Map<string, SmartTransactionDraft>              = new Ma
 const txnSessions:     Map<string, { step: string; formData: any }>    = new Map();
 const reviewSessions:  Map<string, { step: string; formData: any }>    = new Map();
 const disputeSessions: Map<string, { txnId: string; raisedBy: string }> = new Map();
+const refSessions:     Map<string, string>                               = new Map();
 
 // ─── Message helpers ──────────────────────────────────────────────────────────
 
@@ -589,6 +590,19 @@ async function submitReview(from: string, proofUrl?: string) {
 // ─── Main incoming handler ────────────────────────────────────────────────────
 
 async function handleIncoming(from: string, msgType: string, rawText: string, textBody: string, interactiveId: string, message: any) {
+
+    // ── Referral code capture (wa.me pre-filled text like "ref_johndoe") ────────
+    if (msgType === 'text' && textBody.startsWith('ref_')) {
+        const code = rawText.trim().substring(4);
+        if (code) {
+            refSessions.set(from, code);
+            await sendButtons(from,
+                '👋 *Welcome to Safeeely!*\n\nReferral code noted! Register now and your friend will earn a lifetime commission on your trades.',
+                [{ id: 'AGREE_POLICY', title: '✅ Register Now' }]
+            );
+        }
+        return;
+    }
 
     // ── Login flow (always intercepts text) ───────────────────────────────────
     if (msgType === 'text' && loginSessions.has(from)) {
@@ -1143,10 +1157,13 @@ app.post('/flow', async (req, res) => {
                 const safetag     = data.safetag.startsWith('@') ? data.safetag : `@${data.safetag}`;
                 const phone_number = data.flow_token.split('_')[2];
                 try {
+                    const refCode = refSessions.get(phone_number);
                     await axios.post(`${API_URL}/profiles/register`, {
                         first_name: data.first_name, last_name: data.last_name,
-                        email, safetag, primary_platform: 'whatsapp', platform_id: phone_number
+                        email, safetag, primary_platform: 'whatsapp', platform_id: phone_number,
+                        ...(refCode ? { referral_code: refCode } : {})
                     });
+                    refSessions.delete(phone_number);
                 } catch (err: any) {
                     const errMsg = err.response?.data?.error || 'Registration failed';
                     responsePayload = errMsg.toLowerCase().includes('safetag')
@@ -1226,6 +1243,7 @@ app.post('/webhook', async (req, res) => {
                 const message = changes.messages[0];
                 const from    = message.from;
                 const msgType = message.type;
+                axios.patch(`${API_URL}/profiles/platform-activity`, { platform: 'whatsapp', platform_id: from }).catch(() => {});
 
                 let rawText      = '';
                 let textBody     = '';

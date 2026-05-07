@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
-import { sendNotification } from '../services/notifications';
+import { sendNotification, sendReferralNotification } from '../services/notifications';
 import crypto from 'crypto';
 import axios from 'axios';
 
@@ -492,6 +492,12 @@ router.patch('/:id/status', async (req, res) => {
                             status: 'COMPLETED'
                         });
                         console.log(`💰 Paid Tier 1 Commission: ${tier1Amount} ${txn.currency} to ${tier1ReferrerId}`);
+                        sendReferralNotification(
+                            tier1ReferrerId,
+                            `💰 <b>Commission Earned!</b>\n\nYou just earned a <b>Tier 1</b> referral commission of <b>${tier1Amount.toFixed(2)} ${txn.currency}</b>. Keep it up!`,
+                            'You earned a referral commission on Safeeely!',
+                            `<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:20px;border:1px solid #eee;border-radius:8px;"><h2 style="color:#0f172a;">Commission Earned! 💰</h2><p style="color:#475569;">You just earned a <b>Tier 1</b> referral commission of <b>${tier1Amount.toFixed(2)} ${txn.currency}</b>.</p></div>`
+                        ).catch(e => console.error('Tier 1 commission notification failed:', e.message));
 
                         // Fetch the fee payer's Tier 2 Referrer (the person who referred Tier 1)
                         const { data: tier1Profile } = await supabase
@@ -515,6 +521,12 @@ router.patch('/:id/status', async (req, res) => {
                                 status: 'COMPLETED'
                             });
                             console.log(`💰 Paid Tier 2 Commission: ${tier2Amount} ${txn.currency} to ${tier2ReferrerId}`);
+                            sendReferralNotification(
+                                tier2ReferrerId,
+                                `💰 <b>Commission Earned!</b>\n\nYou just earned a <b>Tier 2</b> referral commission of <b>${tier2Amount.toFixed(2)} ${txn.currency}</b>. Keep it up!`,
+                                'You earned a referral commission on Safeeely!',
+                                `<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:20px;border:1px solid #eee;border-radius:8px;"><h2 style="color:#0f172a;">Commission Earned! 💰</h2><p style="color:#475569;">You just earned a <b>Tier 2</b> referral commission of <b>${tier2Amount.toFixed(2)} ${txn.currency}</b>.</p></div>`
+                            ).catch(e => console.error('Tier 2 commission notification failed:', e.message));
                         }
                     }
                 }

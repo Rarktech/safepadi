@@ -23,6 +23,7 @@ console.log(`📸 Safeeely Instagram Bot Starting...`);
 // ─── State machine ────────────────────────────────────────────────────────────
 // Each entry: { mode, step, formData, smartDraft? }
 const userStates: Record<string, any> = {};
+const pendingReferrals: Record<string, string> = {};
 
 // ─── Message helpers ──────────────────────────────────────────────────────────
 
@@ -858,6 +859,16 @@ async function handleMessage(psid: string, message: any) {
 
     const text = rawText.toLowerCase();
 
+    // Capture referral code from text like "ref_johndoe"
+    if (rawText.toLowerCase().startsWith('ref_')) {
+        pendingReferrals[psid] = rawText.trim().substring(4);
+        await sendMsg(psid, qr(
+            '👋 Welcome to Safeeely! Referral code noted!\n\nRegister now and your friend will earn commission on your trades:',
+            [{ title: '🆕 Register', payload: 'CHOICE_REGISTER' }, { title: '🔗 Log In', payload: 'CHOICE_LOGIN' }]
+        ));
+        return;
+    }
+
     // Greeting trigger
     if (['hello', 'hi', 'start', 'hey', 'get started'].includes(text)) {
         await checkAndGreet(psid);
@@ -904,7 +915,8 @@ async function handlePostback(psid: string, payload: string) {
         ]));
 
     } else if (payload === 'CHOICE_REGISTER' || payload === 'ICEBREAKER_REGISTER') {
-        userStates[psid] = { mode: 'REGISTER', step: 'ASK_NAME', formData: {} };
+        const referralCode = pendingReferrals[psid] || '';
+        userStates[psid] = { mode: 'REGISTER', step: 'ASK_NAME', formData: { referralCode } };
         await sendMsg(psid, qr('📝 Registration Step 1/5\n\nPlease enter your first name:', [
             { title: '❌ Cancel', payload: 'CANCEL_AUTH' }
         ]));
@@ -1405,6 +1417,7 @@ app.post('/webhook', async (req, res) => {
                 if (!entry.messaging) continue;
                 for (const event of entry.messaging) {
                     const psid = event.sender.id;
+                    axios.patch(`${API_URL}/profiles/platform-activity`, { platform: 'instagram', platform_id: psid }).catch(() => {});
                     try {
                         if (event.message)  await handleMessage(psid, event.message);
                         if (event.postback) await handlePostback(psid, event.postback.payload);

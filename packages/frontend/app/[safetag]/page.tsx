@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, X, ArrowRight, Lock, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 
 const BOT_LINKS = {
@@ -54,26 +54,93 @@ export default function SafetagGateway() {
     const rawSafetag = params.safetag as string;
     const safetag = decodeURIComponent(rawSafetag || '').replace(/^@/, '');
 
+    const [activePlatform, setActivePlatform] = useState<keyof typeof BOT_LINKS | null>(null);
+
     useEffect(() => {
         if (safetag) localStorage.setItem('Safeeely_referral_code', safetag);
     }, [safetag]);
 
     const getBotUrl = (platform: keyof typeof BOT_LINKS) => {
-        const baseUrl = BOT_LINKS[platform];
-        if (platform === 'telegram')  return `${baseUrl}?start=ref_${encodeURIComponent(safetag)}`;
-        if (platform === 'discord')   return `${baseUrl}?ref=${encodeURIComponent(safetag)}`;
-        if (platform === 'whatsapp')  return `${baseUrl}?text=Start%20Safeeely%20ref_${encodeURIComponent(safetag)}`;
-        if (platform === 'instagram') return `${baseUrl}`;
-        if (platform === 'messenger') return `${baseUrl}`;
-        return baseUrl;
+        const base = BOT_LINKS[platform];
+        if (platform === 'telegram')  return `${base}?start=ref_${encodeURIComponent(safetag)}`;
+        if (platform === 'discord')   return base;
+        if (platform === 'whatsapp')  return `${base}?text=ref_${encodeURIComponent(safetag)}`;
+        if (platform === 'instagram') return base;
+        if (platform === 'messenger') return `${base}?ref=ref_${encodeURIComponent(safetag)}`;
+        return base;
     };
 
-    const handleDiscordClick = () => {
-        const command = `!start ref_${safetag}`;
-        navigator.clipboard.writeText(command);
-        toast.success(`Copied "${command}" to clipboard! Paste this in Discord to claim your referral.`);
-        setTimeout(() => { window.location.href = getBotUrl('discord'); }, 1500);
+    const handlePlatformProceed = (platform: keyof typeof BOT_LINKS) => {
+        if (platform === 'discord') {
+            navigator.clipboard.writeText(`!start ref_${safetag}`);
+            toast.success('Command copied! Paste it in Discord.');
+        } else if (platform === 'instagram') {
+            navigator.clipboard.writeText(`ref_${safetag}`);
+            toast.success('Code copied! Send it in the Instagram DM.');
+        }
+        window.open(getBotUrl(platform), '_blank');
+        setActivePlatform(null);
     };
+
+    const platformConfig = {
+        telegram: {
+            label: 'Telegram',
+            iconBg: 'bg-sky-50',
+            icon: <TelegramIcon />,
+            steps: [
+                'Click the button below to open Telegram.',
+                'Your referral is pre-loaded — just tap Start.',
+            ],
+            code: null as string | null,
+            actionLabel: 'Open Telegram',
+        },
+        discord: {
+            label: 'Discord',
+            iconBg: 'bg-indigo-50',
+            icon: <DiscordIcon />,
+            steps: [
+                'Copy the command shown below.',
+                'Open our Discord server and paste it in any channel.',
+            ],
+            code: `!start ref_${safetag}`,
+            actionLabel: 'Copy & Open Discord',
+        },
+        whatsapp: {
+            label: 'WhatsApp',
+            iconBg: 'bg-emerald-50',
+            icon: <WhatsAppIcon />,
+            steps: [
+                'Click the button below to open WhatsApp.',
+                'The message is pre-filled — just hit Send.',
+            ],
+            code: null as string | null,
+            actionLabel: 'Open WhatsApp',
+        },
+        instagram: {
+            label: 'Instagram',
+            iconBg: 'bg-pink-50',
+            icon: <InstagramIcon />,
+            steps: [
+                'Copy your referral code shown below.',
+                'Open our page, start a DM, and paste the code.',
+            ],
+            code: `ref_${safetag}`,
+            actionLabel: 'Copy & Open Instagram',
+        },
+        messenger: {
+            label: 'Messenger',
+            iconBg: 'bg-blue-50',
+            icon: <MessengerIcon />,
+            steps: [
+                'Click the button below to open Messenger.',
+                'Your referral is automatically pre-linked.',
+            ],
+            code: null as string | null,
+            actionLabel: 'Open Messenger',
+        },
+    };
+
+    const active = activePlatform ? platformConfig[activePlatform] : null;
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center p-4">
@@ -91,7 +158,7 @@ export default function SafetagGateway() {
                 <Card className="rounded-[32px] border-none shadow-xl bg-white overflow-hidden">
                     <CardContent className="p-8 space-y-6">
 
-                        {/* Inviter Info — background card */}
+                        {/* Inviter Info */}
                         <div
                             className="flex flex-col items-center justify-start rounded-[24px] overflow-hidden relative min-h-[160px] pt-6"
                             style={{ backgroundImage: "url('/safetag.png')", backgroundSize: 'cover', backgroundPosition: 'center' }}
@@ -102,11 +169,11 @@ export default function SafetagGateway() {
                             </div>
                         </div>
 
-                        {/* Platform buttons */}
+                        {/* Platform buttons — open instruction modal on click */}
                         <div className="space-y-3">
                             <Button
                                 className="w-full h-14 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-900 rounded-[20px] font-black text-base shadow-sm justify-start gap-3 px-5"
-                                onClick={() => window.location.href = getBotUrl('telegram')}
+                                onClick={() => setActivePlatform('telegram')}
                             >
                                 <TelegramIcon />
                                 Continue on Telegram
@@ -114,7 +181,7 @@ export default function SafetagGateway() {
 
                             <Button
                                 className="w-full h-14 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-900 rounded-[20px] font-black text-base shadow-sm justify-start gap-3 px-5"
-                                onClick={handleDiscordClick}
+                                onClick={() => setActivePlatform('discord')}
                             >
                                 <DiscordIcon />
                                 Continue on Discord
@@ -122,7 +189,7 @@ export default function SafetagGateway() {
 
                             <Button
                                 className="w-full h-14 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-900 rounded-[20px] font-black text-base shadow-sm justify-start gap-3 px-5"
-                                onClick={() => window.location.href = getBotUrl('whatsapp')}
+                                onClick={() => setActivePlatform('whatsapp')}
                             >
                                 <WhatsAppIcon />
                                 Continue on WhatsApp
@@ -130,7 +197,7 @@ export default function SafetagGateway() {
 
                             <Button
                                 className="w-full h-14 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-900 rounded-[20px] font-black text-base shadow-sm justify-start gap-3 px-5"
-                                onClick={() => window.location.href = getBotUrl('instagram')}
+                                onClick={() => setActivePlatform('instagram')}
                             >
                                 <InstagramIcon />
                                 Continue on Instagram
@@ -138,7 +205,7 @@ export default function SafetagGateway() {
 
                             <Button
                                 className="w-full h-14 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-900 rounded-[20px] font-black text-base shadow-sm justify-start gap-3 px-5"
-                                onClick={() => window.location.href = getBotUrl('messenger')}
+                                onClick={() => setActivePlatform('messenger')}
                             >
                                 <MessengerIcon />
                                 Continue on Messenger
@@ -151,6 +218,76 @@ export default function SafetagGateway() {
                     Secure Escrow & Payouts for Africans.
                 </p>
             </div>
+
+            {/* Per-platform instruction modal */}
+            {activePlatform && active && (
+                <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+                    <div className="bg-white w-full max-w-sm rounded-[32px] overflow-hidden shadow-2xl animate-in slide-in-from-bottom-10 sm:slide-in-from-bottom-0 sm:zoom-in-95 duration-300">
+
+                        {/* Header */}
+                        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className={`w-9 h-9 ${active.iconBg} rounded-xl flex items-center justify-center`}>
+                                    {active.icon}
+                                </div>
+                                <h3 className="text-base font-black text-slate-900 tracking-tight">
+                                    {active.label} — How it works
+                                </h3>
+                            </div>
+                            <button
+                                onClick={() => setActivePlatform(null)}
+                                className="p-2 hover:bg-slate-100 rounded-full transition-colors"
+                            >
+                                <X className="w-5 h-5 text-slate-400" />
+                            </button>
+                        </div>
+
+                        {/* Steps */}
+                        <div className="p-6 space-y-4">
+                            {active.steps.map((step, i) => (
+                                <div key={i} className="flex items-start gap-3">
+                                    <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 text-xs font-black flex items-center justify-center shrink-0 mt-0.5">
+                                        {i + 1}
+                                    </span>
+                                    <p className="text-sm font-medium text-slate-700 leading-snug">{step}</p>
+                                </div>
+                            ))}
+
+                            {/* Copyable code chip (Discord & Instagram) */}
+                            {active.code && (
+                                <button
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(active.code!);
+                                        toast.success('Copied!');
+                                    }}
+                                    className="w-full mt-2 flex items-center justify-between gap-3 px-4 py-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-2xl transition-colors group"
+                                >
+                                    <code className="text-sm font-bold text-slate-800 tracking-tight">{active.code}</code>
+                                    <Copy className="w-4 h-4 text-slate-400 group-hover:text-slate-600 shrink-0 transition-colors" />
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Footer — action button + security note */}
+                        <div className="px-6 pb-6 space-y-3">
+                            <button
+                                onClick={() => handlePlatformProceed(activePlatform)}
+                                className="w-full h-14 bg-[#10b981] hover:bg-[#059669] text-white font-black text-base rounded-2xl shadow-lg shadow-emerald-200 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                            >
+                                {active.actionLabel}
+                                <ArrowRight className="w-5 h-5" />
+                            </button>
+                            <div className="flex items-center justify-center gap-2">
+                                <Lock className="w-3 h-3 text-slate-400" />
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                    Your referral is saved automatically
+                                </span>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
-import { sendNotification } from '../services/notifications';
+import { sendNotification, sendReferralNotification } from '../services/notifications';
 import { sendEmail } from '../services/email';
 import multer from 'multer';
 const upload = multer({ storage: multer.memoryStorage() });
@@ -51,10 +51,11 @@ router.post('/register', async (req, res) => {
         let referredById = null;
         if (data.referral_code) {
             console.log(`🔍 Resolving referral code: ${data.referral_code}...`);
+            const normalizedRef = data.referral_code.startsWith('@') ? data.referral_code : `@${data.referral_code}`;
             const { data: referrerData } = await supabase
                 .from('profiles')
                 .select('id')
-                .eq('safetag', data.referral_code)
+                .ilike('safetag', normalizedRef)
                 .single();
 
             if (referrerData) {
@@ -139,6 +140,17 @@ router.post('/register', async (req, res) => {
             `
         }).catch(e => console.error('Welcome email failed:', e.message));
 
+        // Notify referrer about their new referral (fire-and-forget)
+        if (referredById) {
+            const newUserName = data.first_name || data.safetag;
+            sendReferralNotification(
+                referredById,
+                `🎉 <b>New Referral!</b>\n\n<b>${newUserName}</b> just joined Safeeely using your referral link. Keep sharing to earn commissions on every trade they make!`,
+                'You have a new referral on Safeeely!',
+                `<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:20px;border:1px solid #eee;border-radius:8px;"><h2 style="color:#0f172a;">New Referral! 🎉</h2><p style="color:#475569;"><b>${newUserName}</b> just joined Safeeely using your referral link.</p><p style="color:#475569;">You'll earn commissions on every trade they make. Keep sharing!</p></div>`
+            ).catch(e => console.error('Referral join notification failed:', e.message));
+        }
+
         console.log('✅ Registration complete for:', data.safetag);
         return res.status(201).json(profile);
     } catch (err: any) {
@@ -203,6 +215,19 @@ router.get('/by_safetag/:safetag', async (req, res) => {
     }
 
     res.json(data);
+});
+
+// Record that a user sent a message on a platform (updates 24hr window timestamp)
+router.patch('/platform-activity', async (req, res) => {
+    const { platform, platform_id } = req.body;
+    if (!platform || !platform_id) return res.status(400).json({ error: 'platform and platform_id required' });
+    const { error } = await supabase
+        .from('linked_accounts')
+        .update({ last_message_at: new Date().toISOString() })
+        .eq('platform', platform)
+        .eq('platform_id', String(platform_id));
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
 });
 
 // Search profile by name or safetag
