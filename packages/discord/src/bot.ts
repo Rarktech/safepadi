@@ -129,22 +129,22 @@ const sendMainMenu = async (messageOrInteraction: any) => {
         {
             type: 1,
             components: [
-                { type: 2, label: '🛒 Create Transaction', style: 1, customId: 'create_txn' },
-                { type: 2, label: '📋 My Transactions', style: 2, customId: 'my_txns' },
+                { type: 2, label: '🛒 Create Transaction', style: 1, custom_id: 'create_txn' },
+                { type: 2, label: '📋 My Transactions', style: 2, custom_id: 'my_txns' },
             ],
         },
         {
             type: 1,
             components: [
-                { type: 2, label: '💰 Balance & Withdrawals', style: 2, customId: 'balance' },
-                { type: 2, label: '🎁 Referral', style: 2, customId: 'referral' },
+                { type: 2, label: '💰 Balance & Withdrawals', style: 2, custom_id: 'balance' },
+                { type: 2, label: '🎁 Referral', style: 2, custom_id: 'referral' },
             ],
         },
         {
             type: 1,
             components: [
-                { type: 2, label: '⭐ Reviews & Ratings', style: 2, customId: 'reviews' },
-                { type: 2, label: '⚙️ Settings & Account', style: 2, customId: 'settings' },
+                { type: 2, label: '⭐ Reviews & Ratings', style: 2, custom_id: 'reviews' },
+                { type: 2, label: '⚙️ Settings & Account', style: 2, custom_id: 'settings' },
             ],
         },
     ];
@@ -225,8 +225,8 @@ client.on('messageCreate', async (message) => {
                                     components: [{
                                         type: 1,
                                         components: [
-                                            { type: 2, label: '✅ Confirm & Proceed', style: 3, customId: 'smart_txn_confirm' },
-                                            { type: 2, label: '❌ Cancel', style: 4, customId: 'smart_txn_cancel' }
+                                            { type: 2, label: '✅ Confirm & Proceed', style: 3, custom_id: 'smart_txn_confirm' },
+                                            { type: 2, label: '❌ Cancel', style: 4, custom_id: 'smart_txn_cancel' }
                                         ]
                                     }]
                                 });
@@ -240,8 +240,8 @@ client.on('messageCreate', async (message) => {
                                 components: [{
                                     type: 1,
                                     components: [
-                                        { type: 2, label: '✅ Confirm & Proceed', style: 3, customId: 'smart_txn_confirm' },
-                                        { type: 2, label: '❌ Cancel', style: 4, customId: 'smart_txn_cancel' }
+                                        { type: 2, label: '✅ Confirm & Proceed', style: 3, custom_id: 'smart_txn_confirm' },
+                                        { type: 2, label: '❌ Cancel', style: 4, custom_id: 'smart_txn_cancel' }
                                     ]
                                 }]
                             });
@@ -312,8 +312,8 @@ client.on('messageCreate', async (message) => {
                                 components: [{
                                     type: 1,
                                     components: [
-                                        { type: 2, label: '✅ Confirm & Proceed', style: 3, customId: 'smart_txn_confirm' },
-                                        { type: 2, label: '❌ Cancel', style: 4, customId: 'smart_txn_cancel' }
+                                        { type: 2, label: '✅ Confirm & Proceed', style: 3, custom_id: 'smart_txn_confirm' },
+                                        { type: 2, label: '❌ Cancel', style: 4, custom_id: 'smart_txn_cancel' }
                                     ]
                                 }]
                             });
@@ -327,8 +327,8 @@ client.on('messageCreate', async (message) => {
                             components: [{
                                 type: 1,
                                 components: [
-                                    { type: 2, label: '✅ Confirm & Proceed', style: 3, customId: 'smart_txn_confirm' },
-                                    { type: 2, label: '❌ Cancel', style: 4, customId: 'smart_txn_cancel' }
+                                    { type: 2, label: '✅ Confirm & Proceed', style: 3, custom_id: 'smart_txn_confirm' },
+                                    { type: 2, label: '❌ Cancel', style: 4, custom_id: 'smart_txn_cancel' }
                                 ]
                             }]
                         });
@@ -372,8 +372,8 @@ client.on('messageCreate', async (message) => {
                     components: [
                         {
                             type: 1, components: [
-                                { type: 2, label: '🛒 Create Transaction', style: 1, customId: 'create_txn' },
-                                { type: 2, label: '🏠 Main Menu', style: 2, customId: 'main_menu_back' }
+                                { type: 2, label: '🛒 Create Transaction', style: 1, custom_id: 'create_txn' },
+                                { type: 2, label: '🏠 Main Menu', style: 2, custom_id: 'main_menu_back' }
                             ]
                         }
                     ]
