@@ -187,12 +187,11 @@ router.get('/by_platform/:platform/:id', async (req, res) => {
 router.get('/by_safetag/:safetag', async (req, res) => {
     const { safetag } = req.params;
     const withAt = safetag.startsWith('@') ? safetag : `@${safetag}`;
-    const withoutAt = safetag.startsWith('@') ? safetag.slice(1) : safetag;
 
     const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .or(`safetag.ilike.${withAt},safetag.ilike.${withoutAt}`)
+        .ilike('safetag', withAt)
         .maybeSingle();
 
     if (error) {

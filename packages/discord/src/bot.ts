@@ -1436,10 +1436,10 @@ client.on('interactionCreate', async (interaction) => {
                 const otherSafetag = other.startsWith('@') ? other : `@${other}`;
                 const draft = txnDrafts.get(interaction.user.id);
                 if (!draft) return interaction.editReply({ content: '❌ Transaction state lost.' });
-                draft.other = otherSafetag;
 
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_safetag/${encodeURIComponent(otherSafetag)}`);
+                    draft.other = profileRes.data.safetag; // use canonical casing from DB
                     const statsRes = await axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(otherSafetag)}`);
                     const profile = profileRes.data;
                     const { average_rating, review_count } = statsRes.data;
@@ -1450,7 +1450,7 @@ client.on('interactionCreate', async (interaction) => {
                     const profileType = draft.role === 'buyer' ? 'Seller' : 'Buyer';
                     
                     const profilePreview = `👤 **${profileType} Profile**\n\n` +
-                        `\`${otherSafetag}\`\n` +
+                        `\`${profile.safetag}\`\n` +
                         `⭐ **Rating: ${ratingStr} ${ratingSuffix}**\n` +
                         `${verifiedEmoji} 💳 **${verifiedText} ${profileType}**\n\n` +
                         `Continue with this ${profileType.toLowerCase()}?`;

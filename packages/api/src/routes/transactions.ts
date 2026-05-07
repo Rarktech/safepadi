@@ -39,12 +39,13 @@ router.post('/create', async (req, res) => {
     try {
         const data = CreateTransactionSchema.parse(req.body);
 
-        // Get IDs from safetags
-        const { data: buyer } = await supabase.from('profiles').select('id, kyc_status, is_blocked').eq('safetag', data.buyer_safetag).single();
-        const { data: seller } = await supabase.from('profiles').select('id, kyc_status, is_blocked').eq('safetag', data.seller_safetag).single();
+        // Get IDs from safetags (case-insensitive — safetags may differ in capitalisation)
+        const { data: buyer } = await supabase.from('profiles').select('id, kyc_status, is_blocked, safetag').ilike('safetag', data.buyer_safetag).maybeSingle();
+        const { data: seller } = await supabase.from('profiles').select('id, kyc_status, is_blocked, safetag').ilike('safetag', data.seller_safetag).maybeSingle();
 
         if (!buyer || !seller) {
-            return res.status(400).json({ error: 'Buyer or Seller not found' });
+            const missing = !buyer ? data.buyer_safetag : data.seller_safetag;
+            return res.status(400).json({ error: `User ${missing} not found. Please ensure the Safetag is correct.` });
         }
 
         // Block guard — reject transaction if either party is blocked
