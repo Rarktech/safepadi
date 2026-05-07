@@ -167,6 +167,23 @@ client.on('messageCreate', async (message) => {
 
     console.log(`💬 Discord msg from ${message.author.tag}: ${message.content}`);
 
+    // Fallback: catch users who type their 6-digit email verification code as a plain message
+    const pendingRegDraft = regDrafts.get(message.author.id);
+    if (pendingRegDraft && /^\d{6}$/.test(message.content.trim())) {
+        try {
+            await axios.post(`${API_URL}/auth/email-otp/verify`, { email: pendingRegDraft.email, code: message.content.trim() });
+            const payload: any = { safetag: pendingRegDraft.safetag, email: pendingRegDraft.email, first_name: pendingRegDraft.firstName, last_name: pendingRegDraft.lastName, primary_platform: 'discord', platform_id: message.author.id };
+            if (pendingRegDraft.referralCode) payload.referral_code = pendingRegDraft.referralCode;
+            await axios.post(`${API_URL}/profiles/register`, payload);
+            regDrafts.delete(message.author.id);
+            await message.reply(`🎉 **Registration Complete!** Your Safetag is **${pendingRegDraft.safetag}**\n\nWelcome to Safeeely! 🛡️`);
+            await sendMainMenu(message);
+        } catch (err: any) {
+            await message.reply(`❌ ${err.response?.data?.error || 'Invalid code. Please try again or click Resend Code.'}`);
+        }
+        return;
+    }
+
     // Handle Attachments (Proof Images vs AI Voice Notes)
     if (message.attachments.size > 0) {
         const attachment = message.attachments.first()!;
@@ -1229,7 +1246,7 @@ client.on('interactionCreate', async (interaction) => {
                     components: [{ type: 1, components: [{ type: 4, custom_id: 'email_code', label: 'Enter 6-digit code from your email', style: 1, placeholder: '123456', required: true, min_length: 6, max_length: 6 }] }]
                 });
             } else if (customId === 'resend_reg_email_otp') {
-                if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 const draft = regDrafts.get(interaction.user.id);
                 if (!draft) {
                     await interaction.editReply('❌ Registration session expired. Please type !start and begin again.');
