@@ -665,7 +665,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
     if (msgType === 'text' && disputeSessions.has(from)) {
         const ds = disputeSessions.get(from)!;
         try {
-            await axios.post(`${API_URL}/disputes`, { transaction_id: ds.txnId, reason: rawText.trim(), raised_by: ds.raisedBy });
+            await axios.post(`${API_URL}/disputes/raise`, { transaction_id: ds.txnId, reason: rawText.trim(), raised_by: ds.raisedBy });
             disputeSessions.delete(from);
             await sendButtons(from,
                 '⚠️ Dispute raised. Transaction frozen. Our team will review within 24h.',

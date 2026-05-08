@@ -7,9 +7,6 @@ import multer from 'multer';
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Feature B: Throttling Lock Map
-const aiProcessingLocks = new Set<string>();
-
 // Zod schemas for validation
 const RaiseDisputeSchema = z.object({
     transaction_id: z.string().uuid(),
@@ -23,6 +20,123 @@ const ResolveDisputeSchema = z.object({
     buyer_amount: z.number().optional(),
     seller_amount: z.number().optional()
 });
+
+async function sendVerdictNotifications(disputeId: string, action: string, txn: any) {
+    try {
+        const REVIEWS_URL = process.env.REVIEWS_URL || 'https://Safeeely.com';
+        const actionLabels: Record<string, string> = {
+            REFUND_BUYER: '✅ Refund issued to buyer',
+            PAY_SELLER: '✅ Payment released to seller',
+            SPLIT: '⚖️ Payment split between parties'
+        };
+        const label = actionLabels[action] || action;
+
+        await Promise.all([txn.buyer, txn.seller].map(async (user: any) => {
+            try {
+                const { data: linked } = await supabase
+                    .from('linked_accounts')
+                    .select('platform, platform_id')
+                    .eq('profile_id', user.id)
+                    .eq('is_primary', true)
+                    .single();
+
+                if (linked) {
+                    const disputeUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txn.id}`;
+                    await sendNotification(
+                        linked.platform,
+                        linked.platform_id,
+                        `⚖️ <b>Dispute Resolved</b>\n\nCase for <b>"${txn.product_name}"</b> (#${txn.txn_code}) has been resolved by AI Mediation.\n\n<b>Outcome:</b> ${label}\n\nView your case details for next steps.`,
+                        [{ label: '👁️ View Case', url: disputeUrl }]
+                    );
+                }
+            } catch { /* non-critical */ }
+        }));
+    } catch (err) {
+        console.error('Failed to send verdict notifications:', err);
+    }
+}
+
+async function runAIForDispute(disputeId: string, txn?: any) {
+    // DB-level lock — survives server restarts (replaces in-memory Set)
+    const { data: lockAcquired } = await supabase
+        .from('disputes')
+        .update({ processing_locked_at: new Date().toISOString() })
+        .eq('id', disputeId)
+        .is('processing_locked_at', null)
+        .select('id')
+        .maybeSingle();
+
+    if (!lockAcquired) return;
+
+    const { processAIDispute } = require('../services/gemini');
+    processAIDispute(disputeId).then(async (aiResult: any) => {
+        try {
+            if (!aiResult || !aiResult.content) return;
+
+            await supabase.from('dispute_messages').insert({
+                dispute_id: disputeId,
+                sender_type: 'AI',
+                content: aiResult.content
+            });
+
+            if (aiResult.type === 'VERDICT') {
+                let newTxnStatus = 'FINALIZED';
+                if (aiResult.action === 'REFUND_BUYER') newTxnStatus = 'CANCELLED';
+                else if (aiResult.action === 'SPLIT') newTxnStatus = 'RESOLVED_SPLIT';
+
+                const txnMeta = (aiResult.action === 'SPLIT' && aiResult.split_pct_buyer != null && txn)
+                    ? { resolution: 'SPLIT', buyer_pct: aiResult.split_pct_buyer, seller_pct: 100 - aiResult.split_pct_buyer, buyer_amount: +(txn.amount * aiResult.split_pct_buyer / 100).toFixed(2), seller_amount: +(txn.amount * (100 - aiResult.split_pct_buyer) / 100).toFixed(2) }
+                    : undefined;
+
+                await supabase.from('disputes').update({
+                    status: 'RESOLVED',
+                    resolution: `AI_MEDIATION: ${aiResult.action}`,
+                    resolved_at: new Date().toISOString()
+                }).eq('id', disputeId);
+
+                if (txn) {
+                    await supabase.from('transactions').update({
+                        status: newTxnStatus,
+                        ...(txnMeta ? { metadata: txnMeta } : {})
+                    }).eq('id', txn.id);
+
+                    await sendVerdictNotifications(disputeId, aiResult.action, txn);
+                }
+
+            } else if (aiResult.type === 'ESCALATE') {
+                // Reviewer rejected the verdict — flag for human admin
+                await supabase.from('disputes').update({ is_ai_paused: true }).eq('id', disputeId);
+
+            } else if (aiResult.type === 'QUESTION' && aiResult.restrict) {
+                const { data: current } = await supabase
+                    .from('disputes')
+                    .select('ai_rounds')
+                    .eq('id', disputeId)
+                    .single();
+
+                const newRounds = (current?.ai_rounds || 0) + 1;
+
+                await supabase.from('disputes').update({
+                    restricted_to: aiResult.restrict,
+                    ai_rounds: newRounds
+                }).eq('id', disputeId);
+
+                if (newRounds >= 5) {
+                    await supabase.from('disputes').update({ is_ai_paused: true }).eq('id', disputeId);
+                    await supabase.from('dispute_messages').insert({
+                        dispute_id: disputeId,
+                        sender_type: 'AI',
+                        content: '**[SYSTEM]** This case has been reviewed extensively and requires human judgment. A support agent will review this case shortly.'
+                    });
+                }
+            }
+        } finally {
+            await supabase.from('disputes').update({ processing_locked_at: null }).eq('id', disputeId);
+        }
+    }).catch(async () => {
+        await supabase.from('disputes').update({ processing_locked_at: null }).eq('id', disputeId);
+    });
+}
 
 /**
  * Raise a dispute
@@ -72,28 +186,8 @@ router.post('/raise', async (req: Request, res: Response) => {
             .update({ status: 'DISPUTED' })
             .eq('id', data.transaction_id);
 
-        // Trigger AI Mediator
-        const { processAIDispute } = require('../services/gemini');
-        if (!aiProcessingLocks.has(dispute.id)) {
-            aiProcessingLocks.add(dispute.id);
-            processAIDispute(dispute.id).then(async (aiResult: any) => {
-                try {
-                    if (aiResult && aiResult.content) {
-                        await supabase.from('dispute_messages').insert({
-                            dispute_id: dispute.id,
-                            sender_type: 'AI',
-                            content: aiResult.content
-                        });
-                        
-                        if (aiResult.restrict && aiResult.type === 'QUESTION') {
-                            await supabase.from('disputes').update({ restricted_to: aiResult.restrict }).eq('id', dispute.id);
-                        }
-                    }
-                } finally {
-                    aiProcessingLocks.delete(dispute.id);
-                }
-            }).catch(() => aiProcessingLocks.delete(dispute.id));
-        }
+        // Trigger AI Mediator (fire-and-forget with DB lock)
+        runAIForDispute(dispute.id, txn);
 
         // Notifications
         try {
@@ -388,52 +482,8 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
         }
 
         // 5. Trigger AI only if not paused and not an admin message
-        try {
-            const { data: currentDispute } = await supabase.from('disputes').select('is_ai_paused').eq('id', id).single();
-            if (currentDispute && !currentDispute.is_ai_paused && sender_type !== 'ADMIN') {
-                const disputeIdStr = id as string;
-                if (!aiProcessingLocks.has(disputeIdStr)) {
-                    aiProcessingLocks.add(disputeIdStr);
-                    const { processAIDispute } = require('../services/gemini');
-                    processAIDispute(disputeIdStr).then(async (aiResult: any) => {
-                        try {
-                            if (aiResult && aiResult.content) {
-                                // 1. Save AI Message
-                                await supabase.from('dispute_messages').insert({
-                                    dispute_id: id,
-                                    sender_type: 'AI',
-                                    content: aiResult.content
-                                });
-
-                                // Feature A: Autonomous Verdict Execution
-                                if (aiResult.type === 'VERDICT') {
-                                    let newTxnStatus = 'FINALIZED';
-                                    if (aiResult.action === 'REFUND_BUYER') newTxnStatus = 'CANCELLED';
-                                    else if (aiResult.action === 'SPLIT') newTxnStatus = 'RESOLVED_SPLIT';
-
-                                    await supabase.from('disputes').update({
-                                        status: 'RESOLVED',
-                                        resolution: `AI_MEDIATION: ${aiResult.action}`,
-                                        resolved_at: new Date().toISOString()
-                                    }).eq('id', id);
-
-                                    if (disputeData && disputeData.transaction_id) {
-                                        await supabase.from('transactions').update({status: newTxnStatus}).eq('id', disputeData.transaction_id);
-                                    }
-
-                                } else if (aiResult.type === 'QUESTION' && aiResult.restrict) {
-                                    // Feature 1: Chat Context Restriction
-                                    await supabase.from('disputes').update({ restricted_to: aiResult.restrict }).eq('id', id);
-                                }
-                            }
-                        } finally {
-                            aiProcessingLocks.delete(disputeIdStr);
-                        }
-                    }).catch(() => aiProcessingLocks.delete(disputeIdStr));
-                }
-            }
-        } catch (aiErr) {
-            console.warn('AI skip due to status error.');
+        if (!disputeData.is_ai_paused && sender_type !== 'ADMIN') {
+            runAIForDispute(id as string, disputeData.transaction);
         }
 
         return res.status(201).json(savedMessage);
@@ -657,32 +707,38 @@ router.post('/cron/timeouts', async (req: Request, res: Response) => {
 
                 // If AI was the last to speak, AND it's been > 48 hours
                 if (lastMsg.sender_type === 'AI' && (now - msgTime) > FORTY_EIGHT_HOURS) {
-                    
-                    // If AI restricted to BUYER but buyer vanished -> Refund Seller
-                    let action = null;
+                    let action: string | null = null;
                     if (dispute.restricted_to === 'BUYER') action = 'PAY_SELLER';
-                    // If AI restricted to SELLER but seller vanished -> Refund Buyer
                     else if (dispute.restricted_to === 'SELLER') action = 'REFUND_BUYER';
-                    
-                    if (action) {
-                        let newTxnStatus = action === 'REFUND_BUYER' ? 'CANCELLED' : 'FINALIZED';
+                    // If ALL restriction (both silent) — default to PAY_SELLER (escrow standard: funds go to seller if buyer didn't pursue)
+                    else if (!dispute.restricted_to || dispute.restricted_to === 'ALL') action = 'PAY_SELLER';
 
-                        // 1. Post final system message
+                    if (action) {
+                        const newTxnStatus = action === 'REFUND_BUYER' ? 'CANCELLED' : 'FINALIZED';
+
                         await supabase.from('dispute_messages').insert({
                             dispute_id: dispute.id,
                             sender_type: 'AI',
-                            content: `**SYSTEM VERDICT:** The requested party failed to provide evidence within 48 hours. The dispute has been automatically closed in favor of the active party (${action}).`
+                            content: `**SYSTEM VERDICT:** The required party failed to provide evidence within 48 hours. The dispute has been automatically closed (${action}).`
                         });
 
-                        // 2. Resolve Dispute
                         await supabase.from('disputes').update({
                             status: 'RESOLVED',
                             resolution: `SLA_TIMEOUT: ${action}`,
                             resolved_at: new Date().toISOString()
                         }).eq('id', dispute.id);
 
-                        // 3. Update transaction
                         await supabase.from('transactions').update({ status: newTxnStatus }).eq('id', dispute.transaction_id);
+
+                        // Notify both parties of timeout resolution
+                        try {
+                            const { data: fullTxn } = await supabase
+                                .from('transactions')
+                                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                                .eq('id', dispute.transaction_id)
+                                .single();
+                            if (fullTxn) await sendVerdictNotifications(dispute.id, action, fullTxn);
+                        } catch { /* non-critical */ }
 
                         processed++;
                     }

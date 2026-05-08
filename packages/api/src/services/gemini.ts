@@ -30,6 +30,8 @@ export async function processAIDispute(disputeId: string) {
             .order('created_at', { ascending: true });
 
         const history = messages || [];
+        // Cap context window to avoid token limit issues on long disputes
+        const historyWindow = history.slice(-20);
 
         // 2. Fraud & Reputation Context (RAG Injection)
         const buyerId = dispute.transactions.buyer_id;
@@ -84,8 +86,8 @@ export async function processAIDispute(disputeId: string) {
             - Be thorough and detailed. Explain why this evidence is needed.
             - If the user has just uploaded evidence (check attachments below), analyze it specifically.
             
-            CHAT HISTORY:
-            ${history.map(m => `${m.sender_type === 'AI' ? 'Safeeely AI' : m.sender_id}: ${m.content} [Attachments: ${m.attachments?.length || 0}]`).join('\n')}
+            ${history.length > 20 ? `[Earlier messages omitted — showing last 20 of ${history.length}]\n` : ''}CHAT HISTORY:
+            ${historyWindow.map(m => `${m.sender_type === 'AI' ? 'Safeeely AI' : m.sender_id}: ${m.content} [Attachments: ${m.attachments?.length || 0}]`).join('\n')}
             
             TASK:
             1. Summarize the facts in 2-3 sentences.
@@ -142,47 +144,65 @@ export async function processAIDispute(disputeId: string) {
         const investigatorResponse = investigatorResult.response.text();
 
         if (investigatorResponse.includes('FACTS_COMPLETE')) {
-            // ... (Judge and Reviewer logic remains same, multimodal not needed for them)
             const judgePrompt = `
                 You are "The Judge". Analyze these investigator findings against generic escrow rules:
                 - Seller must provide proof of delivery/credentials.
                 - Buyer must prove non-utility of the product.
-                
+
+                TRANSACTION AMOUNT: ${context.transaction.amount} ${context.transaction.currency}
+
                 INVESTIGATOR FINDINGS:
                 ${investigatorResponse}
-                
-                Provide your verdict and the logic behind it.
-                
-                FORMATTING RULES:
-                - Use standard markdown bolding (**text**) for key terms and headers.
-                - Use ALL CAPS for headers: **VERDICT:**, **LOGIC:**, **REASONING:**.
-                - List individual reasons clearly with numbers (1., 2., 3.).
-                - Ensure the layout is clean with clear paragraphs.
+
+                You MUST respond with a valid JSON object ONLY. No prose, no markdown code fences.
+
+                {
+                  "action": "REFUND_BUYER" | "PAY_SELLER" | "SPLIT",
+                  "split_pct_buyer": <integer 0-100, required only when action is SPLIT>,
+                  "verdict_summary": "<2-3 sentence verdict suitable for display to both parties>",
+                  "reasoning": "<detailed reasoning for the decision>"
+                }
             `;
             const judgeResult = await model.generateContent(judgePrompt);
-            const judgeResponse = judgeResult.response.text();
+            const judgeRaw = judgeResult.response.text().trim().replace(/^```json\s*|^```\s*|\s*```$/g, '').trim();
+
+            let judgeData: { action: string; split_pct_buyer?: number; verdict_summary: string; reasoning: string };
+            try {
+                judgeData = JSON.parse(judgeRaw);
+                if (!['REFUND_BUYER', 'PAY_SELLER', 'SPLIT'].includes(judgeData.action)) {
+                    throw new Error(`Invalid action: ${judgeData.action}`);
+                }
+            } catch (parseErr) {
+                console.error('❌ Judge JSON parse error:', parseErr, '\nRaw:', judgeRaw);
+                return { type: 'ERROR', content: 'Mediator encountered a formatting issue while evaluating the case. Please wait a moment.' };
+            }
 
             const reviewerPrompt = `
                 You are "The Reviewer". Review the Judge's verdict for bias or logic errors.
-                
+
                 JUDGE'S VERDICT:
-                ${judgeResponse}
-                
-                If the verdict is fair, respond with "VERDICT_APPROVED".
-                If not, suggest adjustments.
+                Action: ${judgeData.action}
+                Summary: ${judgeData.verdict_summary}
+                Reasoning: ${judgeData.reasoning}
+
+                If the verdict is logically sound and unbiased, respond with exactly "VERDICT_APPROVED".
+                If there are issues, respond with "VERDICT_REJECTED" followed by your specific objections.
             `;
             const reviewerResult = await model.generateContent(reviewerPrompt);
             const reviewerResponse = reviewerResult.response.text();
 
             if (reviewerResponse.includes('VERDICT_APPROVED')) {
-                let action = 'SPLIT';
-                if (judgeResponse.includes('REFUND_BUYER') || judgeResponse.includes('BUYER WINS')) action = 'REFUND_BUYER';
-                else if (judgeResponse.includes('PAY_SELLER') || judgeResponse.includes('SELLER WINS')) action = 'PAY_SELLER';
-
                 return {
                     type: 'VERDICT',
-                    content: judgeResponse,
-                    action: action
+                    content: judgeData.verdict_summary,
+                    action: judgeData.action,
+                    split_pct_buyer: judgeData.split_pct_buyer
+                };
+            } else {
+                // Reviewer flagged a problem — escalate to human admin instead of auto-executing
+                return {
+                    type: 'ESCALATE',
+                    content: '⚖️ **Case Requires Human Review**\n\nThis case has complex factors that require a human admin to evaluate. A support agent will be assigned shortly. Please stand by.'
                 };
             }
         }
