@@ -33,7 +33,11 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['*']
 }));
-app.use(bodyParser.json());
+app.use(bodyParser.json({
+    verify: (req: any, _res, buf) => {
+        req.rawBody = buf.toString();
+    }
+}));
 
 app.use((req, res, next) => {
     console.log(`📡 [${new Date().toISOString()}] ${req.method} ${req.url}`);

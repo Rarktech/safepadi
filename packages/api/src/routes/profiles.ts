@@ -265,30 +265,38 @@ router.get('/:safetag/balance', async (req, res) => {
 
         if (!profile) return res.status(404).json({ error: 'Profile not found' });
 
-        const { data: txns, error: txnError } = await supabase
-            .from('transactions')
-            .select('id, amount, currency, fee_amount, fee_allocation, transaction_type, status, milestones:transaction_milestones(*)')
-            .eq('seller_id', profile.id)
-            .or('status.eq.FINALIZED,transaction_type.eq.MILESTONE');
+        const [txnResult, pendingTxnResult, withdrawalResult] = await Promise.all([
+            supabase
+                .from('transactions')
+                .select('id, amount, currency, fee_amount, fee_allocation, transaction_type, status, milestones:transaction_milestones(*)')
+                .eq('seller_id', profile.id)
+                .or('status.eq.FINALIZED,transaction_type.eq.MILESTONE'),
+            supabase
+                .from('transactions')
+                .select('amount, currency, fee_amount, fee_allocation, transaction_type')
+                .eq('seller_id', profile.id)
+                .in('status', ['ACCEPTED', 'PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER']),
+            supabase
+                .from('withdrawals')
+                .select('amount, currency, status')
+                .eq('profile_id', profile.id)
+                .neq('status', 'REJECTED'),
+        ]);
 
-        if (txnError) throw txnError;
+        if (txnResult.error) throw txnResult.error;
+        if (withdrawalResult.error) throw withdrawalResult.error;
 
-        const { data: withdrawals, error: withdrawalError } = await supabase
-            .from('withdrawals')
-            .select('amount, currency, status')
-            .eq('profile_id', profile.id)
-            .neq('status', 'REJECTED');
-
-        if (withdrawalError) throw withdrawalError;
+        const txns = txnResult.data || [];
+        const withdrawals = withdrawalResult.data || [];
 
         const balances: Record<string, number> = {};
+        const total_earned: Record<string, number> = {};
 
         txns.forEach(t => {
             let amountToCredit = 0;
-            
+
             if (t.transaction_type === 'ONE_TIME' && t.status === 'FINALIZED') {
                 amountToCredit = Number(t.amount);
-                // Subtract fee if applicable
                 if (t.fee_allocation === 'seller') {
                     amountToCredit -= Number(t.fee_amount);
                 } else if (t.fee_allocation === 'split') {
@@ -297,19 +305,13 @@ router.get('/:safetag/balance', async (req, res) => {
             } else if (t.transaction_type === 'MILESTONE') {
                 const releasedMilestones = t.milestones?.filter((m: any) => m.status === 'RELEASED') || [];
                 const releasedTotal = releasedMilestones.reduce((sum: number, m: any) => sum + Number(m.amount), 0);
-                
+
                 if (releasedTotal > 0) {
                     amountToCredit = releasedTotal;
-                    
-                    // Handle fee deduction for milestones
-                    // If the transaction is FINALIZED, we deduct the full fee.
-                    // If it's still ongoing but some milestones are released, we deduct the fee proportionally?
-                    // To keep it simple and safe for the platform, we'll deduct the FULL fee from the first release(s) 
-                    // or just deduct it proportionally. Proportionally is fairer.
                     const totalProjectAmount = Number(t.amount);
                     const totalFee = Number(t.fee_amount);
                     const feeToDeduct = t.fee_allocation === 'seller' ? totalFee : (t.fee_allocation === 'split' ? totalFee / 2 : 0);
-                    
+
                     if (feeToDeduct > 0 && totalProjectAmount > 0) {
                         const proportion = releasedTotal / totalProjectAmount;
                         amountToCredit -= (feeToDeduct * proportion);
@@ -319,6 +321,7 @@ router.get('/:safetag/balance', async (req, res) => {
 
             if (amountToCredit > 0) {
                 balances[t.currency] = (balances[t.currency] || 0) + amountToCredit;
+                total_earned[t.currency] = (total_earned[t.currency] || 0) + amountToCredit;
             }
         });
 
@@ -331,21 +334,117 @@ router.get('/:safetag/balance', async (req, res) => {
 
         referralCommissions?.forEach((rc: any) => {
             balances[rc.currency] = (balances[rc.currency] || 0) + Number(rc.amount);
+            total_earned[rc.currency] = (total_earned[rc.currency] || 0) + Number(rc.amount);
         });
 
-        // Subtract withdrawals
-        withdrawals?.forEach(w => {
+        // Subtract withdrawals from available balance
+        withdrawals.forEach(w => {
             if (balances[w.currency] !== undefined) {
                 balances[w.currency] -= Number(w.amount);
             }
         });
 
-        const formattedBalances = Object.entries(balances).map(([currency, amount]) => ({
-            currency,
-            amount: Number(Math.max(0, amount).toFixed(2)) // Ensure balance doesn't go below 0 due to rounding
-        }));
+        // Pending escrow: net amount from active (not yet finalized) transactions
+        const pendingEscrowMap: Record<string, number> = {};
+        (pendingTxnResult.data || []).forEach(t => {
+            let net = Number(t.amount);
+            if (t.fee_allocation === 'seller') net -= Number(t.fee_amount);
+            else if (t.fee_allocation === 'split') net -= Number(t.fee_amount) / 2;
+            if (net > 0) pendingEscrowMap[t.currency] = (pendingEscrowMap[t.currency] || 0) + net;
+        });
 
-        res.json({ balances: formattedBalances });
+        // In-withdrawal: sum of PENDING + PROCESSING withdrawals
+        const inWithdrawalMap: Record<string, number> = {};
+        withdrawals.forEach(w => {
+            if (w.status === 'PENDING' || w.status === 'PROCESSING') {
+                inWithdrawalMap[w.currency] = (inWithdrawalMap[w.currency] || 0) + Number(w.amount);
+            }
+        });
+
+        const fmt = (map: Record<string, number>) =>
+            Object.entries(map).map(([currency, amount]) => ({
+                currency,
+                amount: Number(Math.max(0, amount).toFixed(2)),
+            }));
+
+        res.json({
+            balances: fmt(balances),
+            pending_escrow: fmt(pendingEscrowMap),
+            in_withdrawal: fmt(inWithdrawalMap),
+            total_earned: fmt(total_earned),
+        });
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// Get monthly earnings history for the earnings chart
+router.get('/:safetag/earnings-history', async (req, res) => {
+    try {
+        const { safetag } = req.params;
+        const months = Math.min(parseInt(req.query.months as string) || 6, 12);
+        const withAt = safetag.startsWith('@') ? safetag : `@${safetag}`;
+        const withoutAt = safetag.startsWith('@') ? safetag.slice(1) : safetag;
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('id')
+            .or(`safetag.ilike.${withAt},safetag.ilike.${withoutAt}`)
+            .maybeSingle();
+
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+        const cutoff = new Date();
+        cutoff.setMonth(cutoff.getMonth() - months);
+
+        const { data: txns } = await supabase
+            .from('transactions')
+            .select('amount, currency, fee_amount, fee_allocation, updated_at')
+            .eq('seller_id', profile.id)
+            .eq('status', 'FINALIZED')
+            .gte('updated_at', cutoff.toISOString());
+
+        // Group net earnings by month and currency
+        const monthlyMap: Record<string, Record<string, number>> = {};
+        (txns || []).forEach(t => {
+            let net = Number(t.amount);
+            if (t.fee_allocation === 'seller') net -= Number(t.fee_amount);
+            else if (t.fee_allocation === 'split') net -= Number(t.fee_amount) / 2;
+            if (net <= 0) return;
+
+            const d = new Date(t.updated_at);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            if (!monthlyMap[key]) monthlyMap[key] = {};
+            monthlyMap[key][t.currency] = (monthlyMap[key][t.currency] || 0) + net;
+        });
+
+        // Determine primary currency by total earnings
+        const currencyTotals: Record<string, number> = {};
+        Object.values(monthlyMap).forEach(m => {
+            Object.entries(m).forEach(([c, a]) => {
+                currencyTotals[c] = (currencyTotals[c] || 0) + a;
+            });
+        });
+        const primaryCurrency = Object.entries(currencyTotals).sort((a, b) => b[1] - a[1])[0]?.[0] || 'USD';
+
+        // Build the last N months array (including months with zero earnings)
+        const history = [];
+        for (let i = months - 1; i >= 0; i--) {
+            const d = new Date();
+            d.setMonth(d.getMonth() - i);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            const name = d.toLocaleString('en', { month: 'short' });
+            history.push({
+                name,
+                earnings: Number(((monthlyMap[key]?.[primaryCurrency]) || 0).toFixed(2)),
+            });
+        }
+
+        res.json({
+            currency: primaryCurrency,
+            history,
+            available_currencies: Object.keys(currencyTotals),
+        });
     } catch (err: any) {
         res.status(400).json({ error: err.message });
     }

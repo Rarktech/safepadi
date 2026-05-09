@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Shield, CreditCard, Lock, CheckCircle, ArrowRight, ShoppingBag, X, Zap, Globe } from 'lucide-react';
+import { Shield, CreditCard, Lock, CheckCircle, ArrowRight, ShoppingBag, X, Zap, Globe, Layers } from 'lucide-react';
 import axios from 'axios';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
@@ -129,6 +129,34 @@ export default function PaymentPage() {
         } catch (err: any) {
             console.error('❌ Flutterwave Payment error:', err);
             const errorMsg = err.response?.data?.error || err.message || 'Failed to initialize payment. Please try again.';
+            alert(`Payment Error: ${errorMsg}`);
+        } finally {
+            setInitializing(false);
+        }
+    };
+
+    const handleChainRailsPayment = async () => {
+        setInitializing(true);
+        setShowMethods(false);
+        try {
+            console.log('🚀 Initializing ChainRails payment for:', id);
+            const res = await axios.post(`${API_URL}/transactions/${id}/initialize-payment`,
+                { platform: 'chainrails' },
+                {
+                    headers: {
+                        'ngrok-skip-browser-warning': 'true'
+                    }
+                }
+            );
+
+            if (res.data.checkoutUrl) {
+                window.location.href = res.data.checkoutUrl;
+            } else {
+                throw new Error('Could not initialize crypto payment');
+            }
+        } catch (err: any) {
+            console.error('❌ ChainRails Payment error:', err);
+            const errorMsg = err.response?.data?.error || err.message || 'Failed to initialize crypto payment. Please try again.';
             alert(`Payment Error: ${errorMsg}`);
         } finally {
             setInitializing(false);
@@ -339,6 +367,22 @@ export default function PaymentPage() {
                                     <div className="text-left">
                                         <p className="font-black text-slate-900 leading-none mb-1">Card / Bank (Flutterwave)</p>
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cards | Transfer | USSD</p>
+                                    </div>
+                                </div>
+                                <ArrowRight className="w-5 h-5 text-slate-300 group-hover:text-slate-500 group-hover:translate-x-1 transition-all" />
+                            </button>
+
+                            <button
+                                onClick={handleChainRailsPayment}
+                                className="w-full p-5 rounded-2xl bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all flex items-center justify-between group shadow-sm"
+                            >
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center group-hover:bg-violet-50 transition-colors">
+                                        <Layers className="w-6 h-6 text-violet-500" />
+                                    </div>
+                                    <div className="text-left">
+                                        <p className="font-black text-slate-900 leading-none mb-1">Crypto (ChainRails)</p>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">USDC · USDT · ETH · Multi-Chain</p>
                                     </div>
                                 </div>
                                 <ArrowRight className="w-5 h-5 text-slate-300 group-hover:text-slate-500 group-hover:translate-x-1 transition-all" />

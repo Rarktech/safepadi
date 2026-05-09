@@ -15,11 +15,21 @@ router.post('/:safetag', async (req, res) => {
 
         const { data: profile } = await supabase
             .from('profiles')
-            .select('id')
+            .select('id, kyc_status')
             .or(`safetag.ilike.${withAt},safetag.ilike.${withoutAt}`)
             .maybeSingle();
 
         if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+        // KYC gate: require verification for withdrawals above threshold
+        const KYC_THRESHOLDS: Record<string, number> = { USD: 100, NGN: 100000, BTC: 0.002, USDT: 100, EUR: 100 };
+        const threshold = KYC_THRESHOLDS[currency] ?? 100;
+        if (profile.kyc_status !== 'VERIFIED' && Number(amount) > threshold) {
+            return res.status(403).json({
+                error: `KYC verification is required for withdrawals above ${threshold} ${currency}. Please complete identity verification to proceed.`,
+                code: 'KYC_REQUIRED',
+            });
+        }
 
         const reference = `WD-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
 

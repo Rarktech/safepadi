@@ -1346,6 +1346,65 @@ router.post('/:id/initialize-payment', async (req, res) => {
             }
         }
 
+        } else if (platform?.toLowerCase() === 'chainrails') {
+            const apiKey = process.env.CHAINRAILS_API_KEY;
+            const recipientAddress = process.env.CHAINRAILS_RECIPIENT_ADDRESS;
+            const destinationChain = process.env.CHAINRAILS_DESTINATION_CHAIN || 'BASE_TESTNET';
+            const tokenOut = process.env.CHAINRAILS_TOKEN_OUT || '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
+
+            if (!apiKey) {
+                console.error('❌ ChainRails configuration missing (API key)');
+                return res.status(500).json({ error: 'Payment configuration error' });
+            }
+            if (!recipientAddress) {
+                console.error('❌ ChainRails CHAINRAILS_RECIPIENT_ADDRESS not set');
+                return res.status(500).json({ error: 'Escrow wallet address not configured for crypto payments' });
+            }
+
+            // ChainRails is USDC/stablecoin-native; USD maps 1:1 to USDC amount.
+            // For other currencies pass "0" so the user specifies the amount in the modal.
+            const cryptoAmount = txn.currency === 'USD' ? String(txn.total_amount) : '0';
+
+            try {
+                console.log(`🚀 Creating ChainRails modal session for ${txn.txn_code}`);
+                const sessionRes = await axios.post(
+                    'https://api.chainrails.io/api/v1/modal/sessions',
+                    {
+                        recipient: recipientAddress,
+                        tokenOut,
+                        destinationChain,
+                        amount: cryptoAmount,
+                        metadata: { txn_code: txn.txn_code, txn_id: txn.id }
+                    },
+                    {
+                        headers: {
+                            Authorization: `Bearer ${apiKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        timeout: 15000
+                    }
+                );
+
+                const { sessionId, sessionToken } = sessionRes.data;
+                console.log(`✅ ChainRails session created: ${sessionId}`);
+
+                // Persist sessionId so the webhook can look up this transaction later
+                await supabase.from('transactions').update({
+                    metadata: { ...(txn.metadata || {}), chainrails_session_id: sessionId }
+                }).eq('id', txn.id);
+
+                return res.json({
+                    sessionToken,
+                    sessionId,
+                    checkoutUrl: `https://app.chainrails.io/checkout?token=${sessionToken}`
+                });
+            } catch (crErr: any) {
+                const errDetail = crErr.response?.data || crErr.message;
+                console.error('❌ ChainRails Session Error:', JSON.stringify(errDetail));
+                return res.status(500).json({ error: 'Failed to initialize ChainRails payment. Please try again.' });
+            }
+        }
+
         res.status(400).json({ error: `Unsupported payment platform: ${platform}` });
     } catch (err: any) {
         res.status(400).json({ error: err.message });

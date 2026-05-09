@@ -12,7 +12,11 @@
       "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const o=JSON.parse\\(d\\);console.log\\('earningsByCurrency' in o ? '✅ NEW API active' : '❌ OLD API still running'\\)}\\)\")",
       "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\user\\\\Desktop\\\\safepadi\" -Recurse -Directory | Where-Object { $_.Name -match \"\\(telegram|discord|shared\\)\" } | Select-Object -ExpandProperty FullName | Select-Object -First 20)",
       "Bash(npx ts-node *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\user\\\\Desktop\\\\safepadi\\\\packages\\\\discord\" -Recurse -Name)",
+      "Bash(Select-Object -First 50)",
+      "mcp__supabase__list_projects",
+      "WebFetch(domain:docs.chainrails.io)"
     ]
   },
   "disabledMcpjsonServers": [

@@ -6,7 +6,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-    Wallet, CreditCard, Plus, MoreVertical, Clock, Send, DollarSign, Bitcoin
+    Wallet, CreditCard, Plus, MoreVertical, Clock, Send, DollarSign, Bitcoin, TrendingUp, ArrowDownLeft, Hourglass
 } from 'lucide-react';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
@@ -16,15 +16,6 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from 'sonner';
 import { AlertTriangle, Trash2 } from 'lucide-react';
-
-const historyData = [
-    { name: 'Jul', earnings: 600 },
-    { name: 'Aug', earnings: 1100 },
-    { name: 'Sep', earnings: 800 },
-    { name: 'Oct', earnings: 1400 },
-    { name: 'Nov', earnings: 1300 },
-    { name: 'Dec', earnings: 1512 },
-];
 
 import api from '@/lib/api';
 import { ConnectMethodModal } from './ConnectMethodModal';
@@ -47,6 +38,12 @@ export const WithdrawalView = ({
     const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
     const [methodToDelete, setMethodToDelete] = useState<any>(null);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+    const [earningsHistory, setEarningsHistory] = useState<{ name: string; earnings: number }[]>([]);
+    const [historyChartCurrency, setHistoryChartCurrency] = useState('USD');
+    const [loadingHistory, setLoadingHistory] = useState(true);
+    const [pendingEscrow, setPendingEscrow] = useState<any[]>([]);
+    const [inWithdrawal, setInWithdrawal] = useState<any[]>([]);
+    const [totalEarned, setTotalEarned] = useState<any[]>([]);
 
     const fetchMethods = async () => {
         if (!profile?.safetag) return;
@@ -88,9 +85,37 @@ export const WithdrawalView = ({
         }
     };
 
+    const fetchBalanceSummary = async () => {
+        if (!profile?.safetag) return;
+        try {
+            const res = await api.get(`/profiles/${profile.safetag}/balance`);
+            setPendingEscrow(res.data?.pending_escrow || []);
+            setInWithdrawal(res.data?.in_withdrawal || []);
+            setTotalEarned(res.data?.total_earned || []);
+        } catch (error) {
+            console.error('❌ Failed to fetch balance summary:', error);
+        }
+    };
+
+    const fetchEarningsHistory = async () => {
+        if (!profile?.safetag) return;
+        try {
+            setLoadingHistory(true);
+            const res = await api.get(`/profiles/${profile.safetag}/earnings-history?months=6`);
+            setEarningsHistory(res.data?.history || []);
+            setHistoryChartCurrency(res.data?.currency || 'USD');
+        } catch (error) {
+            console.error('❌ Failed to fetch earnings history:', error);
+        } finally {
+            setLoadingHistory(false);
+        }
+    };
+
     React.useEffect(() => {
         fetchMethods();
         fetchWithdrawals();
+        fetchBalanceSummary();
+        fetchEarningsHistory();
     }, [profile?.safetag, refreshTrigger]);
 
     return (
@@ -148,6 +173,59 @@ export const WithdrawalView = ({
                         </Button>
                     </div>
                 </ShadcnCard>
+            </div>
+
+            {/* Balance Breakdown Summary Row */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {[
+                    {
+                        label: 'In Escrow',
+                        description: 'Funds held for active transactions',
+                        icon: <Hourglass size={18} className="text-amber-500" />,
+                        iconBg: 'bg-amber-50',
+                        values: pendingEscrow,
+                        emptyText: 'No active escrow',
+                    },
+                    {
+                        label: 'Processing',
+                        description: 'Withdrawals in transit to your account',
+                        icon: <ArrowDownLeft size={18} className="text-blue-500" />,
+                        iconBg: 'bg-blue-50',
+                        values: inWithdrawal,
+                        emptyText: 'No pending withdrawals',
+                    },
+                    {
+                        label: 'Total Earned',
+                        description: 'Lifetime gross earnings on Safeeely',
+                        icon: <TrendingUp size={18} className="text-emerald-500" />,
+                        iconBg: 'bg-emerald-50',
+                        values: totalEarned,
+                        emptyText: '—',
+                    },
+                ].map((item) => (
+                    <ShadcnCard key={item.label} className="bg-white rounded-[24px] border-none shadow-sm p-6 flex items-center gap-4">
+                        <div className={`w-10 h-10 ${item.iconBg} rounded-xl flex items-center justify-center shrink-0`}>
+                            {item.icon}
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{item.label}</p>
+                            {item.values.length > 0 ? (
+                                <div className="space-y-0.5 mt-0.5">
+                                    {item.values.map((v: any) => (
+                                        <p key={v.currency} className="text-base font-black text-slate-900 leading-tight">
+                                            {v.currency === 'USD' ? '$' : v.currency === 'NGN' ? '₦' : ''}
+                                            {Number(v.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            <span className="text-xs font-bold text-slate-400 ml-1">{v.currency}</span>
+                                        </p>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="text-sm font-bold text-slate-300 mt-0.5">{item.emptyText}</p>
+                            )}
+                            <p className="text-[10px] text-slate-400 mt-0.5 truncate">{item.description}</p>
+                        </div>
+                    </ShadcnCard>
+                ))}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
@@ -254,7 +332,12 @@ export const WithdrawalView = ({
                 {/* Earnings History: Right Bottom */}
                 <ShadcnCard className="lg:col-span-3 bg-white border-slate-100 rounded-[32px] shadow-sm flex flex-col">
                     <ShadcnCardHeader className="p-8 pb-4 flex flex-row items-center justify-between">
-                        <ShadcnCardTitle className="text-xl font-black text-slate-900 tracking-tight">Earnings History</ShadcnCardTitle>
+                        <div>
+                            <ShadcnCardTitle className="text-xl font-black text-slate-900 tracking-tight">Earnings History</ShadcnCardTitle>
+                            {historyChartCurrency && (
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{historyChartCurrency} · Last 6 months</p>
+                            )}
+                        </div>
                         <div className="flex gap-1">
                             <div className="w-1.5 h-1.5 rounded-full bg-slate-200" />
                             <div className="w-1.5 h-1.5 rounded-full bg-slate-200" />
@@ -262,44 +345,54 @@ export const WithdrawalView = ({
                         </div>
                     </ShadcnCardHeader>
                     <ShadcnCardContent className="p-8 pt-0 flex-1 min-h-[300px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={historyData}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                <XAxis
-                                    dataKey="name"
-                                    axisLine={false}
-                                    tickLine={false}
-                                    tick={{ fontSize: 12, fill: '#94a3b8', fontWeight: 600 }}
-                                    dy={10}
-                                />
-                                <YAxis
-                                    axisLine={false}
-                                    tickLine={false}
-                                    tick={{ fontSize: 12, fill: '#94a3b8', fontWeight: 600 }}
-                                    tickFormatter={(val) => `$${val}`}
-                                />
-                                <Tooltip
-                                    content={({ active, payload }) => {
-                                        if (active && payload && payload.length) {
-                                            return (
-                                                <div className="bg-slate-900 text-white p-3 rounded-xl shadow-2xl border-none font-black text-sm">
-                                                    ${payload[0].value}
-                                                </div>
-                                            );
-                                        }
-                                        return null;
-                                    }}
-                                />
-                                <Line
-                                    type="monotone"
-                                    dataKey="earnings"
-                                    stroke="#10b981"
-                                    strokeWidth={3}
-                                    dot={{ r: 4, fill: '#10b981', strokeWidth: 2, stroke: '#fff' }}
-                                    activeDot={{ r: 6, strokeWidth: 0 }}
-                                />
-                            </LineChart>
-                        </ResponsiveContainer>
+                        {loadingHistory ? (
+                            <div className="w-full h-full min-h-[260px] bg-slate-50 animate-pulse rounded-2xl" />
+                        ) : earningsHistory.every(p => p.earnings === 0) ? (
+                            <div className="w-full h-full min-h-[260px] flex flex-col items-center justify-center text-center gap-3">
+                                <TrendingUp size={32} className="text-slate-200" />
+                                <p className="text-sm font-bold text-slate-400">No earnings in the last 6 months</p>
+                                <p className="text-xs text-slate-300">Complete transactions to see your earnings trend here.</p>
+                            </div>
+                        ) : (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={earningsHistory}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                    <XAxis
+                                        dataKey="name"
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tick={{ fontSize: 12, fill: '#94a3b8', fontWeight: 600 }}
+                                        dy={10}
+                                    />
+                                    <YAxis
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tick={{ fontSize: 12, fill: '#94a3b8', fontWeight: 600 }}
+                                        tickFormatter={(val) => val > 0 ? `${historyChartCurrency === 'USD' ? '$' : historyChartCurrency === 'NGN' ? '₦' : ''}${val}` : '0'}
+                                    />
+                                    <Tooltip
+                                        content={({ active, payload }) => {
+                                            if (active && payload && payload.length) {
+                                                return (
+                                                    <div className="bg-slate-900 text-white p-3 rounded-xl shadow-2xl border-none font-black text-sm">
+                                                        {historyChartCurrency === 'USD' ? '$' : historyChartCurrency === 'NGN' ? '₦' : ''}{Number(payload[0].value).toLocaleString()} {historyChartCurrency}
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        }}
+                                    />
+                                    <Line
+                                        type="monotone"
+                                        dataKey="earnings"
+                                        stroke="#10b981"
+                                        strokeWidth={3}
+                                        dot={{ r: 4, fill: '#10b981', strokeWidth: 2, stroke: '#fff' }}
+                                        activeDot={{ r: 6, strokeWidth: 0 }}
+                                    />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        )}
                     </ShadcnCardContent>
                 </ShadcnCard>
             </div>
