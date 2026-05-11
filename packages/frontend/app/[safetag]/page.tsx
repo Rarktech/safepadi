@@ -143,15 +143,15 @@ export default function SafetagGateway() {
     const active = activePlatform ? platformConfig[activePlatform] : null;
 
     return (
-        <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center p-4">
+        <div className="min-h-screen bg-[#e2f6f0] flex flex-col items-center justify-center p-4">
             <div className="w-full max-w-sm space-y-8 animate-in slide-in-from-bottom-8 duration-500">
                 {/* Logo */}
                 <div className="flex justify-center">
-                    <img src="/logo-mark.svg" alt="Safeeely" className="w-16 h-16 object-contain drop-shadow-md" />
+                    <img src="/logo-main.svg" alt="Safeeely" className="w-28 h-28 object-contain drop-shadow-md" />
                 </div>
 
                 <div className="text-center space-y-2">
-                    <h1 className="text-3xl font-black text-slate-900 tracking-tight">You're invited!</h1>
+                    <h1 className="text-3xl font-bold text-slate-900 tracking-tight">You're invited!</h1>
                     <p className="text-slate-500 font-medium">Join Safeeely using this referral.</p>
                 </div>
 
@@ -164,7 +164,7 @@ export default function SafetagGateway() {
                             style={{ backgroundImage: "url('/safetag.png')", backgroundSize: 'cover', backgroundPosition: 'center' }}
                         >
                             <div className="flex items-center gap-2">
-                                <span className="font-black text-xl text-slate-900 drop-shadow-sm">@{safetag}</span>
+                                <span className="font-bold text-xl text-slate-900 drop-shadow-sm">@{safetag}</span>
                                 <CheckCircle2 size={18} className="text-[#10b981]" />
                             </div>
                         </div>
@@ -172,7 +172,7 @@ export default function SafetagGateway() {
                         {/* Platform buttons — open instruction modal on click */}
                         <div className="space-y-3">
                             <Button
-                                className="w-full h-14 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-900 rounded-[20px] font-black text-base shadow-sm justify-start gap-3 px-5"
+                                className="w-full h-14 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-900 rounded-[20px] font-bold text-base shadow-sm justify-start gap-3 px-5"
                                 onClick={() => setActivePlatform('telegram')}
                             >
                                 <TelegramIcon />
@@ -180,7 +180,7 @@ export default function SafetagGateway() {
                             </Button>
 
                             <Button
-                                className="w-full h-14 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-900 rounded-[20px] font-black text-base shadow-sm justify-start gap-3 px-5"
+                                className="w-full h-14 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-900 rounded-[20px] font-bold text-base shadow-sm justify-start gap-3 px-5"
                                 onClick={() => setActivePlatform('discord')}
                             >
                                 <DiscordIcon />
@@ -188,7 +188,7 @@ export default function SafetagGateway() {
                             </Button>
 
                             <Button
-                                className="w-full h-14 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-900 rounded-[20px] font-black text-base shadow-sm justify-start gap-3 px-5"
+                                className="w-full h-14 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-900 rounded-[20px] font-bold text-base shadow-sm justify-start gap-3 px-5"
                                 onClick={() => setActivePlatform('whatsapp')}
                             >
                                 <WhatsAppIcon />
@@ -196,7 +196,7 @@ export default function SafetagGateway() {
                             </Button>
 
                             <Button
-                                className="w-full h-14 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-900 rounded-[20px] font-black text-base shadow-sm justify-start gap-3 px-5"
+                                className="w-full h-14 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-900 rounded-[20px] font-bold text-base shadow-sm justify-start gap-3 px-5"
                                 onClick={() => setActivePlatform('instagram')}
                             >
                                 <InstagramIcon />
@@ -204,7 +204,7 @@ export default function SafetagGateway() {
                             </Button>
 
                             <Button
-                                className="w-full h-14 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-900 rounded-[20px] font-black text-base shadow-sm justify-start gap-3 px-5"
+                                className="w-full h-14 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-900 rounded-[20px] font-bold text-base shadow-sm justify-start gap-3 px-5"
                                 onClick={() => setActivePlatform('messenger')}
                             >
                                 <MessengerIcon />
@@ -215,7 +215,7 @@ export default function SafetagGateway() {
                 </Card>
 
                 <p className="text-center text-xs font-bold text-slate-400">
-                    Secure Escrow & Payouts for Africans.
+                    Secure Escrow & Payouts for Everyone.
                 </p>
             </div>
 
@@ -230,7 +230,7 @@ export default function SafetagGateway() {
                                 <div className={`w-9 h-9 ${active.iconBg} rounded-xl flex items-center justify-center`}>
                                     {active.icon}
                                 </div>
-                                <h3 className="text-base font-black text-slate-900 tracking-tight">
+                                <h3 className="text-base font-bold text-slate-900 tracking-tight">
                                     {active.label} — How it works
                                 </h3>
                             </div>
@@ -246,7 +246,7 @@ export default function SafetagGateway() {
                         <div className="p-6 space-y-4">
                             {active.steps.map((step, i) => (
                                 <div key={i} className="flex items-start gap-3">
-                                    <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 text-xs font-black flex items-center justify-center shrink-0 mt-0.5">
+                                    <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
                                         {i + 1}
                                     </span>
                                     <p className="text-sm font-medium text-slate-700 leading-snug">{step}</p>
@@ -272,7 +272,7 @@ export default function SafetagGateway() {
                         <div className="px-6 pb-6 space-y-3">
                             <button
                                 onClick={() => handlePlatformProceed(activePlatform)}
-                                className="w-full h-14 bg-[#10b981] hover:bg-[#059669] text-white font-black text-base rounded-2xl shadow-lg shadow-emerald-200 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                                className="w-full h-14 bg-[#10b981] hover:bg-[#059669] text-white font-bold text-base rounded-2xl shadow-lg shadow-emerald-200 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                             >
                                 {active.actionLabel}
                                 <ArrowRight className="w-5 h-5" />
