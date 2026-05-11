@@ -8,7 +8,6 @@ import {
   LogOut,
   Send,
   Settings,
-  Wallet,
   Users,
   ShoppingBag
 } from "lucide-react"
@@ -47,11 +46,6 @@ const data = {
       title: "My Transactions",
       url: "#",
       icon: Activity,
-    },
-    {
-      title: "Wallet",
-      url: "#",
-      icon: Wallet,
     },
     {
       title: "Withdraw",

@@ -29,7 +29,7 @@ interface TransactionsViewProps {
 export const LatestTransactions = ({ transactions, onShowAll, onSelectTxn, decodedSafetag }: any) => (
     <section>
         <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-slate-800">Latest Transactions</h2>
+            <h2 className="text-lg font-bold text-slate-800">My Transactions</h2>
             <span className="text-sm font-semibold text-primary cursor-pointer hover:underline" onClick={onShowAll}>View all</span>
         </div>
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden overflow-x-auto">

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, Activity, Eye, EyeOff, Home, Wallet, Send, Settings, User, Users, ShoppingBag } from 'lucide-react';
+import { Menu, Activity, Eye, EyeOff, Home, Send, Settings, User, Users, ShoppingBag, Bell } from 'lucide-react';
 import { isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import api from '@/lib/api';
 
@@ -15,7 +15,7 @@ import { Separator } from "@/components/ui/separator";
 
 // Sub-components
 import { SidebarContent } from '@/components/withdraw/Sidebar';
-import { AccountsSection, ExchangeWidget, WithdrawBanner, TrustScore } from '@/components/withdraw/DashboardSections';
+import { AccountsSection, ExchangeWidget, WithdrawBanner, TrustScore, BalanceHero, PortfolioSection, MobileDashboard } from '@/components/withdraw/DashboardSections';
 import { LatestTransactions, FullTransactionsTable, TransactionDetailModal } from '@/components/withdraw/TransactionsView';
 import { WithdrawalView } from '@/components/withdraw/WithdrawalView';
 import { SheetWithdrawal } from '@/components/withdraw/SheetWithdrawal';
@@ -180,30 +180,40 @@ export default function WithdrawDashboard() {
             />
             <SidebarInset className="bg-slate-50 w-full overflow-x-hidden">
                 <header className="flex h-16 shrink-0 items-center justify-between border-b bg-white/80 backdrop-blur-xl px-4 sticky top-0 z-40">
-                    <div className="flex items-center gap-2">
-                        <div className="md:hidden flex items-center gap-2 mr-2">
-                            <img src="/favicon.ico.png" alt="Safeeely Logo" className="w-12 h-12 rounded-lg shadow-sm object-cover" />
-                        </div>
-                        <SidebarTrigger className="-ml-1 text-slate-500 hidden md:flex" />
-                        <Separator orientation="vertical" className="mr-2 h-4 hidden md:flex" />
+                    {/* Desktop header */}
+                    <div className="hidden md:flex items-center gap-2">
+                        <SidebarTrigger className="-ml-1 text-slate-500" />
+                        <Separator orientation="vertical" className="mr-2 h-4" />
                         <h1 className="text-lg font-bold text-slate-800">
-                            <span className="md:inline hidden">
-                                {currentView === 'dashboard' ? 'Dashboard' :
-                                    currentView === 'transactions' ? 'My Transactions' : 
-                                    currentView === 'marketplace' ? 'Marketplace Management' : 'Balance & Withdrawal'}
-                            </span>
-                            <span className="md:hidden inline">Welcome, {profile?.first_name || 'User'}</span>
+                            {currentView === 'dashboard' ? 'Dashboard' :
+                                currentView === 'transactions' ? 'My Transactions' :
+                                currentView === 'marketplace' ? 'Marketplace Management' : 'Balance & Withdrawal'}
                         </h1>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    {/* Mobile header: avatar + greeting */}
+                    <div className="md:hidden flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#0a2d1d] to-[#10b981] flex items-center justify-center text-white font-black text-base shadow-md shrink-0">
+                            {profile?.first_name?.[0]?.toUpperCase() || profile?.safetag?.[1]?.toUpperCase() || 'S'}
+                        </div>
+                        <div className="flex flex-col leading-tight">
+                            <span className="text-[11px] text-slate-400 font-medium">
+                                Hello, {(() => { const h = new Date().getHours(); return h < 12 ? 'good morning' : h < 17 ? 'good afternoon' : 'good evening'; })()}!
+                            </span>
+                            <span className="text-sm font-black text-slate-900">{profile?.first_name || profile?.safetag || 'User'}</span>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
                         <button
                             onClick={() => setShowBalance(!showBalance)}
                             className="p-2 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 transition-colors"
                         >
                             {showBalance ? <Eye size={18} /> : <EyeOff size={18} />}
                         </button>
-
+                        <button className="md:hidden p-2 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 transition-colors">
+                            <Bell size={18} />
+                        </button>
                         <div className="hidden sm:flex items-center gap-2 bg-white px-3 py-1.5 rounded-full border border-slate-100 shadow-sm cursor-pointer hover:shadow-md transition-all">
                             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-green-600 flex items-center justify-center text-white font-bold text-sm shadow-sm">
                                 {profile?.first_name?.[0] || profile?.safetag?.[1]?.toUpperCase() || 'S'}
@@ -215,50 +225,41 @@ export default function WithdrawDashboard() {
                     </div>
                 </header>
 
-                <main className="flex flex-1 flex-col gap-8 p-4 md:p-6 lg:p-8 max-w-7xl mx-auto w-full">
+                <main className="flex flex-1 flex-col md:gap-8 md:p-6 lg:p-8 max-w-7xl mx-auto w-full overflow-x-hidden">
                     {currentView === 'dashboard' ? (
-                        <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
-                            <AccountsSection balances={balances} showBalance={showBalance} />
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 items-stretch">
-                                {(() => {
-                                    // Calculate total volume from finalized transactions
-                                    const totalVolume = allTransactions
-                                        .filter(t => t.status === 'FINALIZED')
-                                        .reduce((acc, t) => acc + Number(t.amount || 0), 0);
-
-                                    // Calculate trust score percentage
-                                    // If 0 reviews, we show a default or 0? Let's use 100 for "Clean Slate" or real avg.
-                                    const calculatedTrustScore = reviewStats.review_count > 0
-                                        ? (reviewStats.average_rating / 5) * 100
-                                        : 100;
-
-                                    return (
-                                        <TrustScore
-                                            score={calculatedTrustScore}
-                                            totalTrades={totalVolume}
-                                        />
-                                    );
-                                })()}
-                                <ExchangeWidget
+                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            {/* Mobile: new overlapping panel design */}
+                            <div className="md:hidden">
+                                <MobileDashboard
                                     balances={balances}
-                                    fromCurrency={fromCurrency} setFromCurrency={setFromCurrency}
-                                    toCurrency={toCurrency} setToCurrency={setToCurrency}
-                                    exchangeAmount={exchangeAmount} setExchangeAmount={setExchangeAmount}
-                                    handleExchange={handleExchange}
+                                    showBalance={showBalance}
+                                    allTransactions={allTransactions}
+                                    onWithdraw={() => setCurrentView('withdraw')}
+                                    onCreate={() => setCurrentView('marketplace')}
+                                    onShowAll={() => setCurrentView('transactions')}
+                                    onSelectTxn={handleSelectTxn}
+                                    decodedSafetag={decodedSafetag}
                                 />
-                                <WithdrawBanner onWithdraw={() => setCurrentView('withdraw')} />
                             </div>
-
-                            <LatestTransactions
-                                transactions={allTransactions}
-                                onShowAll={() => setCurrentView('transactions')}
-                                onSelectTxn={handleSelectTxn}
-                                decodedSafetag={decodedSafetag}
-                            />
+                            {/* Desktop: sidebar grid layout */}
+                            <div className="hidden md:flex flex-col gap-8">
+                                <BalanceHero
+                                    balances={balances}
+                                    showBalance={showBalance}
+                                    onWithdraw={() => setCurrentView('withdraw')}
+                                    onCreate={() => setCurrentView('marketplace')}
+                                />
+                                <PortfolioSection balances={balances} showBalance={showBalance} />
+                                <LatestTransactions
+                                    transactions={allTransactions}
+                                    onShowAll={() => setCurrentView('transactions')}
+                                    onSelectTxn={handleSelectTxn}
+                                    decodedSafetag={decodedSafetag}
+                                />
+                            </div>
                         </div>
                     ) : currentView === 'transactions' ? (
-                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 md:p-0 pb-24 md:pb-0">
                             <FullTransactionsTable
                                 category={category} setCategory={setCategory}
                                 dateRange={dateRange} setDateRange={setDateRange}
@@ -269,15 +270,15 @@ export default function WithdrawDashboard() {
                             />
                         </div>
                     ) : currentView === 'referrals' ? (
-                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 md:p-0 pb-24 md:pb-0">
                             <ReferralView profile={profile} />
                         </div>
                     ) : currentView === 'marketplace' ? (
-                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 md:p-0 pb-24 md:pb-0">
                              <MarketplaceManagement />
                         </div>
                     ) : currentView === 'dispute_details' && selectedTxn ? (
-                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 md:p-0 pb-24 md:pb-0">
                             <DisputeDetailsView
                                 txn={selectedTxn}
                                 decodedSafetag={decodedSafetag}
@@ -289,7 +290,7 @@ export default function WithdrawDashboard() {
                             />
                         </div>
                     ) : (
-                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 md:p-0 pb-24 md:pb-0">
                             <WithdrawalView
                                 profile={profile}
                                 balances={balances}
@@ -353,11 +354,6 @@ export default function WithdrawDashboard() {
                             <ShoppingBag size={20} className="text-white" />
                         </div>
                     </button>
-                    <div className="flex-1 flex flex-col items-center justify-center pointer-events-none">
-                        <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
-                            <Wallet size={20} className="text-white/40" />
-                        </div>
-                    </div>
                     <button
                         onClick={() => setCurrentView('withdraw')}
                         className={`flex-1 flex flex-col items-center justify-center py-2 transition-all duration-300 ${currentView === 'withdraw' ? 'scale-110' : 'opacity-40 hover:opacity-100'}`}
