@@ -688,7 +688,11 @@ router.patch('/:id/status', async (req, res) => {
                 };
                 const notifTitle = notifTitles[status] || '🔔 Transaction Update';
                 const notifType = notifTypes[status] || 'transaction';
-                recordNotification(recipient.id, notifType, notifTitle, `${txn.product_name} · ${txn.amount} ${txn.currency}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: initiatorTag, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
+                // For 'accept': buyer is the recipient — link opens the ContinueTransaction modal
+                const notifLinkUrl = status === 'accept'
+                    ? `/withdraw/${recipient.safetag}?continue=${txn.id}&txnCode=${txn.txn_code}&txnTitle=${encodeURIComponent(txn.product_name)}`
+                    : `/dashboard/transactions/${txn.id}`;
+                recordNotification(recipient.id, notifType, notifTitle, `${txn.product_name} · ${txn.amount} ${txn.currency}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: initiatorTag, link_url: notifLinkUrl }).catch(() => {});
             }
         } else {
             console.warn(`[Transactions] No primary linked account found for recipient: ${recipient.id}`);

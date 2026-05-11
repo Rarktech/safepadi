@@ -88,7 +88,13 @@ router.get('/stats/:safetag', async (req, res) => {
 router.get('/user/:safetag', async (req, res) => {
     try {
         const { safetag } = req.params;
-        const { data: profile } = await supabase.from('profiles').select('id, safetag, first_name, last_name').eq('safetag', safetag).single();
+        const withAt = safetag.startsWith('@') ? safetag : `@${safetag}`;
+        const withoutAt = safetag.startsWith('@') ? safetag.slice(1) : safetag;
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('id, safetag, first_name, last_name')
+            .or(`safetag.ilike.${withAt},safetag.ilike.${withoutAt}`)
+            .maybeSingle();
 
         if (!profile) return res.status(404).json({ error: 'Profile not found' });
 

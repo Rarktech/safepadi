@@ -22,6 +22,7 @@ import { ReferralView } from '@/components/withdraw/ReferralView';
 import { DisputeDetailsView } from '@/components/withdraw/DisputeDetailsView';
 import { MarketplaceManagement } from '@/components/marketplace/MarketplaceManagement';
 import { NotificationsView } from '@/components/withdraw/NotificationsView';
+import { ContinueTransactionModal } from '@/components/withdraw/ContinueTransactionModal';
 
 export default function WithdrawDashboard() {
     const { safetag } = useParams() as { safetag: string };
@@ -30,6 +31,7 @@ export default function WithdrawDashboard() {
 
     const [currentView, setCurrentView] = useState<'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details' | 'marketplace' | 'notifications'>('dashboard');
     const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+    const [continueModal, setContinueModal] = useState<{ txnId: string; txnCode: string; txnTitle: string } | null>(null);
     const [balances, setBalances] = useState<any[]>([]);
     const [allTransactions, setAllTransactions] = useState<any[]>([]);
     const [filteredTxns, setFilteredTxns] = useState<any[]>([]);
@@ -44,10 +46,13 @@ export default function WithdrawDashboard() {
         }
     }, []);
 
-    // Handle deep links for specific views like dispute details
+    // Handle deep links for specific views like dispute details and continue-transaction modal
     useEffect(() => {
         const viewParam = searchParams.get('view');
         const txnIdParam = searchParams.get('txnId');
+        const continueParam = searchParams.get('continue');
+        const txnCodeParam = searchParams.get('txnCode');
+        const txnTitleParam = searchParams.get('txnTitle');
 
         if (viewParam === 'dispute_details' && txnIdParam && allTransactions.length > 0) {
             const txn = allTransactions.find(t => t.id === txnIdParam);
@@ -56,6 +61,14 @@ export default function WithdrawDashboard() {
                 setSelectedTxn(txn);
                 setCurrentView('dispute_details');
             }
+        }
+
+        if (continueParam) {
+            setContinueModal({
+                txnId: continueParam,
+                txnCode: txnCodeParam || '',
+                txnTitle: txnTitleParam ? decodeURIComponent(txnTitleParam) : '',
+            });
         }
     }, [searchParams, allTransactions]);
 
@@ -358,6 +371,17 @@ export default function WithdrawDashboard() {
                     setViewRefreshKey(prev => prev + 1); // Signal WithdrawalView to refresh history
                 }}
             />
+
+            {/* Continue Transaction Modal */}
+            {continueModal && (
+                <ContinueTransactionModal
+                    txnId={continueModal.txnId}
+                    txnCode={continueModal.txnCode}
+                    txnTitle={continueModal.txnTitle}
+                    safetag={decodedSafetag}
+                    onClose={() => setContinueModal(null)}
+                />
+            )}
 
             {/* Mobile Bottom Navigation */}
             <div className="md:hidden fixed bottom-6 left-6 right-6 z-50">

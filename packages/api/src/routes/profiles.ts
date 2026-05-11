@@ -195,6 +195,30 @@ router.get('/by_platform/:platform/:id', async (req, res) => {
     res.json(profile);
 });
 
+// Get all linked accounts (bound platforms) for a profile
+router.get('/:safetag/linked-accounts', async (req, res) => {
+    const { safetag } = req.params;
+    const withAt = safetag.startsWith('@') ? safetag : `@${safetag}`;
+    const withoutAt = safetag.startsWith('@') ? safetag.slice(1) : safetag;
+
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('id')
+        .or(`safetag.ilike.${withAt},safetag.ilike.${withoutAt}`)
+        .maybeSingle();
+
+    if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+    const { data, error } = await supabase
+        .from('linked_accounts')
+        .select('platform, platform_id, is_primary')
+        .eq('profile_id', profile.id)
+        .order('is_primary', { ascending: false });
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data || []);
+});
+
 // Get profile by safetag
 router.get('/by_safetag/:safetag', async (req, res) => {
     const { safetag } = req.params;

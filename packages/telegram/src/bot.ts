@@ -75,6 +75,42 @@ bot.start(async (ctx) => {
         const userId = ctx.from?.id;
         console.log(`🚀 Telegram /start by user: ${ctx.from?.id} (@${ctx.from?.username})`);
 
+        // Deep link: /start resume_{txnId} — continue a transaction to payment
+        if (ctx.payload && ctx.payload.startsWith('resume_')) {
+            const txnId = ctx.payload.substring(7); // strip 'resume_'
+            console.log(`🔁 Resume transaction deep link: ${txnId}`);
+            try {
+                const profileRes = await axios.get(`${API_URL}/profiles/by_platform/telegram/${userId}`);
+                const myTag = profileRes.data.safetag;
+                const txnRes = await axios.get(`${API_URL}/transactions/${txnId}`);
+                const t = txnRes.data;
+                const isBuyer = myTag === t.buyer?.safetag;
+                let nextAction = '';
+                if (t.status === 'ACCEPTED' && isBuyer) nextAction = 'pay_prompt';
+                else if (t.status === 'PENDING_SELLER_ACCEPTANCE' && myTag === t.seller?.safetag) nextAction = 'accept_prompt';
+                else if (t.status === 'PAID' && myTag === t.seller?.safetag) nextAction = 'complete_prompt';
+                else if (t.status === 'COMPLETED_BY_SELLER' && isBuyer) nextAction = 'confirm_receipt_prompt';
+                if (nextAction) {
+                    const statusRes = await axios.patch(`${API_URL}/transactions/${txnId}/status`, {
+                        status: nextAction,
+                        updater_safetag: myTag
+                    });
+                    const content = statusRes.data.follow_up_msg || '✅ Continuing transaction...';
+                    const markup = {
+                        inline_keyboard: (statusRes.data.follow_up_options || []).map((opt: any) => ([{
+                            text: opt.label,
+                            ...(opt.url ? { url: opt.url.replace('localhost', '127.0.0.1') } : { callback_data: opt.customId })
+                        }]))
+                    };
+                    return ctx.reply(content, { parse_mode: 'HTML', reply_markup: markup });
+                } else {
+                    return ctx.reply('⏳ No action needed right now — waiting for the other party.');
+                }
+            } catch (e: any) {
+                return ctx.reply(`❌ Could not resume transaction: ${e.response?.data?.error || e.message}`);
+            }
+        }
+
         // Capture referral payload e.g. /start ref_rarktech -> ctx.payload is 'ref_rarktech'
         let referralCode = '';
         if (ctx.payload && ctx.payload.startsWith('ref_')) {
