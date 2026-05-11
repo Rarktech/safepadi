@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
+import { sendNotification, recordNotification } from '../services/notifications';
 
 const router = Router();
 
@@ -39,6 +40,14 @@ router.post('/create', async (req, res) => {
             .single();
 
         if (error) throw error;
+
+        // Notify the reviewee they received a new review
+        const stars = '⭐'.repeat(data.rating);
+        const { data: linkedReviewee } = await supabase.from('linked_accounts').select('platform, platform_id').eq('profile_id', reviewee.id).eq('is_primary', true).maybeSingle();
+        if (linkedReviewee) {
+            sendNotification(linkedReviewee.platform, linkedReviewee.platform_id, `${stars} <b>New Review!</b>\n\n<b>${data.reviewer_safetag}</b> left you a <b>${data.rating}/5</b> review.\n\n"${data.comment || '(no comment)'}"`).catch(() => {});
+        }
+        recordNotification(reviewee.id, 'review', `${stars} New Review`, `${data.reviewer_safetag} left you a ${data.rating}/5 review`, { reviewer_safetag: data.reviewer_safetag, rating: data.rating, comment: data.comment, link_url: `/reviews/${data.reviewee_safetag}` }).catch(() => {});
 
         res.status(201).json(review);
     } catch (err: any) {
@@ -152,6 +161,17 @@ router.post('/reply', async (req, res) => {
             .single();
 
         if (error) throw error;
+
+        // Notify the original reviewer that their review received a reply
+        const { data: originalReview } = await supabase.from('reviews').select('reviewer_id').eq('id', review_id).single();
+        if (originalReview && originalReview.reviewer_id !== profile.id) {
+            const { data: linkedReviewer } = await supabase.from('linked_accounts').select('platform, platform_id').eq('profile_id', originalReview.reviewer_id).eq('is_primary', true).maybeSingle();
+            if (linkedReviewer) {
+                sendNotification(linkedReviewer.platform, linkedReviewer.platform_id, `💬 <b>${responder_safetag}</b> replied to your review:\n\n"${comment}"`).catch(() => {});
+            }
+            recordNotification(originalReview.reviewer_id, 'review', '💬 Reply to Your Review', `${responder_safetag} replied: "${comment?.substring(0, 80)}"`, { review_id, responder_safetag, link_url: '/dashboard' }).catch(() => {});
+        }
+
         res.status(201).json(reply);
     } catch (err: any) {
         res.status(400).json({ error: err.message });

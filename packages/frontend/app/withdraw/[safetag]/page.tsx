@@ -21,13 +21,15 @@ import { SheetWithdrawal } from '@/components/withdraw/SheetWithdrawal';
 import { ReferralView } from '@/components/withdraw/ReferralView';
 import { DisputeDetailsView } from '@/components/withdraw/DisputeDetailsView';
 import { MarketplaceManagement } from '@/components/marketplace/MarketplaceManagement';
+import { NotificationsView } from '@/components/withdraw/NotificationsView';
 
 export default function WithdrawDashboard() {
     const { safetag } = useParams() as { safetag: string };
     const searchParams = useSearchParams();
     const decodedSafetag = decodeURIComponent(safetag);
 
-    const [currentView, setCurrentView] = useState<'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details' | 'marketplace'>('dashboard');
+    const [currentView, setCurrentView] = useState<'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details' | 'marketplace' | 'notifications'>('dashboard');
+    const [unreadNotifCount, setUnreadNotifCount] = useState(0);
     const [balances, setBalances] = useState<any[]>([]);
     const [allTransactions, setAllTransactions] = useState<any[]>([]);
     const [filteredTxns, setFilteredTxns] = useState<any[]>([]);
@@ -119,6 +121,14 @@ export default function WithdrawDashboard() {
 
     useEffect(() => { loadData(); }, [loadData]);
 
+    // Fetch unread notification count for badge
+    useEffect(() => {
+        if (!decodedSafetag) return;
+        api.get(`/notifications/${encodeURIComponent(decodedSafetag)}?limit=1&offset=0`)
+            .then(res => setUnreadNotifCount(res.data?.unread_count ?? 0))
+            .catch(() => {});
+    }, [decodedSafetag]);
+
     // Filtering Logic
     useEffect(() => {
         let filtered = [...allTransactions];
@@ -194,7 +204,8 @@ export default function WithdrawDashboard() {
                         <h1 className="text-lg font-bold text-slate-800">
                             {currentView === 'dashboard' ? 'Dashboard' :
                                 currentView === 'transactions' ? 'My Transactions' :
-                                currentView === 'marketplace' ? 'Marketplace Management' : 'Balance & Withdrawal'}
+                                currentView === 'marketplace' ? 'Marketplace Management' :
+                                currentView === 'notifications' ? 'Notifications' : 'Balance & Withdrawal'}
                         </h1>
                     </div>
 
@@ -210,8 +221,16 @@ export default function WithdrawDashboard() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                        <button className="md:hidden p-2 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 transition-colors">
+                        <button
+                            onClick={() => setCurrentView('notifications')}
+                            className="relative p-2 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 transition-colors"
+                        >
                             <Bell size={18} />
+                            {unreadNotifCount > 0 && (
+                                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center leading-none">
+                                    {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
+                                </span>
+                            )}
                         </button>
                         <div className="hidden sm:flex items-center gap-2 bg-white px-3 py-1.5 rounded-full border border-slate-100 shadow-sm cursor-pointer hover:shadow-md transition-all">
                             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-green-600 flex items-center justify-center text-white font-bold text-sm shadow-sm">
@@ -281,6 +300,14 @@ export default function WithdrawDashboard() {
                     ) : currentView === 'marketplace' ? (
                         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 md:p-0 pb-24 md:pb-0">
                              <MarketplaceManagement />
+                        </div>
+                    ) : currentView === 'notifications' ? (
+                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
+                            <NotificationsView
+                                safetag={decodedSafetag}
+                                onBack={() => setCurrentView('dashboard')}
+                                onUnreadCountChange={setUnreadNotifCount}
+                            />
                         </div>
                     ) : currentView === 'dispute_details' && selectedTxn ? (
                         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 md:p-0 pb-24 md:pb-0">
@@ -373,6 +400,19 @@ export default function WithdrawDashboard() {
                     >
                         <div className={`p-2 rounded-full transition-colors ${currentView === 'referrals' ? 'bg-[#10b981] shadow-lg shadow-emerald-500/20' : ''}`}>
                             <Users size={20} className="text-white" />
+                        </div>
+                    </button>
+                    <button
+                        onClick={() => setCurrentView('notifications')}
+                        className={`flex-1 flex flex-col items-center justify-center py-2 transition-all duration-300 ${currentView === 'notifications' ? 'scale-110' : 'opacity-40 hover:opacity-100'}`}
+                    >
+                        <div className={`relative p-2 rounded-full transition-colors ${currentView === 'notifications' ? 'bg-[#10b981] shadow-lg shadow-emerald-500/20' : ''}`}>
+                            <Bell size={20} className="text-white" />
+                            {unreadNotifCount > 0 && (
+                                <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center leading-none">
+                                    {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
+                                </span>
+                            )}
                         </div>
                     </button>
                 </nav>

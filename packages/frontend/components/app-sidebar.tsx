@@ -72,15 +72,17 @@ const data = {
   ],
 }
 
+type ViewType = 'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details' | 'marketplace' | 'notifications'
+
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
-  currentView?: 'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details' | 'marketplace'
-  setCurrentView?: (view: 'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details' | 'marketplace') => void
+  currentView?: ViewType
+  setCurrentView?: (view: ViewType) => void
   userName?: string
   userEmail?: string
 }
 
 export function AppSidebar({ currentView: propCurrentView, setCurrentView: propSetCurrentView, userName, userEmail, ...props }: AppSidebarProps) {
-  const [internalView, setInternalView] = React.useState<'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details' | 'marketplace'>('dashboard');
+  const [internalView, setInternalView] = React.useState<ViewType>('dashboard');
 
   const currentView = propCurrentView || internalView;
   const setCurrentView = propSetCurrentView || setInternalView;

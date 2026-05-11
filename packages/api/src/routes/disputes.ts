@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
-import { sendNotification } from '../services/notifications';
+import { sendNotification, recordNotification } from '../services/notifications';
 import multer from 'multer';
 
 const router = Router();
@@ -48,6 +48,7 @@ async function sendVerdictNotifications(disputeId: string, action: string, txn: 
                         `⚖️ <b>Dispute Resolved</b>\n\nCase for <b>"${txn.product_name}"</b> (#${txn.txn_code}) has been resolved by AI Mediation.\n\n<b>Outcome:</b> ${label}\n\nView your case details for next steps.`,
                         [{ label: '👁️ View Case', url: disputeUrl }]
                     );
+                    recordNotification(user.id, 'dispute', '⚖️ Dispute Resolved', `Case for "${txn.product_name}" resolved — ${label}`, { transaction_id: txn.id, transaction_code: txn.txn_code, dispute_id: disputeId, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
                 }
             } catch { /* non-critical */ }
         }));
@@ -210,6 +211,7 @@ router.post('/raise', async (req: Request, res: Response) => {
                     `⚠️ <b>Transaction Disputed</b>\n\nTransaction <b>${txn.txn_code}</b> for "${txn.product_name}" has been disputed by @${raiser.safetag}.\n\n<b>Reason:</b> ${data.reason}\n\nFunds have been locked. Please visit your Web Dashboard to review the evidence and resolve the dispute.`,
                     [{ label: '👁️ View Dispute Details', url: disputeDetailsUrl }]
                 );
+                recordNotification(otherParty.id, 'dispute', '⚠️ Dispute Raised Against You', `@${raiser.safetag} disputed "${txn.product_name}" — funds locked`, { transaction_id: txn.id, transaction_code: txn.txn_code, reason: data.reason, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
             }
         } catch (notifErr) {
             console.error('Failed to send dispute notification:', notifErr);
@@ -470,6 +472,7 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
                                 };
 
                                 await sendNotification(linked.platform, linked.platform_id, fullMsg, [actionBtn]);
+                                recordNotification(user.id, 'dispute', '💬 Dispute Message', msgBody.substring(0, 120), { transaction_id: disputeData.transaction_id, link_url: `/dashboard/transactions/${disputeData.transaction_id}` }).catch(() => {});
                             }
                         } catch (e: any) {
                             console.warn(`Could not notify user ${user.safetag}:`, e.message);
@@ -587,6 +590,7 @@ router.post('/:id/notify-join', async (req: Request, res: Response) => {
                         url: `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${disputeData.transaction_id}`
                     };
                     await sendNotification(linked.platform, linked.platform_id, fullMsg, [actionBtn]);
+                    recordNotification(user.id, 'dispute', '🛡️ Human Support Joined', `Support agent ${admin_name || 'Admin'} joined your dispute for "${txn.product_name}"`, { transaction_id: disputeData.transaction_id, link_url: `/dashboard/transactions/${disputeData.transaction_id}` }).catch(() => {});
                 }
             }));
         }
@@ -631,6 +635,7 @@ router.post('/:id/notify-leave', async (req: Request, res: Response) => {
                         url: `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${disputeData.transaction_id}`
                     };
                     await sendNotification(linked.platform, linked.platform_id, fullMsg, [actionBtn]);
+                    recordNotification(user.id, 'dispute', '🛡️ Support Left', `Support agent ${admin_name || 'Admin'} left your dispute for "${txn.product_name}"`, { transaction_id: disputeData.transaction_id, link_url: `/dashboard/transactions/${disputeData.transaction_id}` }).catch(() => {});
                 }
             }));
         }

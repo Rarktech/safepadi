@@ -24,6 +24,7 @@ import receiptRoutes from './routes/receipts';
 import adminRoutes from './routes/admin';
 import authRoutes from './routes/auth';
 import marketplaceRoutes from './routes/marketplace';
+import notificationRoutes from './routes/notifications';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -77,6 +78,7 @@ app.use('/api/waitlist', waitlistRoutes);
 app.use('/api/receipts', receiptRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/marketplace', marketplaceRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // 🔍 Health Check & Diagnostics
 app.get('/api/ping', (req, res) => {

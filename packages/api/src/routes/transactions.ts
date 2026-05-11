@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
-import { sendNotification, sendReferralNotification } from '../services/notifications';
+import { sendNotification, sendReferralNotification, recordNotification } from '../services/notifications';
 import crypto from 'crypto';
 import axios from 'axios';
 
@@ -188,6 +188,7 @@ router.post('/create', async (req, res) => {
                 { label: '❌ Decline', customId: `txn_action_decline|${txn.id}` },
                 { label: '⭐ View Reviews', url: `${reviewsUrl}/reviews/${encodeURIComponent(otherTag)}?viewer=${encodeURIComponent(recipientTag)}` }
             ]).catch(e => console.error('Background Notification Error:', e));
+            recordNotification(recipientId, 'transaction', '🔔 New Transaction Request', `${otherTag} sent you a ${data.transaction_type === 'MILESTONE' ? 'milestone project' : 'trade'} request for ${data.product_name}`, { transaction_id: txn.id, transaction_code: txnCode, amount: data.amount, currency: data.currency, counterparty_name: otherTag, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
             console.log(`[Notification Engine] Dispatched to ${linkedAccounts.platform} user ${linkedAccounts.platform_id}`);
         }
 
@@ -672,6 +673,22 @@ router.patch('/:id/status', async (req, res) => {
                 }
 
                 sendNotification(linked.platform, linked.platform_id, msg, options, receiptUrl).catch(e => console.error('Background Notification Error:', e));
+
+                const notifTitles: Record<string, string> = {
+                    accept: '✅ Transaction Accepted',
+                    decline: '❌ Transaction Declined',
+                    complete_confirmed: '📦 Delivery Submitted',
+                    complete_skip: '📦 Delivery Submitted',
+                    confirm_receipt: '🎉 Transaction Complete — Funds Released',
+                };
+                const notifTypes: Record<string, string> = {
+                    accept: 'transaction', decline: 'transaction',
+                    complete_confirmed: 'transaction', complete_skip: 'transaction',
+                    confirm_receipt: 'payment',
+                };
+                const notifTitle = notifTitles[status] || '🔔 Transaction Update';
+                const notifType = notifTypes[status] || 'transaction';
+                recordNotification(recipient.id, notifType, notifTitle, `${txn.product_name} · ${txn.amount} ${txn.currency}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: initiatorTag, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
             }
         } else {
             console.warn(`[Transactions] No primary linked account found for recipient: ${recipient.id}`);
@@ -824,10 +841,40 @@ router.patch('/:id/milestones/:mId/status', async (req, res) => {
             if (buyerAcc.data) await sendNotification(buyerAcc.data.platform, buyerAcc.data.platform_id, buyerMsg);
             if (sellerAcc.data) await sendNotification(sellerAcc.data.platform, sellerAcc.data.platform_id, sellerMsg);
 
+            // Build milestone tracker data for dashboard progress card
+            const milestoneLabels = (txn.milestones || []).map((m: any) => m.title);
+            const milestoneIndex = (txn.milestones || []).findIndex((m: any) => m.id === mId);
+            const milestoneTotal = (txn.milestones || []).length;
+            const milestoneNotifData = {
+                transaction_id: txn.id, transaction_code: txn.txn_code,
+                transaction_title: txn.product_name,
+                milestone_index: milestoneIndex,
+                milestone_total: milestoneTotal,
+                milestone_labels: milestoneLabels,
+                amount: milestone.amount, currency: txn.currency,
+                link_url: `/dashboard/transactions/${txn.id}`,
+            };
+
+            if (status === 'RELEASED') {
+                const releaseTitle = `💰 Milestone Released — ${milestone.title}`;
+                const releaseMsg = `Stage ${milestoneIndex + 1} of ${milestoneTotal} · ${milestone.amount} ${txn.currency}`;
+                if (buyerAcc.data) recordNotification(txn.buyer_id, 'milestone', releaseTitle, releaseMsg, milestoneNotifData).catch(() => {});
+                if (sellerAcc.data) recordNotification(txn.seller_id, 'milestone', releaseTitle, releaseMsg, milestoneNotifData).catch(() => {});
+            } else if (status === 'COMPLETED') {
+                const completedTitle = `📦 Milestone Submitted — ${milestone.title}`;
+                const completedMsg = `Stage ${milestoneIndex + 1} of ${milestoneTotal} awaiting release`;
+                if (buyerAcc.data) recordNotification(txn.buyer_id, 'milestone', completedTitle, completedMsg, milestoneNotifData).catch(() => {});
+                if (sellerAcc.data) recordNotification(txn.seller_id, 'milestone', completedTitle, completedMsg, milestoneNotifData).catch(() => {});
+            }
+
             if (allReleased) {
                  const finalMsg = `🎉 <b>Project Finalized!</b>\n\nAll milestones for "<b>${txn.product_name}</b>" have been completed and released. The transaction is now officially finalized.`;
                  if (buyerAcc.data) await sendNotification(buyerAcc.data.platform, buyerAcc.data.platform_id, finalMsg);
                  if (sellerAcc.data) await sendNotification(sellerAcc.data.platform, sellerAcc.data.platform_id, finalMsg);
+                 const finalTitle = '🎉 Project Finalized!';
+                 const finalNotifMsg = `All milestones for "${txn.product_name}" completed and released`;
+                 if (buyerAcc.data) recordNotification(txn.buyer_id, 'milestone', finalTitle, finalNotifMsg, { ...milestoneNotifData, milestone_index: milestoneTotal - 1 }).catch(() => {});
+                 if (sellerAcc.data) recordNotification(txn.seller_id, 'milestone', finalTitle, finalNotifMsg, { ...milestoneNotifData, milestone_index: milestoneTotal - 1 }).catch(() => {});
             }
         } catch (e: any) {
             console.error('Milestone notification error:', e.message);
@@ -921,6 +968,7 @@ router.post('/:id/upload-proofs', async (req, res) => {
                 { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
                 { label: '👁️ View Documents', customId: `view_docs_${txn.id}` }
             ]).catch(e => console.error('Background Notification Error:', e));
+            recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted ${proofs?.length || 0} proof file(s) for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
         }
 
         // Notify Seller (External Upload Case)
@@ -936,6 +984,7 @@ router.post('/:id/upload-proofs', async (req, res) => {
             sendNotification(sellerLinked.platform, sellerLinked.platform_id, sellerMsg, [
                 { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` }
             ]).catch(e => console.error('Background Notification Error:', e));
+            recordNotification(txn.seller_id, 'transaction', '✅ Proof Upload Confirmed', `Buyer notified for ${txn.product_name} — awaiting confirmation`, { transaction_id: txn.id, transaction_code: txn.txn_code, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
         }
 
         res.json({ success: true });
@@ -1018,6 +1067,7 @@ router.post('/:id/upload-proof', async (req, res) => {
                 { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
                 { label: '👁️ View Details', customId: `view_txn_${txn.id}` }
             ]).catch(e => console.error('Background Notification Error:', e));
+            recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted proof for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
         }
 
         // Notify Seller
@@ -1033,6 +1083,7 @@ router.post('/:id/upload-proof', async (req, res) => {
             sendNotification(sellerLinked.platform, sellerLinked.platform_id, sellerMsg, [
                 { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` }
             ]).catch(e => console.error('Background Notification Error:', e));
+            recordNotification(txn.seller_id, 'transaction', '✅ Proof Upload Confirmed', `Buyer notified for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
         }
         res.json({ success: true });
     } catch (err: any) {
@@ -1099,6 +1150,7 @@ router.post('/:id/pay', async (req, res) => {
                 { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
                 { label: '🔙 Main Menu', customId: 'main_menu' }
             ], receiptUrl).catch(e => console.error('Background Notification Error:', e));
+            recordNotification(txn.buyer_id, 'payment', '✅ Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
         }
 
         // Notify Seller
@@ -1122,6 +1174,7 @@ router.post('/:id/pay', async (req, res) => {
                 { label: '🔄 New Transaction', customId: 'create_txn' },
                 { label: '👁️ View Details', customId: `view_txn_${txn.id}` }
             ], receiptUrl).catch(e => console.error('Background Notification Error:', e));
+            recordNotification(txn.seller_id, 'payment', '🔐 Payment Received in Escrow', `${txn.amount} ${txn.currency} secured for ${txn.product_name} — proceed to fulfill`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
         } else {
             console.warn('⚠️ No primary linked account found for seller:', txn.seller_id);
         }

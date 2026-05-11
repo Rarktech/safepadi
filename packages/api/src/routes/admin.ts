@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
-import { sendNotification } from '../services/notifications';
+import { sendNotification, recordNotification } from '../services/notifications';
 import { sendEmail } from '../services/email';
 import multer from 'multer';
 import fs from 'fs';
@@ -662,6 +662,7 @@ router.post('/customers/:id/block', async (req, res) => {
         if (primaryLinked?.platform_id) {
             await sendNotification(primaryLinked.platform, primaryLinked.platform_id, dmMessage);
         }
+        recordNotification(user.id, 'system', '🚫 Account Suspended', 'Your Safeeely account has been suspended. Contact support to appeal.', { link_url: '/dashboard' }).catch(() => {});
 
         if (user.email) {
             await sendEmail({ to: user.email, subject: '🚫 Your Safeeely Account Has Been Suspended', html: emailHtml });
@@ -721,6 +722,7 @@ router.post('/customers/:id/unblock', async (req, res) => {
         if (primaryLinked?.platform_id) {
             await sendNotification(primaryLinked.platform, primaryLinked.platform_id, dmMessage);
         }
+        recordNotification(user.id, 'system', '✅ Account Reinstated', 'Your Safeeely account has been reinstated. Welcome back!', { link_url: '/dashboard' }).catch(() => {});
 
         if (user.email) {
             await sendEmail({ to: user.email, subject: '✅ Your Safeeely Account Has Been Reinstated', html: emailHtml });
@@ -1020,6 +1022,7 @@ router.post('/kyc/:id/approve', async (req, res) => {
             const msg = `🎉 **KYC Verified Successfully!**\n\nCongratulations @${kyc.profile.safetag}! 🥳 Your identity has been verified. You can now carry out your transactions smoothly and securely—the **Safeeely** way! 🛡️✨\n\nThank you for being part of our secure community! 🤝🌍`;
             await sendNotification(linked.platform, linked.platform_id, msg);
         }
+        recordNotification(kyc.profile_id, 'kyc', '🎉 KYC Verified!', 'Your identity has been verified — your account is now fully unlocked', { link_url: '/dashboard' }).catch(() => {});
 
         res.json({ success: true, message: 'KYC approved' });
     } catch (err: any) {
@@ -1061,10 +1064,19 @@ router.post('/kyc/:id/reject', async (req, res) => {
         if (linked) {
             const frontendUrl = process.env.REVIEWS_URL || 'https://safeeely.com';
             const msg = `⚠️ **KYC Verification Issue**\n\nHello @${kyc.profile.safetag}, unfortunately your recent KYC submission was not approved for the following reason:\n\n📝 **Reason:** ${reason}\n\nNo worries! You can quickly correct this and retry. Click the button below to update your details. 🔄`;
-            
+
             await sendNotification(linked.platform, linked.platform_id, msg, [
                 { label: "Retry KYC Verification 🔎", url: `${frontendUrl}/kyc?viewer=${kyc.profile.safetag}` }
             ]);
+        }
+        recordNotification(kyc.profile_id, 'kyc', '⚠️ KYC Rejected', `KYC submission rejected: ${reason}`, { link_url: '/kyc', reason }).catch(() => {});
+        if (kyc.profile?.email) {
+            const frontendUrl = process.env.REVIEWS_URL || 'https://safeeely.com';
+            sendEmail({
+                to: kyc.profile.email,
+                subject: '⚠️ KYC Submission Rejected — Please Resubmit',
+                html: `<div style="font-family:sans-serif;max-width:520px;margin:auto;padding:32px;background:#fff;border-radius:16px;border:1px solid #e2e8f0"><h2 style="color:#dc2626">KYC Rejected</h2><p>Hi <b>@${kyc.profile.safetag}</b>,</p><p>Your KYC submission was not approved.</p><p><b>Reason:</b> ${reason}</p><p>Please <a href="${frontendUrl}/kyc?viewer=${kyc.profile.safetag}">resubmit your documents</a> to complete verification.</p></div>`
+            }).catch(() => {});
         }
 
         res.json({ success: true, message: 'KYC rejected' });
@@ -1151,6 +1163,86 @@ router.patch('/settings', async (req, res) => {
         res.json({ success: true, message: 'Settings updated successfully' });
     } catch (err: any) {
         console.error('PATCH /admin/settings error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Approve a withdrawal (mark COMPLETED, notify user)
+ */
+router.post('/payouts/:id/approve', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { data: withdrawal, error } = await supabase
+            .from('withdrawals')
+            .select('*, profile:profile_id(id, safetag, email, primary_platform, linked_accounts(platform, platform_id, is_primary))')
+            .eq('id', id)
+            .single();
+
+        if (error || !withdrawal) return res.status(404).json({ error: 'Withdrawal not found' });
+
+        await supabase.from('withdrawals').update({ status: 'COMPLETED' }).eq('id', id);
+
+        const profile = withdrawal.profile as any;
+        const linked = (profile?.linked_accounts || []).find((l: any) => l.is_primary) || profile?.linked_accounts?.[0];
+
+        const msg = `✅ <b>Withdrawal Successful!</b>\n\n<b>${withdrawal.amount} ${withdrawal.currency}</b> has been sent to your payout method.\n\n📋 Reference: <b>${withdrawal.reference}</b>`;
+        if (linked) {
+            sendNotification(linked.platform, linked.platform_id, msg).catch(() => {});
+        }
+        recordNotification(profile.id, 'withdrawal', '✅ Withdrawal Successful', `${withdrawal.amount} ${withdrawal.currency} sent to your payout method`, { withdrawal_id: id, amount: withdrawal.amount, currency: withdrawal.currency, reference: withdrawal.reference, link_url: '/dashboard/withdrawals' }).catch(() => {});
+
+        if (profile?.email) {
+            sendEmail({
+                to: profile.email,
+                subject: `✅ Withdrawal Successful — ${withdrawal.amount} ${withdrawal.currency}`,
+                html: `<div style="font-family:sans-serif;max-width:520px;margin:auto;padding:32px;background:#fff;border-radius:16px;border:1px solid #e2e8f0"><h2 style="color:#059669">Withdrawal Successful</h2><p>Hi <b>@${profile.safetag}</b>,</p><p>Your withdrawal of <b>${withdrawal.amount} ${withdrawal.currency}</b> has been processed and sent to your payout method.</p><p><b>Reference:</b> ${withdrawal.reference}</p></div>`
+            }).catch(() => {});
+        }
+
+        res.json({ success: true });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Reject a withdrawal (mark REJECTED, notify user)
+ */
+router.post('/payouts/:id/reject', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { reason } = req.body;
+
+        const { data: withdrawal, error } = await supabase
+            .from('withdrawals')
+            .select('*, profile:profile_id(id, safetag, email, primary_platform, linked_accounts(platform, platform_id, is_primary))')
+            .eq('id', id)
+            .single();
+
+        if (error || !withdrawal) return res.status(404).json({ error: 'Withdrawal not found' });
+
+        await supabase.from('withdrawals').update({ status: 'REJECTED', details: { ...(withdrawal.details || {}), rejection_reason: reason } }).eq('id', id);
+
+        const profile = withdrawal.profile as any;
+        const linked = (profile?.linked_accounts || []).find((l: any) => l.is_primary) || profile?.linked_accounts?.[0];
+
+        const msg = `❌ <b>Withdrawal Failed</b>\n\nYour withdrawal of <b>${withdrawal.amount} ${withdrawal.currency}</b> could not be processed.\n\n📝 <b>Reason:</b> ${reason || 'No reason provided'}\n\nPlease contact support or retry.`;
+        if (linked) {
+            sendNotification(linked.platform, linked.platform_id, msg).catch(() => {});
+        }
+        recordNotification(profile.id, 'withdrawal', '❌ Withdrawal Failed', `${withdrawal.amount} ${withdrawal.currency} — ${reason || 'contact support'}`, { withdrawal_id: id, amount: withdrawal.amount, currency: withdrawal.currency, reason, link_url: '/dashboard/withdrawals' }).catch(() => {});
+
+        if (profile?.email) {
+            sendEmail({
+                to: profile.email,
+                subject: `❌ Withdrawal Request Rejected`,
+                html: `<div style="font-family:sans-serif;max-width:520px;margin:auto;padding:32px;background:#fff;border-radius:16px;border:1px solid #e2e8f0"><h2 style="color:#dc2626">Withdrawal Failed</h2><p>Hi <b>@${profile.safetag}</b>,</p><p>Your withdrawal of <b>${withdrawal.amount} ${withdrawal.currency}</b> was rejected.</p><p><b>Reason:</b> ${reason || 'No reason provided'}</p><p>Please contact support if you have questions.</p></div>`
+            }).catch(() => {});
+        }
+
+        res.json({ success: true });
+    } catch (err: any) {
         res.status(500).json({ error: err.message });
     }
 });

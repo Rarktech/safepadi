@@ -410,3 +410,23 @@ export async function sendReferralNotification(
         log(`❌ sendReferralNotification error for referrer ${referrerId}: ${err.message}`);
     }
 }
+
+export async function recordNotification(
+    profileId: string,
+    type: string,
+    title: string,
+    message: string,
+    data: Record<string, any> = {}
+) {
+    try {
+        await supabase.from('notifications').insert({
+            profile_id: profileId,
+            type,
+            title,
+            message,
+            data,
+        });
+    } catch (err: any) {
+        log(`❌ recordNotification error for profile ${profileId}: ${err.message}`);
+    }
+}

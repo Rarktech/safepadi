@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
-import { sendNotification, sendReferralNotification } from '../services/notifications';
+import { sendNotification, sendReferralNotification, recordNotification } from '../services/notifications';
 import { sendEmail } from '../services/email';
 import multer from 'multer';
 const upload = multer({ storage: multer.memoryStorage() });
@@ -763,6 +763,7 @@ router.post('/:safetag/kyc/submit', async (req, res) => {
             const msg = `🛡️ **KYC Processing**\n\nHello @${profile.safetag}, your Know Your Customer (KYC) details have been successfully submitted and are currently being reviewed by our compliance team. ✅\n\nYou will be notified here as soon as it is approved.`;
             await sendNotification(linked.platform, linked.platform_id, msg);
         }
+        recordNotification(profile.id, 'kyc', '🛡️ KYC Submitted', 'Your identity documents are under review — you\'ll be notified when approved', { link_url: '/dashboard/settings/kyc' }).catch(() => {});
 
         console.log(`✅ KYC Submitted & Saved for ${profile.safetag}`);
         res.json({ message: 'KYC submitted successfully. Awaiting review.' });
