@@ -1344,8 +1344,6 @@ router.post('/:id/initialize-payment', async (req, res) => {
                 console.error('❌ Airwallex Creation Failed:', JSON.stringify(errorDetail));
                 return res.status(500).json({ error: 'Airwallex session failed to initialize. Try again.' });
             }
-        }
-
         } else if (platform?.toLowerCase() === 'chainrails') {
             const apiKey = process.env.CHAINRAILS_API_KEY;
             const recipientAddress = process.env.CHAINRAILS_RECIPIENT_ADDRESS;
