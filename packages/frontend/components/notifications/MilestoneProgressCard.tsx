@@ -55,57 +55,54 @@ export function MilestoneProgressCard({
         )}
       </div>
 
-      {/* Dark pill progress track */}
-      <div className="bg-slate-900 rounded-2xl px-4 py-3">
-        {/* overflow-x-auto with centered inner content */}
-        <div className="overflow-x-auto">
-          <div className="flex justify-center min-w-full">
-            <div className="inline-flex items-center gap-0 py-1">
-              {stages.map((stage, idx) => (
-                <div key={idx} className="flex items-center">
-                  {/* Connector line before each node except first */}
-                  {idx > 0 && (
-                    <div
-                      className={`h-1 w-8 rounded-full ${
-                        stage.state === 'future' ? 'bg-slate-700' : 'bg-amber-500'
-                      }`}
-                    />
-                  )}
+      {/* Progress track */}
+      <div className="overflow-x-auto">
+        <div className="flex justify-center min-w-full">
+          <div className="inline-flex items-center gap-0 py-1">
+            {stages.map((stage, idx) => (
+              <div key={idx} className="flex items-center">
+                {/* Connector line before each node except first */}
+                {idx > 0 && (
+                  <div
+                    className={`h-1 w-8 rounded-full ${
+                      stage.state === 'future' ? 'bg-slate-200' : 'bg-amber-400'
+                    }`}
+                  />
+                )}
 
-                  {/* Stage node */}
-                  <div className="flex flex-col items-center gap-1.5">
-                    <div
-                      className={`
-                        flex items-center justify-center rounded-full border-2 transition-all
-                        ${stage.state === 'done'
-                          ? 'w-7 h-7 bg-amber-500 border-amber-500 text-white'
-                          : stage.state === 'current'
-                          ? 'w-9 h-9 bg-amber-500 border-amber-400 text-white shadow-lg shadow-amber-900/60 ring-2 ring-amber-500/40 animate-pulse'
-                          : 'w-7 h-7 bg-slate-700 border-slate-600 text-slate-400'}
-                      `}
-                    >
-                      {stage.state === 'done' ? (
-                        <CheckCircle2 size={14} strokeWidth={2.5} />
-                      ) : stage.state === 'current' ? (
-                        <CheckCircle2 size={16} strokeWidth={2.5} />
-                      ) : (
-                        <Circle size={14} strokeWidth={1.5} />
-                      )}
-                    </div>
-
-                    {/* Label */}
-                    <span
-                      className={`text-[9px] leading-none max-w-[48px] text-center truncate ${
-                        stage.state === 'future' ? 'text-slate-500' : 'text-amber-400 font-medium'
-                      }`}
-                      title={stage.label}
-                    >
-                      {stage.label.length > 7 ? stage.label.slice(0, 7) + '…' : stage.label}
-                    </span>
+                {/* Stage node */}
+                <div className="flex flex-col items-center gap-1.5">
+                  <div
+                    className={`
+                      flex items-center justify-center rounded-full border-2 transition-all
+                      ${stage.state === 'done'
+                        ? 'w-7 h-7 bg-amber-500 border-amber-500 text-white'
+                        : stage.state === 'current'
+                        ? 'w-9 h-9 bg-amber-500 border-amber-400 text-white shadow-lg shadow-amber-500/30 ring-2 ring-amber-400/40 animate-pulse'
+                        : 'w-7 h-7 bg-slate-100 border-slate-300 text-slate-400'}
+                    `}
+                  >
+                    {stage.state === 'done' ? (
+                      <CheckCircle2 size={14} strokeWidth={2.5} />
+                    ) : stage.state === 'current' ? (
+                      <CheckCircle2 size={16} strokeWidth={2.5} />
+                    ) : (
+                      <Circle size={14} strokeWidth={1.5} />
+                    )}
                   </div>
+
+                  {/* Label */}
+                  <span
+                    className={`text-[9px] leading-none max-w-[48px] text-center truncate ${
+                      stage.state === 'future' ? 'text-slate-400' : 'text-amber-600 font-medium'
+                    }`}
+                    title={stage.label}
+                  >
+                    {stage.label.length > 7 ? stage.label.slice(0, 7) + '…' : stage.label}
+                  </span>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>

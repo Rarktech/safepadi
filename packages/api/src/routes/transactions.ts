@@ -204,12 +204,12 @@ router.get('/', async (req, res) => {
         let query = supabase.from('transactions').select('*, buyer:buyer_id(*), seller:seller_id(*)');
 
         if (seller_safetag) {
-            const { data: profile } = await supabase.from('profiles').select('id').eq('safetag', seller_safetag).single();
+            const { data: profile } = await supabase.from('profiles').select('id').ilike('safetag', seller_safetag as string).single();
             if (profile) query = query.eq('seller_id', profile.id);
         }
 
         if (safetag) {
-            const { data: profile } = await supabase.from('profiles').select('id').eq('safetag', safetag).single();
+            const { data: profile } = await supabase.from('profiles').select('id').ilike('safetag', safetag as string).single();
             if (profile) {
                 query = query.or(`buyer_id.eq.${profile.id},seller_id.eq.${profile.id}`);
             }
