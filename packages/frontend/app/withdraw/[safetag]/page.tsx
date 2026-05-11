@@ -4,14 +4,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, Activity, Eye, EyeOff, Home, Send, Settings, User, Users, ShoppingBag, Bell } from 'lucide-react';
+import { Menu, Activity, Home, Send, Settings, User, Users, ShoppingBag, Bell } from 'lucide-react';
 import { isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import api from '@/lib/api';
 
 // Shadcn components
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
-import { Separator } from "@/components/ui/separator";
 
 // Sub-components
 import { SidebarContent } from '@/components/withdraw/Sidebar';
@@ -69,7 +68,16 @@ export default function WithdrawDashboard() {
     const [fromCurrency, setFromCurrency] = useState('');
     const [toCurrency, setToCurrency] = useState('');
     const [exchangeAmount, setExchangeAmount] = useState('');
-    const [showBalance, setShowBalance] = useState(true);
+    const [showBalance, setShowBalance] = useState<boolean>(() => {
+        if (typeof window !== 'undefined') {
+            return localStorage.getItem('safeeely_show_balance') !== 'false';
+        }
+        return true;
+    });
+    useEffect(() => {
+        localStorage.setItem('safeeely_show_balance', String(showBalance));
+    }, [showBalance]);
+
     const [isWithdrawSheetOpen, setIsWithdrawSheetOpen] = useState(false);
     const [preselectedCurrency, setPreselectedCurrency] = useState('USD');
     const [viewRefreshKey, setViewRefreshKey] = useState(0);
@@ -179,11 +187,10 @@ export default function WithdrawDashboard() {
                 userEmail={profile?.email}
             />
             <SidebarInset className="bg-slate-50 w-full overflow-x-hidden">
-                <header className="flex h-16 shrink-0 items-center justify-between border-b bg-white/80 backdrop-blur-xl px-4 sticky top-0 z-40">
+                <header className="flex h-16 shrink-0 items-center justify-between px-4 sticky top-0 z-40" style={{ backgroundColor: '#F4F7F6' }}>
                     {/* Desktop header */}
                     <div className="hidden md:flex items-center gap-2">
                         <SidebarTrigger className="-ml-1 text-slate-500" />
-                        <Separator orientation="vertical" className="mr-2 h-4" />
                         <h1 className="text-lg font-bold text-slate-800">
                             {currentView === 'dashboard' ? 'Dashboard' :
                                 currentView === 'transactions' ? 'My Transactions' :
@@ -191,26 +198,18 @@ export default function WithdrawDashboard() {
                         </h1>
                     </div>
 
-                    {/* Mobile header: avatar + greeting */}
+                    {/* Mobile header: favicon + greeting */}
                     <div className="md:hidden flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#0a2d1d] to-[#10b981] flex items-center justify-center text-white font-black text-base shadow-md shrink-0">
-                            {profile?.first_name?.[0]?.toUpperCase() || profile?.safetag?.[1]?.toUpperCase() || 'S'}
-                        </div>
+                        <img src="/logo-mark.svg" alt="Safeeely" className="w-10 h-10 object-contain shrink-0" />
                         <div className="flex flex-col leading-tight">
                             <span className="text-[11px] text-slate-400 font-medium">
                                 Hello, {(() => { const h = new Date().getHours(); return h < 12 ? 'good morning' : h < 17 ? 'good afternoon' : 'good evening'; })()}!
                             </span>
-                            <span className="text-sm font-black text-slate-900">{profile?.first_name || profile?.safetag || 'User'}</span>
+                            <span className="text-sm font-bold text-slate-900">{profile?.first_name || profile?.safetag || 'User'}</span>
                         </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                        <button
-                            onClick={() => setShowBalance(!showBalance)}
-                            className="p-2 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 transition-colors"
-                        >
-                            {showBalance ? <Eye size={18} /> : <EyeOff size={18} />}
-                        </button>
                         <button className="md:hidden p-2 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 transition-colors">
                             <Bell size={18} />
                         </button>
@@ -238,6 +237,7 @@ export default function WithdrawDashboard() {
                                     onCreate={() => setCurrentView('marketplace')}
                                     onShowAll={() => setCurrentView('transactions')}
                                     onSelectTxn={handleSelectTxn}
+                                    onToggleBalance={() => setShowBalance(v => !v)}
                                     decodedSafetag={decodedSafetag}
                                 />
                             </div>
@@ -249,7 +249,12 @@ export default function WithdrawDashboard() {
                                     onWithdraw={() => setCurrentView('withdraw')}
                                     onCreate={() => setCurrentView('marketplace')}
                                 />
-                                <PortfolioSection balances={balances} showBalance={showBalance} />
+                                <PortfolioSection
+                                    balances={balances}
+                                    showBalance={showBalance}
+                                    onToggleBalance={() => setShowBalance(v => !v)}
+                                    allTransactions={allTransactions}
+                                />
                                 <LatestTransactions
                                     transactions={allTransactions}
                                     onShowAll={() => setCurrentView('transactions')}

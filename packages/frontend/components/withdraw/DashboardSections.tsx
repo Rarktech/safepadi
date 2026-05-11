@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { DollarSign, Bitcoin, Euro, ArrowRightLeft, Activity, Wallet, ArrowUpRight, ArrowDownCircle, ArrowDownLeft, Plus } from 'lucide-react';
+import { DollarSign, Bitcoin, Euro, ArrowRightLeft, Activity, Wallet, ArrowUpRight, ArrowDownCircle, ArrowDownLeft, Plus, Eye, EyeOff, TrendingUp } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -63,6 +63,7 @@ export const MobileDashboard = ({
     onCreate,
     onShowAll,
     onSelectTxn,
+    onToggleBalance,
     decodedSafetag,
 }: {
     balances: any[];
@@ -72,6 +73,7 @@ export const MobileDashboard = ({
     onCreate: () => void;
     onShowAll: () => void;
     onSelectTxn: (txn: any) => void;
+    onToggleBalance: () => void;
     decodedSafetag: string;
 }) => {
     const primary = balances[0] || { currency: 'USD', amount: 0 };
@@ -83,7 +85,7 @@ export const MobileDashboard = ({
             <div className="px-6 pt-2 pb-10">
                 <div className="text-center mb-7">
                     <p className="text-[11px] font-semibold text-slate-500 mb-3 uppercase tracking-widest">Available Balance</p>
-                    <p className="font-black text-slate-900 tracking-tight leading-none" style={{ fontSize: '44px' }}>
+                    <p className="font-bold text-slate-900 tracking-tight leading-none" style={{ fontSize: '44px' }}>
                         {showBalance
                             ? <>{symbol}{primary.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</>
                             : <span className="text-slate-300">••••••</span>}
@@ -95,14 +97,14 @@ export const MobileDashboard = ({
                 <div className="flex gap-3">
                     <button
                         onClick={onWithdraw}
-                        className="flex-1 flex items-center justify-center gap-2 font-black py-[14px] rounded-full text-sm active:scale-[0.97] transition-all shadow-md bg-[#10b981] text-white"
+                        className="flex-1 flex items-center justify-center gap-2 font-bold py-[14px] rounded-full text-sm active:scale-[0.97] transition-all shadow-md bg-[#10b981] text-white"
                     >
                         <ArrowDownCircle className="w-5 h-5" />
                         Withdraw
                     </button>
                     <button
                         onClick={onCreate}
-                        className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 text-black font-black py-[14px] rounded-full text-sm active:scale-[0.97] transition-all shadow-sm"
+                        className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 text-black font-bold py-[14px] rounded-full text-sm active:scale-[0.97] transition-all shadow-sm"
                     >
                         <Plus className="w-5 h-5" />
                         Create
@@ -113,43 +115,67 @@ export const MobileDashboard = ({
             {/* Portfolio Panel — black, rounded top, bleeds to screen edge */}
             <div className="bg-black rounded-t-[40px] px-6 pt-7 pb-12">
                 <div className="flex items-center justify-between mb-5">
-                    <h3 className="text-white font-black text-lg">Portfolio</h3>
-                    <span className="font-bold text-sm text-[#10b981]">View All</span>
+                    <h3 className="text-white font-bold text-lg">Portfolio</h3>
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={onToggleBalance}
+                            className="p-1.5 rounded-full bg-white/10 text-white/70 hover:bg-white/20 transition-colors"
+                        >
+                            {showBalance ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                        </button>
+                        <span className="font-bold text-sm text-[#10b981]">View All</span>
+                    </div>
                 </div>
                 <div className="flex gap-4 overflow-x-auto pb-2 -mx-6 px-6 hide-scrollbar">
-                    {balances.map((b: any, i: number) => (
-                        <div
-                            key={i}
-                            className="min-w-[158px] rounded-[24px] p-5 flex flex-col justify-between shrink-0"
-                            style={{ backgroundColor: PORTFOLIO_CARD_BG[b.currency] || '#E8ECEF', minHeight: '158px' }}
-                        >
-                            <div className="flex items-center gap-2.5">
-                                <div className={`w-9 h-9 rounded-full ${CURRENCY_COLORS[b.currency] || 'bg-white/70'} flex items-center justify-center overflow-hidden shadow-sm bg-white/70`}>
-                                    <div className="w-6 h-6 flex items-center justify-center">
-                                        {CURRENCY_ICONS[b.currency] || <DollarSign className="w-4 h-4 text-slate-700" />}
+                    {balances.map((b: any, i: number) => {
+                        const currencyTxns = allTransactions.filter(t => t.currency === b.currency && t.status === 'FINALIZED');
+                        const tradeCount = currencyTxns.length;
+                        const totalVolume = currencyTxns.reduce((s: number, t: any) => s + Number(t.amount || 0), 0);
+                        return (
+                            <div
+                                key={i}
+                                className="min-w-[158px] rounded-[24px] p-5 flex flex-col justify-between shrink-0"
+                                style={{ backgroundColor: PORTFOLIO_CARD_BG[b.currency] || '#E8ECEF', minHeight: '170px' }}
+                            >
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden shadow-sm bg-white/70">
+                                        <div className="w-6 h-6 flex items-center justify-center">
+                                            {CURRENCY_ICONS[b.currency] || <DollarSign className="w-4 h-4 text-slate-700" />}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-slate-900 text-sm leading-none">{b.currency}</p>
+                                        <p className="text-[10px] text-slate-500 mt-0.5">{CURRENCY_NAMES[b.currency] || b.currency}</p>
                                     </div>
                                 </div>
-                                <div>
-                                    <p className="font-black text-slate-900 text-sm leading-none">{b.currency}</p>
-                                    <p className="text-[10px] text-slate-500 mt-0.5">{CURRENCY_NAMES[b.currency] || b.currency}</p>
+                                <div className="mt-4">
+                                    <p className="font-bold text-slate-900 text-[22px] leading-none">
+                                        {showBalance
+                                            ? `${CURRENCY_SYMBOLS[b.currency] || ''}${b.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`
+                                            : '••••'}
+                                    </p>
+                                    <div className="flex items-center gap-1.5 mt-2">
+                                        <TrendingUp className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                        <span className="text-xs font-bold text-slate-700">
+                                            {tradeCount} trade{tradeCount !== 1 ? 's' : ''}
+                                        </span>
+                                        {totalVolume > 0 && (
+                                            <span className="text-xs text-slate-500 font-medium">
+                                                · {CURRENCY_SYMBOLS[b.currency] || ''}{totalVolume.toLocaleString(undefined, { maximumFractionDigits: 0 })} vol
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                            <div className="mt-4">
-                                <p className="font-black text-slate-900 text-[22px] leading-none">
-                                    {showBalance
-                                        ? `${CURRENCY_SYMBOLS[b.currency] || ''}${b.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`
-                                        : '••••'}
-                                </p>
-                            </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
 
             {/* My Transactions Panel — off-white bg, rounded top, overlaps portfolio */}
             <div className="bg-slate-50 rounded-t-[40px] -mt-6 px-4 pt-7">
                 <div className="flex items-center justify-between mb-4 px-2">
-                    <h3 className="text-slate-900 font-black text-lg">My Transactions</h3>
+                    <h3 className="text-slate-900 font-bold text-lg">My Transactions</h3>
                     <span className="font-bold text-sm cursor-pointer text-[#10b981]" onClick={onShowAll}>
                         View All
                     </span>
@@ -178,7 +204,7 @@ export const MobileDashboard = ({
                                         <p className="text-xs text-slate-400 mt-0.5">{format(new Date(tx.created_at), 'MMM d, yyyy')}</p>
                                     </div>
                                     <div className="text-right shrink-0">
-                                        <p className="font-black text-sm text-slate-900">
+                                        <p className="font-bold text-sm text-slate-900">
                                             {isSeller ? '+' : '-'}{Number(tx.amount)?.toLocaleString()} {tx.currency}
                                         </p>
                                         <p className={`text-[11px] font-semibold mt-0.5 ${isFinalized ? 'text-green-500' : isDisputed ? 'text-red-500' : 'text-amber-500'}`}>
@@ -215,7 +241,7 @@ export const BalanceHero = ({
             <div className="absolute top-0 right-0 w-56 h-56 bg-[#10b981]/10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
             <div className="relative z-10">
                 <p className="text-white/50 text-xs font-semibold uppercase tracking-widest mb-1">Available Balance</p>
-                <p className="text-4xl font-black tracking-tight leading-none mb-1">
+                <p className="text-4xl font-bold tracking-tight leading-none mb-1">
                     {showBalance ? (
                         <><span className="text-white/40 text-2xl mr-1">{symbol}</span>{primary.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</>
                     ) : (
@@ -246,15 +272,38 @@ export const BalanceHero = ({
     );
 };
 
-export const PortfolioSection = ({ balances, showBalance = true }: { balances: any[], showBalance?: boolean }) => (
+export const PortfolioSection = ({
+    balances,
+    showBalance = true,
+    onToggleBalance,
+    allTransactions = [],
+}: {
+    balances: any[];
+    showBalance?: boolean;
+    onToggleBalance?: () => void;
+    allTransactions?: any[];
+}) => (
     <section>
         <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-bold text-slate-800">Portfolio</h2>
-            <span className="text-sm font-semibold text-primary">View All</span>
+            <div className="flex items-center gap-2">
+                {onToggleBalance && (
+                    <button
+                        onClick={onToggleBalance}
+                        className="p-1.5 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors"
+                    >
+                        {showBalance ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                    </button>
+                )}
+                <span className="text-sm font-semibold text-primary">View All</span>
+            </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
             {balances.map((b: any, i: number) => {
                 const isLast = i === balances.length - 1 && balances.length % 2 !== 0;
+                const currencyTxns = allTransactions.filter((t: any) => t.currency === b.currency && t.status === 'FINALIZED');
+                const tradeCount = currencyTxns.length;
+                const totalVolume = currencyTxns.reduce((s: number, t: any) => s + Number(t.amount || 0), 0);
                 return (
                     <div
                         key={i}
@@ -273,13 +322,24 @@ export const PortfolioSection = ({ balances, showBalance = true }: { balances: a
                         </div>
                         <div>
                             <p className="text-[10px] text-white/30 uppercase tracking-wider mb-0.5">{CURRENCY_NAMES[b.currency] || b.currency}</p>
-                            <p className="text-white font-black text-lg leading-none">
+                            <p className="text-white font-bold text-lg leading-none">
                                 {showBalance ? (
                                     <>{CURRENCY_SYMBOLS[b.currency] || ''}{b.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</>
                                 ) : (
                                     <span className="tracking-widest text-white/50">••••</span>
                                 )}
                             </p>
+                            <div className="flex items-center gap-1.5 mt-2">
+                                <TrendingUp className="w-3 h-3 text-[#10b981] shrink-0" />
+                                <span className="text-xs font-bold text-white/60">
+                                    {tradeCount} trade{tradeCount !== 1 ? 's' : ''}
+                                </span>
+                                {totalVolume > 0 && (
+                                    <span className="text-xs text-white/40 font-medium">
+                                        · {CURRENCY_SYMBOLS[b.currency] || ''}{totalVolume.toLocaleString(undefined, { maximumFractionDigits: 0 })} vol
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     </div>
                 );
@@ -298,7 +358,7 @@ export const AccountsSection = ({ balances, showBalance = true }: { balances: an
                 <Card key={i} className="min-w-[260px] bg-gradient-to-br from-[#1a1c1e] to-[#0a0a0b] border-none rounded-[24px] shadow-2xl snap-start relative overflow-hidden group p-1">
                     <CardHeader className="pb-2">
                         <CardDescription className="font-semibold text-white/40 uppercase tracking-widest text-[10px]">{CURRENCY_NAMES[b.currency] || b.currency}</CardDescription>
-                        <CardTitle className="text-2xl font-black tracking-tight text-white border-none shadow-none mt-1">
+                        <CardTitle className="text-2xl font-bold tracking-tight text-white border-none shadow-none mt-1">
                             {showBalance ? (
                                 <>
                                     <span className="text-white/40 text-lg mr-1">{b.currency === 'USD' ? '$' : b.currency === 'EUR' ? '€' : b.currency === 'NGN' ? '₦' : ''}</span>
@@ -568,7 +628,7 @@ export const TrustScore = ({ score = 92.8, totalTrades = 4250.00 }: { score?: nu
 
                     {/* Center Score Text */}
                     <div className="absolute bottom-[3px] left-1/2 -translate-x-1/2 flex flex-col items-center">
-                        <span className="text-[54px] font-black text-[#111827] leading-[1] tracking-[-0.04em]">
+                        <span className="text-[54px] font-bold text-[#111827] leading-[1] tracking-[-0.04em]">
                             {displayScore}
                         </span>
                         <div className={`mt-1.5 ${badgeColor} px-4 py-1 rounded-[12px] font-bold text-[13px] tracking-wide shadow-sm border border-black/5`}>
