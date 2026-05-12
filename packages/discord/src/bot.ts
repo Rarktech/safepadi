@@ -1470,15 +1470,24 @@ client.on('interactionCreate', async (interaction) => {
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_safetag/${encodeURIComponent(otherSafetag)}`);
                     draft.other = profileRes.data.safetag; // use canonical casing from DB
-                    const statsRes = await axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(otherSafetag)}`);
                     const profile = profileRes.data;
-                    const { average_rating, review_count } = statsRes.data;
+                    const isVerified = profile.kyc_status === 'VERIFIED';
+                    const verifiedEmoji = isVerified ? '✅' : '❌';
+                    const verifiedText = isVerified ? 'Verified' : 'Unverified';
 
-                    const ratingStr = review_count > 0 ? `${average_rating.toFixed(1)}/5` : 'No reviews yet';
-                    const ratingSuffix = review_count > 0 ? `(${review_count} reviews)` : '';
-                    
+                    let ratingStr = 'No reviews yet';
+                    let ratingSuffix = '';
+                    try {
+                        const statsRes = await axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(otherSafetag)}`);
+                        const { average_rating, review_count } = statsRes.data;
+                        if (review_count > 0) {
+                            ratingStr = `${average_rating.toFixed(1)}/5`;
+                            ratingSuffix = `(${review_count} reviews)`;
+                        }
+                    } catch (e) {}
+
                     const profileType = draft.role === 'buyer' ? 'Seller' : 'Buyer';
-                    
+
                     const profilePreview = `👤 **${profileType} Profile**\n\n` +
                         `\`${profile.safetag}\`\n` +
                         `⭐ **Rating: ${ratingStr} ${ratingSuffix}**\n` +
@@ -1499,6 +1508,7 @@ client.on('interactionCreate', async (interaction) => {
                         ]
                     });
                 } catch (err: any) {
+                    console.error('❌ Counterparty lookup error:', (err as any).response?.data || err.message);
                     await interaction.editReply(`❌ User **${otherSafetag}** not found. Please ensure the Safetag is correct.`);
                 }
 
