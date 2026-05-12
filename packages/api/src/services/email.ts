@@ -10,11 +10,13 @@ export async function sendEmail({
     subject,
     html,
     attachments,
+    cc,
 }: {
     to: string;
     subject: string;
     html: string;
     attachments?: Array<{ filename: string; content: string }>;
+    cc?: string;
 }) {
     if (!RESEND_API_KEY) {
         console.warn('⚠️ [Email] RESEND_API_KEY not set. Skipping email to:', to);
@@ -22,6 +24,7 @@ export async function sendEmail({
     }
     try {
         const body: any = { from: FROM_EMAIL, to: [to], subject, html };
+        if (cc) body.cc = [cc];
         if (attachments?.length) body.attachments = attachments;
         await axios.post(
             'https://api.resend.com/emails',
@@ -55,9 +58,9 @@ export async function sendTransactionInvoiceEmail(data: InvoiceData) {
         console.error('❌ [Invoice] PDF generation failed, sending email without attachment:', err.message);
     }
 
-    const subject = `Invoice #${data.txnCode} from ${data.seller.firstName} (@${data.seller.safetag})`;
+    const subject = `Invoice #${data.txnCode} from ${data.seller.firstName} (${data.seller.safetag})`;
     const kv = (k: string, v: string) =>
-        `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1f5f9"><span style="color:#64748b;font-size:14px">${k}</span><span style="color:#0f172a;font-weight:600;font-size:14px">${v}</span></div>`;
+        `<tr><td style="color:#64748b;font-size:14px;padding:10px 0;border-bottom:1px solid #f1f5f9;vertical-align:top;width:55%">${k}</td><td style="color:#0f172a;font-weight:600;font-size:14px;padding:10px 0;border-bottom:1px solid #f1f5f9;text-align:right;vertical-align:top">${v}</td></tr>`;
     const p = (t: string) => `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 12px">${t}</p>`;
 
     let itemsHtml = kv('Item / Service', data.productName);
@@ -68,8 +71,8 @@ export async function sendTransactionInvoiceEmail(data: InvoiceData) {
         });
     }
     itemsHtml += kv('Subtotal', `${data.amount.toLocaleString()} ${data.currency}`);
-    itemsHtml += kv(`Platform Fee`, `${data.feeAmount.toFixed(2)} ${data.currency}`);
-    itemsHtml += `<div style="display:flex;justify-content:space-between;padding:12px 0;margin-top:4px;border-top:2px solid #0f172a"><span style="color:#0f172a;font-size:15px;font-weight:700">Total Due</span><span style="color:#0f172a;font-weight:800;font-size:15px">${data.totalAmount.toFixed(2)} ${data.currency}</span></div>`;
+    itemsHtml += kv('Platform Fee', `${data.feeAmount.toFixed(2)} ${data.currency}`);
+    const totalRow = `<tr><td style="color:#0f172a;font-size:15px;font-weight:700;padding:14px 0;border-top:2px solid #0f172a">Total Due</td><td style="color:#0f172a;font-weight:800;font-size:15px;padding:14px 0;border-top:2px solid #0f172a;text-align:right">${data.totalAmount.toFixed(2)} ${data.currency}</td></tr>`;
 
     const reviewsUrl = process.env.REVIEWS_URL || 'https://safeeely.com';
     const payUrl = `${reviewsUrl}/pay/${data.txnId}`;
@@ -78,14 +81,14 @@ export async function sendTransactionInvoiceEmail(data: InvoiceData) {
     const emailHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
 <div style="max-width:540px;margin:40px auto;background:#fff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden">
-  <div style="background:#0f172a;padding:24px 32px;text-align:center">
-    <span style="color:#f59e0b;font-size:24px;font-weight:700">Safeeely</span>
+  <div style="background:#f8fafc;padding:24px 32px;text-align:center;border-bottom:1px solid #e2e8f0">
+    <img src="${reviewsUrl}/logo-main.svg" alt="Safeeely" style="height:40px;width:auto" />
   </div>
   <div style="padding:32px">
     <h2 style="color:#0f172a;margin:0 0 16px;font-size:20px">Invoice from ${data.seller.firstName} 📄</h2>
-    ${p(`Hi <b>@${data.buyer.safetag}</b>,`)}
-    ${p(`<b>@${data.seller.safetag}</b> has sent you a professional invoice for <b>${data.productName}</b>. Your invoice PDF is attached — it includes a Pay with Safeeely button for secure payment.`)}
-    <div style="margin:20px 0">${itemsHtml}</div>
+    ${p(`Hi <b>${data.buyer.safetag}</b>,`)}
+    ${p(`<b>${data.seller.safetag}</b> has sent you a professional invoice for <b>${data.productName}</b>. Your invoice PDF is attached — it includes a Pay with Safeeely button for secure payment.`)}
+    <table style="width:100%;border-collapse:collapse;margin:20px 0">${itemsHtml}${totalRow}</table>
     ${cta}
     ${pdfBase64 ? `<p style="text-align:center;color:#94a3b8;font-size:12px;margin-top:12px">Invoice PDF attached above.</p>` : ''}
   </div>
@@ -96,6 +99,7 @@ export async function sendTransactionInvoiceEmail(data: InvoiceData) {
 
     await sendEmail({
         to: data.buyer.email,
+        cc: data.seller.email,
         subject,
         html: emailHtml,
         ...(pdfBase64 ? { attachments: [{ filename: `invoice-${data.txnCode}.pdf`, content: pdfBase64 }] } : {}),

@@ -83,7 +83,7 @@ export function generateInvoiceTemplate(data: InvoiceData): string {
     }
     .logo { height: 44px; width: auto; }
     .invoice-badge {
-      background: #4F46E5;
+      background: #0f172a;
       color: #ffffff;
       border-radius: 12px;
       padding: 18px 26px;
@@ -189,14 +189,14 @@ export function generateInvoiceTemplate(data: InvoiceData): string {
 
   <div class="from-block">
     <div class="from-name">${esc(data.seller.firstName)} ${esc(data.seller.lastName)}</div>
-    <div class="from-sub">@${esc(data.seller.safetag)}<br>${esc(data.seller.email)}<br>safeeely.com</div>
+    <div class="from-sub">${esc(data.seller.safetag)}<br>${esc(data.seller.email)}<br>safeeely.com</div>
   </div>
 
   <div class="meta-row">
     <div>
       <div class="section-label">Bill To</div>
       <div class="bill-name">${esc(data.buyer.firstName)} ${esc(data.buyer.lastName)}</div>
-      <div class="bill-sub">@${esc(data.buyer.safetag)}<br>${esc(data.buyer.email)}</div>
+      <div class="bill-sub">${esc(data.buyer.safetag)}<br>${esc(data.buyer.email)}</div>
     </div>
     <div class="meta-info">
       <div class="meta-item">
