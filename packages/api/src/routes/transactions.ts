@@ -1005,7 +1005,7 @@ router.post('/:id/upload-proofs', async (req, res) => {
                 { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
                 { label: '👁️ View Documents', customId: `view_docs_${txn.id}` }
             ]).catch(e => console.error('Background Notification Error:', e));
-            recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted ${proofs?.length || 0} proof file(s) for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
+            recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted ${proofs?.length || 0} proof file(s) for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/delivery/${txn.id}` }).catch(() => {});
         }
 
         // Notify Seller (External Upload Case)
@@ -1021,7 +1021,7 @@ router.post('/:id/upload-proofs', async (req, res) => {
             sendNotification(sellerLinked.platform, sellerLinked.platform_id, sellerMsg, [
                 { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` }
             ]).catch(e => console.error('Background Notification Error:', e));
-            recordNotification(txn.seller_id, 'transaction', '✅ Proof Upload Confirmed', `Buyer notified for ${txn.product_name} — awaiting confirmation`, { transaction_id: txn.id, transaction_code: txn.txn_code, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
+            recordNotification(txn.seller_id, 'transaction', '✅ Proof Upload Confirmed', `Buyer notified for ${txn.product_name} — awaiting confirmation`, { transaction_id: txn.id, transaction_code: txn.txn_code, link_url: `/delivery/${txn.id}` }).catch(() => {});
         }
 
         res.json({ success: true });
@@ -1104,7 +1104,7 @@ router.post('/:id/upload-proof', async (req, res) => {
                 { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
                 { label: '👁️ View Details', customId: `view_txn_${txn.id}` }
             ]).catch(e => console.error('Background Notification Error:', e));
-            recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted proof for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
+            recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted proof for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/delivery/${txn.id}` }).catch(() => {});
         }
 
         // Notify Seller
@@ -1120,7 +1120,7 @@ router.post('/:id/upload-proof', async (req, res) => {
             sendNotification(sellerLinked.platform, sellerLinked.platform_id, sellerMsg, [
                 { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` }
             ]).catch(e => console.error('Background Notification Error:', e));
-            recordNotification(txn.seller_id, 'transaction', '✅ Proof Upload Confirmed', `Buyer notified for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
+            recordNotification(txn.seller_id, 'transaction', '✅ Proof Upload Confirmed', `Buyer notified for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, link_url: `/delivery/${txn.id}` }).catch(() => {});
         }
         res.json({ success: true });
     } catch (err: any) {
@@ -1187,7 +1187,7 @@ router.post('/:id/pay', async (req, res) => {
                 { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
                 { label: '🔙 Main Menu', customId: 'main_menu' }
             ], receiptUrl).catch(e => console.error('Background Notification Error:', e));
-            recordNotification(txn.buyer_id, 'payment', '✅ Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
+            recordNotification(txn.buyer_id, 'payment', '✅ Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
         }
 
         // Notify Seller
@@ -1211,7 +1211,7 @@ router.post('/:id/pay', async (req, res) => {
                 { label: '🔄 New Transaction', customId: 'create_txn' },
                 { label: '👁️ View Details', customId: `view_txn_${txn.id}` }
             ], receiptUrl).catch(e => console.error('Background Notification Error:', e));
-            recordNotification(txn.seller_id, 'payment', '🔐 Payment Received in Escrow', `${txn.amount} ${txn.currency} secured for ${txn.product_name} — proceed to fulfill`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
+            recordNotification(txn.seller_id, 'payment', '🔐 Payment Received in Escrow', `${txn.amount} ${txn.currency} secured for ${txn.product_name} — proceed to fulfill`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
         } else {
             console.warn('⚠️ No primary linked account found for seller:', txn.seller_id);
         }
