@@ -221,7 +221,7 @@ router.post('/create', async (req, res) => {
                 { label: '❌ Decline', customId: `txn_action_decline|${txn.id}` },
                 { label: '⭐ View Reviews', url: `${reviewsUrl}/reviews/${encodeURIComponent(otherTag)}?viewer=${encodeURIComponent(recipientTag)}` }
             ]).catch(e => console.error('Background Notification Error:', e));
-            recordNotification(recipientId, 'transaction', '🔔 New Transaction Request', `${otherTag} sent you a ${data.transaction_type === 'MILESTONE' ? 'milestone project' : 'trade'} request for ${data.product_name}`, { transaction_id: txn.id, transaction_code: txnCode, amount: data.amount, currency: data.currency, counterparty_name: otherTag, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
+            recordNotification(recipientId, 'transaction', '🔔 New Transaction Request', `${otherTag} sent you a ${data.transaction_type === 'MILESTONE' ? 'milestone project' : 'trade'} request for ${data.product_name}`, { transaction_id: txn.id, transaction_code: txnCode, amount: data.amount, currency: data.currency, counterparty_name: otherTag, link_url: `/withdraw/${encodeURIComponent(isBuyerInitiated ? seller.safetag : buyer.safetag)}?continue=${txn.id}&txnCode=${txnCode}&txnTitle=${encodeURIComponent(data.product_name || '')}` }).catch(() => {});
             console.log(`[Notification Engine] Dispatched to ${linkedAccounts.platform} user ${linkedAccounts.platform_id}`);
         }
 

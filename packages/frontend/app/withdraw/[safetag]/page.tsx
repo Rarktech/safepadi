@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Menu, Activity, Home, Send, Settings, User, Users, ShoppingBag, Bell } from 'lucide-react';
@@ -28,6 +28,8 @@ export default function WithdrawDashboard() {
     const { safetag } = useParams() as { safetag: string };
     const searchParams = useSearchParams();
     const decodedSafetag = decodeURIComponent(safetag);
+    const router = useRouter();
+    const pathname = usePathname();
 
     const [currentView, setCurrentView] = useState<'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details' | 'marketplace' | 'notifications'>('dashboard');
     const [unreadNotifCount, setUnreadNotifCount] = useState(0);
@@ -69,8 +71,18 @@ export default function WithdrawDashboard() {
                 txnCode: txnCodeParam || '',
                 txnTitle: txnTitleParam ? decodeURIComponent(txnTitleParam) : '',
             });
+            // Strip ?continue params so modal does not re-open when user presses browser back
+            router.replace(pathname);
         }
     }, [searchParams, allTransactions]);
+
+    // Restore notifications view when URL has ?view=notifications
+    // Separate effect (no allTransactions dep) so data reloads don't override user's current view
+    useEffect(() => {
+        if (searchParams.get('view') === 'notifications') {
+            setCurrentView('notifications');
+        }
+    }, [searchParams]);
 
     // Filters
     const [category, setCategory] = useState('all');
@@ -235,7 +247,7 @@ export default function WithdrawDashboard() {
 
                     <div className="flex items-center gap-2">
                         <button
-                            onClick={() => setCurrentView('notifications')}
+                            onClick={() => router.push(`${pathname}?view=notifications`)}
                             className="relative p-2 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 transition-colors"
                         >
                             <Bell size={18} />
@@ -318,7 +330,7 @@ export default function WithdrawDashboard() {
                         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
                             <NotificationsView
                                 safetag={decodedSafetag}
-                                onBack={() => setCurrentView('dashboard')}
+                                onBack={() => { setCurrentView('dashboard'); router.replace(pathname); }}
                                 onUnreadCountChange={setUnreadNotifCount}
                             />
                         </div>
@@ -427,7 +439,7 @@ export default function WithdrawDashboard() {
                         </div>
                     </button>
                     <button
-                        onClick={() => setCurrentView('notifications')}
+                        onClick={() => router.push(`${pathname}?view=notifications`)}
                         className={`flex-1 flex flex-col items-center justify-center py-2 transition-all duration-300 ${currentView === 'notifications' ? 'scale-110' : 'opacity-40 hover:opacity-100'}`}
                     >
                         <div className={`relative p-2 rounded-full transition-colors ${currentView === 'notifications' ? 'bg-[#10b981] shadow-lg shadow-emerald-500/20' : ''}`}>

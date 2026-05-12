@@ -16,7 +16,18 @@
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\user\\\\Desktop\\\\safepadi\\\\packages\\\\discord\" -Recurse -Name)",
       "Bash(Select-Object -First 50)",
       "mcp__supabase__list_projects",
-      "WebFetch(domain:docs.chainrails.io)"
+      "WebFetch(domain:docs.chainrails.io)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(Get-ChildItem *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\user\\\\Desktop\\\\safepadi\\\\packages\\\\frontend\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(xargs grep -l \"notifications\" -i)",
+      "mcp__supabase__execute_sql",
+      "Bash(curl *)",
+      "Bash(xargs grep -l \"link_url\\\\|recordNotification\")",
+      "Bash(xargs grep -l \"transaction\\\\|modal\\\\|accept\")"
     ]
   },
   "disabledMcpjsonServers": [

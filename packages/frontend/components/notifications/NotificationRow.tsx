@@ -45,12 +45,19 @@ function TypeIcon({ type, data }: { type: string; data?: Record<string, any> }) 
   );
 }
 
+function deriveFallbackUrl(type: string, data?: Record<string, any>): string | null {
+  if (!data) return null;
+  if (data.transaction_id) return `/dashboard/transactions/${data.transaction_id}`;
+  return null;
+}
+
 export function NotificationRow({ id, type, title, message, time, isUnread, data, onMarkRead }: NotificationRowProps) {
   const router = useRouter();
 
   const handleClick = () => {
     if (isUnread) onMarkRead(id);
-    if (data?.link_url) router.push(data.link_url);
+    const url = data?.link_url || deriveFallbackUrl(type, data);
+    if (url) router.push(url);
   };
 
   return (
