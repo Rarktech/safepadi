@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Shield, CreditCard, Lock, CheckCircle, ArrowRight, ShoppingBag, X, Zap, Globe, Layers } from 'lucide-react';
+import { Shield, CreditCard, Lock, CheckCircle, ArrowRight, ShoppingBag, X, Zap, Layers } from 'lucide-react';
 import axios from 'axios';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
@@ -72,34 +72,6 @@ export default function PaymentPage() {
             }
         } catch (err: any) {
             console.error('❌ Payment error:', err);
-            const errorMsg = err.response?.data?.error || err.message || 'Failed to initialize payment. Please try again.';
-            alert(`Payment Error: ${errorMsg}`);
-        } finally {
-            setInitializing(false);
-        }
-    };
-
-    const handleAirwallexPayment = async () => {
-        setInitializing(true);
-        setShowMethods(false);
-        try {
-            console.log('🚀 Initializing Airwallex payment for:', id);
-            const res = await axios.post(`${API_URL}/transactions/${id}/initialize-payment`,
-                { platform: 'airwallex' },
-                {
-                    headers: {
-                        'ngrok-skip-browser-warning': 'true'
-                    }
-                }
-            );
-
-            if (res.data.checkoutUrl) {
-                window.location.href = res.data.checkoutUrl;
-            } else {
-                throw new Error('Could not initialize payment');
-            }
-        } catch (err: any) {
-            console.error('❌ Airwallex Payment error:', err);
             const errorMsg = err.response?.data?.error || err.message || 'Failed to initialize payment. Please try again.';
             alert(`Payment Error: ${errorMsg}`);
         } finally {
@@ -335,22 +307,6 @@ export default function PaymentPage() {
                                     <div className="text-left">
                                         <p className="font-black text-slate-900 leading-none mb-1">OPay Express</p>
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Instant | Fast | Secure</p>
-                                    </div>
-                                </div>
-                                <ArrowRight className="w-5 h-5 text-slate-300 group-hover:text-slate-500 group-hover:translate-x-1 transition-all" />
-                            </button>
-
-                            <button
-                                onClick={handleAirwallexPayment}
-                                className="w-full p-5 rounded-2xl bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all flex items-center justify-between group shadow-sm"
-                            >
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center group-hover:bg-sky-50 transition-colors">
-                                        <Globe className="w-6 h-6 text-sky-500" />
-                                    </div>
-                                    <div className="text-left">
-                                        <p className="font-black text-slate-900 leading-none mb-1">Global Payment (Airwallex)</p>
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Card | Bank | eWallets</p>
                                     </div>
                                 </div>
                                 <ArrowRight className="w-5 h-5 text-slate-300 group-hover:text-slate-500 group-hover:translate-x-1 transition-all" />

@@ -1437,8 +1437,8 @@ router.post('/:id/initialize-payment', async (req, res) => {
         } else if (platform?.toLowerCase() === 'chainrails') {
             const apiKey = process.env.CHAINRAILS_API_KEY;
             const recipientAddress = process.env.CHAINRAILS_RECIPIENT_ADDRESS;
-            const destinationChain = process.env.CHAINRAILS_DESTINATION_CHAIN || 'BASE_TESTNET';
-            const tokenOut = process.env.CHAINRAILS_TOKEN_OUT || '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
+            const destinationChain = process.env.CHAINRAILS_DESTINATION_CHAIN || 'BASE_MAINNET';
+            const tokenOut = process.env.CHAINRAILS_TOKEN_OUT || '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 
             if (!apiKey) {
                 console.error('❌ ChainRails configuration missing (API key)');
@@ -1449,10 +1449,6 @@ router.post('/:id/initialize-payment', async (req, res) => {
                 return res.status(500).json({ error: 'Escrow wallet address not configured for crypto payments' });
             }
 
-            // ChainRails is USDC/stablecoin-native; USD maps 1:1 to USDC amount.
-            // For other currencies pass "0" so the user specifies the amount in the modal.
-            const cryptoAmount = txn.currency === 'USD' ? String(txn.total_amount) : '0';
-
             try {
                 console.log(`🚀 Creating ChainRails modal session for ${txn.txn_code}`);
                 const sessionRes = await axios.post(
@@ -1461,8 +1457,7 @@ router.post('/:id/initialize-payment', async (req, res) => {
                         recipient: recipientAddress,
                         tokenOut,
                         destinationChain,
-                        amount: cryptoAmount,
-                        metadata: { txn_code: txn.txn_code, txn_id: txn.id }
+                        amount: String(txn.total_amount)
                     },
                     {
                         headers: {

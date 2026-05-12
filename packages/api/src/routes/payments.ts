@@ -198,21 +198,21 @@ router.post('/chainrails/webhook', async (req, res) => {
         // Only act on final settlement
         if (event.type === 'intent.completed') {
             const intent = event.data;
-            const txnCode = intent?.metadata?.txn_code;
+            const intentId = intent?.id;
 
-            if (!txnCode) {
-                console.warn('⚠️ [ChainRails] Webhook missing txn_code in metadata');
+            if (!intentId) {
+                console.warn('⚠️ [ChainRails] Webhook missing intent ID');
                 return res.status(200).send('OK');
             }
 
             const { data: txn } = await supabase
                 .from('transactions')
                 .select('*, buyer:buyer_id(*), seller:seller_id(*)')
-                .eq('txn_code', txnCode)
+                .eq('metadata->>chainrails_session_id', intentId)
                 .single();
 
             if (!txn) {
-                console.error(`❌ [ChainRails] Transaction ${txnCode} not found`);
+                console.error(`❌ [ChainRails] Transaction for session ${intentId} not found`);
                 return res.status(200).send('OK');
             }
 
