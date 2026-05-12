@@ -47,10 +47,8 @@ export async function sendNotification(platform: string, platformId: string, mes
             if (options && options.length > 0) {
                 payload.reply_markup = {
                     inline_keyboard: options.map(opt => [
-                        opt.url 
-                            ? (opt.url.startsWith('https') 
-                                ? { text: opt.label, web_app: { url: opt.url } } 
-                                : { text: opt.label, url: opt.url })
+                        opt.url
+                            ? { text: opt.label, url: opt.url }
                             : { text: opt.label, callback_data: opt.customId }
                     ])
                 };

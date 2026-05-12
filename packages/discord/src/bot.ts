@@ -1447,7 +1447,7 @@ client.on('interactionCreate', async (interaction) => {
 
                 const fee = amount * 0.05;
 
-                await interaction.reply({
+                await interaction.editReply({
                     content: `💵 **Fee Allocation**\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nWho pays the **5% transaction fee**?\n\n💰 Amount: **${amount} ${draft.currency}**\n💵 Fee: **${fee.toFixed(2)} ${draft.currency}**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
                     components: [
                         {
@@ -1458,8 +1458,7 @@ client.on('interactionCreate', async (interaction) => {
                                 { type: 2, label: '🤝 Split (50/50)', style: 2, custom_id: 'txn_fee_select|split' }
                             ]
                         }
-                    ],
-                    flags: MessageFlags.Ephemeral
+                    ]
                 });
             } else if (customId === 'txn_modal_other') {
                 if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
