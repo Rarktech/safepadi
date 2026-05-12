@@ -1,4 +1,6 @@
 import axios from 'axios';
+import { getBrowser } from './puppeteer';
+import { generateInvoiceTemplate, InvoiceData } from '../templates/invoiceTemplate';
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY || process.env.SMTP_PASS;
 const FROM_EMAIL = process.env.SMTP_FROM || '"Safeeely" <info@safeeely.com>';
@@ -7,31 +9,97 @@ export async function sendEmail({
     to,
     subject,
     html,
+    attachments,
 }: {
     to: string;
     subject: string;
     html: string;
+    attachments?: Array<{ filename: string; content: string }>;
 }) {
     if (!RESEND_API_KEY) {
         console.warn('⚠️ [Email] RESEND_API_KEY not set. Skipping email to:', to);
         return;
     }
     try {
+        const body: any = { from: FROM_EMAIL, to: [to], subject, html };
+        if (attachments?.length) body.attachments = attachments;
         await axios.post(
             'https://api.resend.com/emails',
-            { from: FROM_EMAIL, to: [to], subject, html },
+            body,
             {
                 headers: {
                     Authorization: `Bearer ${RESEND_API_KEY}`,
                     'Content-Type': 'application/json',
                 },
-                timeout: 10000,
+                timeout: 30000,
             }
         );
         console.log(`✅ [Email] Sent "${subject}" to ${to}`);
     } catch (err: any) {
         console.error(`❌ [Email] Failed to send to ${to}:`, err.response?.data || err.message);
     }
+}
+
+export async function sendTransactionInvoiceEmail(data: InvoiceData) {
+    const html = generateInvoiceTemplate(data);
+
+    let pdfBase64: string | undefined;
+    try {
+        const browser = await getBrowser();
+        const page = await browser.newPage();
+        await page.setContent(html, { waitUntil: 'networkidle0' });
+        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
+        await page.close();
+        pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
+    } catch (err: any) {
+        console.error('❌ [Invoice] PDF generation failed, sending email without attachment:', err.message);
+    }
+
+    const subject = `Invoice #${data.txnCode} from ${data.seller.firstName} (@${data.seller.safetag})`;
+    const kv = (k: string, v: string) =>
+        `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1f5f9"><span style="color:#64748b;font-size:14px">${k}</span><span style="color:#0f172a;font-weight:600;font-size:14px">${v}</span></div>`;
+    const p = (t: string) => `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 12px">${t}</p>`;
+
+    let itemsHtml = kv('Item / Service', data.productName);
+    if (data.description) itemsHtml += kv('Description', data.description);
+    if (data.transactionType === 'MILESTONE' && data.milestones?.length) {
+        data.milestones.forEach((m, i) => {
+            itemsHtml += kv(`Phase ${i + 1}: ${m.title}`, `${m.amount.toLocaleString()} ${data.currency}`);
+        });
+    }
+    itemsHtml += kv('Subtotal', `${data.amount.toLocaleString()} ${data.currency}`);
+    itemsHtml += kv(`Platform Fee`, `${data.feeAmount.toFixed(2)} ${data.currency}`);
+    itemsHtml += `<div style="display:flex;justify-content:space-between;padding:12px 0;margin-top:4px;border-top:2px solid #0f172a"><span style="color:#0f172a;font-size:15px;font-weight:700">Total Due</span><span style="color:#0f172a;font-weight:800;font-size:15px">${data.totalAmount.toFixed(2)} ${data.currency}</span></div>`;
+
+    const reviewsUrl = process.env.REVIEWS_URL || 'https://safeeely.com';
+    const payUrl = `${reviewsUrl}/pay/${data.txnId}`;
+    const cta = `<div style="text-align:center;margin:28px 0"><a href="${payUrl}" style="background:#10B981;color:#fff;text-decoration:none;padding:14px 32px;border-radius:10px;font-weight:600;font-size:15px;display:inline-block">&#x1F4B3; Pay with Safeeely</a></div>`;
+
+    const emailHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+<div style="max-width:540px;margin:40px auto;background:#fff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden">
+  <div style="background:#0f172a;padding:24px 32px;text-align:center">
+    <span style="color:#f59e0b;font-size:24px;font-weight:700">Safeeely</span>
+  </div>
+  <div style="padding:32px">
+    <h2 style="color:#0f172a;margin:0 0 16px;font-size:20px">Invoice from ${data.seller.firstName} 📄</h2>
+    ${p(`Hi <b>@${data.buyer.safetag}</b>,`)}
+    ${p(`<b>@${data.seller.safetag}</b> has sent you a professional invoice for <b>${data.productName}</b>. Your invoice PDF is attached — it includes a Pay with Safeeely button for secure payment.`)}
+    <div style="margin:20px 0">${itemsHtml}</div>
+    ${cta}
+    ${pdfBase64 ? `<p style="text-align:center;color:#94a3b8;font-size:12px;margin-top:12px">Invoice PDF attached above.</p>` : ''}
+  </div>
+  <div style="background:#f8fafc;padding:16px 32px;text-align:center;border-top:1px solid #e2e8f0">
+    <p style="margin:0;color:#94a3b8;font-size:12px">© Safeeely · <a href="mailto:support@safeeely.com" style="color:#94a3b8">support@safeeely.com</a></p>
+  </div>
+</div></body></html>`;
+
+    await sendEmail({
+        to: data.buyer.email,
+        subject,
+        html: emailHtml,
+        ...(pdfBase64 ? { attachments: [{ filename: `invoice-${data.txnCode}.pdf`, content: pdfBase64 }] } : {}),
+    });
 }
 
 // ─── Branded email wrapper ──────────────────────────────────────────────────

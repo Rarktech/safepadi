@@ -110,7 +110,8 @@ const txnDrafts = new Collection<string, {
     other?: string,
     fee_allocation?: string,
     transaction_type?: 'ONE_TIME' | 'MILESTONE',
-    milestones?: { title: string, amount: number }[]
+    milestones?: { title: string, amount: number }[],
+    creatorTag?: string,
 }>();
 
 const formatMessageForDiscord = (text: string): string => {
@@ -780,7 +781,35 @@ client.on('interactionCreate', async (interaction) => {
                 if (!draft) return interaction.editReply('❌ Draft missing.');
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
-                    const creatorTag = profileRes.data.safetag;
+                    draft.creatorTag = profileRes.data.safetag;
+
+                    const isSeller = draft.role === 'seller';
+                    const cpLabel = isSeller ? `Buyer: \`${draft.other}\`` : `Seller: \`${draft.other}\``;
+                    const invoiceMsg = isSeller
+                        ? `📄 **Smart Invoice**\n\nWant to send your buyer a professional invoice?\n\nA branded invoice PDF will be emailed to your buyer with the full transaction details:\n  📦 **Item:** ${draft.product}\n  💰 **Amount:** ${draft.amount} ${draft.currency}\n  👤 **${cpLabel}**\n\n*It includes a Pay with Safeeely button so they can settle directly from their inbox.*`
+                        : `📄 **Smart Invoice**\n\nWould you like an invoice for this transaction?\n\nA professional invoice from your seller will be emailed straight to you with full details:\n  📦 **Item:** ${draft.product}\n  💰 **Amount:** ${draft.amount} ${draft.currency}\n  🏪 **${cpLabel}**\n\n*Perfect for your records or expense tracking.*`;
+
+                    const yesLabel = isSeller ? '📧 Yes, Send Invoice' : '📧 Yes, Email Me an Invoice';
+                    await interaction.editReply({
+                        content: invoiceMsg,
+                        components: [{
+                            type: 1,
+                            components: [
+                                { type: 2, label: yesLabel, style: 3, custom_id: 'txn_invoice_yes' },
+                                { type: 2, label: '❌ No, Skip', style: 2, custom_id: 'txn_invoice_no' }
+                            ]
+                        }]
+                    });
+                } catch (err: any) {
+                    await interaction.editReply(`❌ Error: ${err.response?.data?.error || err.message}`);
+                }
+            } else if (customId === 'txn_invoice_yes' || customId === 'txn_invoice_no') {
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const draft = txnDrafts.get(interaction.user.id);
+                if (!draft) return interaction.editReply('❌ Draft missing.');
+                const sendInvoice = customId === 'txn_invoice_yes';
+                const creatorTag = draft.creatorTag;
+                try {
                     const res = await axios.post(`${API_URL}/transactions/create`, {
                         buyer_safetag: draft.role === 'buyer' ? creatorTag : draft.other,
                         seller_safetag: draft.role === 'seller' ? creatorTag : draft.other,
@@ -791,7 +820,8 @@ client.on('interactionCreate', async (interaction) => {
                         fee_allocation: draft.fee_allocation?.toLowerCase(),
                         initiator_safetag: creatorTag,
                         transaction_type: draft.transaction_type,
-                        milestones: draft.milestones
+                        milestones: draft.milestones,
+                        send_invoice: sendInvoice,
                     });
                     txnDrafts.delete(interaction.user.id);
 
@@ -805,16 +835,17 @@ client.on('interactionCreate', async (interaction) => {
                         `• ${roleLabel.charAt(0).toUpperCase() + roleLabel.slice(1)} accepts your request\n` +
                         `• Payment is required\n` +
                         `• Delivery is confirmed\n\n` +
-                        `⏳ **Current Status: Awaiting ${roleLabel.charAt(0).toUpperCase() + roleLabel.slice(1)} Acceptance**`;
+                        `⏳ **Current Status: Awaiting ${roleLabel.charAt(0).toUpperCase() + roleLabel.slice(1)} Acceptance**` +
+                        (sendInvoice ? '\n\n📧 **Invoice emailed to buyer!**' : '');
 
                     await interaction.editReply({
                         content: finalMsg,
-                        components: [{ 
-                            type: 1, 
+                        components: [{
+                            type: 1,
                             components: [
                                 { type: 2, label: '1️⃣ 👁️ View Transaction', style: 1, custom_id: `view_txn_details|${res.data.id}` },
                                 { type: 2, label: '2️⃣ 🔙 Main Menu', style: 2, custom_id: 'main_menu' }
-                            ] 
+                            ]
                         }]
                     });
                 } catch (err: any) {
@@ -1178,7 +1209,7 @@ client.on('interactionCreate', async (interaction) => {
                     const statsRes = await axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(otherSafetag)}`);
                     const { average_rating, review_count } = statsRes.data;
 
-                    const amount = parseFloat(draft.amount || '0');
+                    const amount = parseFloat(String(draft.amount ?? 0));
                     const fee = amount * 0.05;
                     const total = draft.fee_allocation === 'buyer' ? amount + fee : (draft.fee_allocation === 'split' ? amount + (fee / 2) : amount);
 

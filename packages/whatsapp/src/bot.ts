@@ -435,6 +435,9 @@ async function createTransaction(from: string) {
     const fd      = session.formData;
     try {
         const p    = await getProfile(from);
+        const totalAmount = fd.transaction_type === 'ONE_TIME'
+            ? Number(fd.amount)
+            : (fd.milestones || []).reduce((s: number, m: any) => s + Number(m.amount), 0);
         const body: any = {
             buyer_safetag:    fd.role === 'buyer'  ? p.safetag : fd.counterparty_safetag,
             seller_safetag:   fd.role === 'seller' ? p.safetag : fd.counterparty_safetag,
@@ -443,32 +446,32 @@ async function createTransaction(from: string) {
             currency:         fd.currency,
             fee_allocation:   fd.fee_allocation,
             transaction_type: fd.transaction_type,
-            platform:         'whatsapp',
-            initiated_by:     fd.role
+            initiator_safetag: p.safetag,
+            amount:           totalAmount,
+            send_invoice:     fd.send_invoice || false,
         };
-        if (fd.transaction_type === 'ONE_TIME') { body.amount = Number(fd.amount); }
-        else { body.milestones = fd.milestones; }
+        if (fd.transaction_type === 'MILESTONE') body.milestones = fd.milestones;
         if (fd.attachment_url) body.attachment_url = fd.attachment_url;
 
-        const res = await axios.post(`${API_URL}/transactions`, body);
+        const res = await axios.post(`${API_URL}/transactions/create`, body);
         const txn = res.data;
         txnSessions.delete(from);
 
-        const displayAmount = fd.transaction_type === 'ONE_TIME'
-            ? `${fd.amount} ${fd.currency}`
-            : `${fd.milestones?.reduce((s: number, m: any) => s + Number(m.amount), 0)} ${fd.currency}`;
+        const displayAmount = `${totalAmount} ${fd.currency}`;
+        const counterpartyRole = fd.role === 'buyer' ? 'Seller' : 'Buyer';
 
         await sendButtons(from,
             `✅ *Transaction Created!*\n\n` +
-            `Your transaction has been created and sent to the ${fd.role === 'buyer' ? 'seller' : 'buyer'}.\n\n` +
+            `Your transaction has been created and sent to the ${counterpartyRole.toLowerCase()}.\n\n` +
             `📋 *Transaction ID:* ${txn.txn_code || txn.id}\n` +
-            `👤 *${fd.role === 'buyer' ? 'Seller' : 'Buyer'}:* ${fd.counterparty_safetag}\n` +
+            `👤 *${counterpartyRole}:* ${fd.counterparty_safetag}\n` +
             `💰 *Amount:* ${displayAmount}\n\n` +
             `📬 *You'll be notified when:*\n` +
-            `• ${fd.role === 'buyer' ? 'Seller' : 'Buyer'} accepts your request\n` +
+            `• ${counterpartyRole} accepts your request\n` +
             `• Payment is required\n` +
             `• Delivery is confirmed\n\n` +
-            `⏳ *Current Status:* Awaiting ${fd.role === 'buyer' ? 'Seller' : 'Buyer'} Acceptance`,
+            `⏳ *Current Status:* Awaiting ${counterpartyRole} Acceptance` +
+            (fd.send_invoice ? '\n\n📧 *Invoice emailed to buyer!*' : ''),
             [
                 { id: `VIEW_TXN_${txn.id}`, title: '👁️ View Transaction' },
                 { id: 'MAIN_MENU',           title: '🔙 Main Menu'        }
@@ -1091,6 +1094,26 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         await sendButtons(from, '❌ Transaction cancelled.', [{ id: 'CREATE_TXN', title: '🛒 Try Again' }, { id: 'MAIN_MENU', title: '🏠 Main Menu' }]);
 
     } else if (interactiveId === 'CREATE_TXN_CONFIRM') {
+        const session = txnSessions.get(from);
+        if (!session) return;
+        const fd = session.formData;
+        const isSeller = fd.role === 'seller';
+        const displayAmt = fd.transaction_type === 'ONE_TIME'
+            ? `${fd.amount} ${fd.currency}`
+            : `${(fd.milestones || []).reduce((s: number, m: any) => s + Number(m.amount), 0)} ${fd.currency}`;
+        const invoiceMsg = isSeller
+            ? `📄 *Smart Invoice*\n\nWant to send your buyer a professional invoice?\n\nA branded invoice PDF will be emailed to your buyer with the full transaction details:\n  📦 *Item:* ${fd.product_name}\n  💰 *Amount:* ${displayAmt}\n  👤 *Buyer:* ${fd.counterparty_safetag}\n\n_It includes a Pay with Safeeely button so they can settle directly from their inbox._`
+            : `📄 *Smart Invoice*\n\nWould you like an invoice for this transaction?\n\nA professional invoice from your seller will be emailed straight to you with full details:\n  📦 *Item:* ${fd.product_name}\n  💰 *Amount:* ${displayAmt}\n  🏪 *Seller:* ${fd.counterparty_safetag}\n\n_Perfect for your records or expense tracking._`;
+        await sendButtons(from, invoiceMsg, [
+            { id: 'INVOICE_YES', title: isSeller ? '📧 Send Invoice' : '📧 Get Invoice' },
+            { id: 'INVOICE_NO',  title: '❌ No, Skip' }
+        ]);
+        session.step = 'INVOICE_PROMPT';
+
+    } else if (interactiveId === 'INVOICE_YES' || interactiveId === 'INVOICE_NO') {
+        const session = txnSessions.get(from);
+        if (!session) return;
+        session.formData.send_invoice = interactiveId === 'INVOICE_YES';
         await createTransaction(from);
 
     // Smart transaction

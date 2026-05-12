@@ -451,6 +451,9 @@ async function createTransaction(psid: string) {
     const fd    = state.formData;
     try {
         const p   = await getProfile(psid);
+        const totalAmount = fd.transaction_type === 'ONE_TIME'
+            ? Number(fd.amount)
+            : (fd.milestones || []).reduce((s: number, m: any) => s + Number(m.amount), 0);
         const body: any = {
             buyer_safetag:    fd.role === 'buyer' ? p.safetag : fd.counterparty_safetag,
             seller_safetag:   fd.role === 'seller' ? p.safetag : fd.counterparty_safetag,
@@ -459,37 +462,31 @@ async function createTransaction(psid: string) {
             currency:         fd.currency,
             fee_allocation:   fd.fee_allocation,
             transaction_type: fd.transaction_type,
-            platform:         'instagram',
-            initiated_by:     fd.role
+            initiator_safetag: p.safetag,
+            amount:           totalAmount,
+            send_invoice:     fd.send_invoice || false,
         };
-        if (fd.transaction_type === 'ONE_TIME') {
-            body.amount = Number(fd.amount);
-        } else {
-            body.milestones = fd.milestones;
-        }
+        if (fd.transaction_type === 'MILESTONE') body.milestones = fd.milestones;
         if (fd.attachment_url) body.attachment_url = fd.attachment_url;
 
-        const res = await axios.post(`${API_URL}/transactions`, body);
+        const res = await axios.post(`${API_URL}/transactions/create`, body);
         const txn = res.data;
         delete userStates[psid];
 
-        const other = fd.counterparty_safetag;
-        const displayAmount = fd.transaction_type === 'ONE_TIME'
-            ? `${fd.amount} ${fd.currency}`
-            : `${fd.milestones?.reduce((s: number, m: any) => s + Number(m.amount), 0)} ${fd.currency}`;
-
+        const counterpartyRole = fd.role === 'buyer' ? 'Seller' : 'Buyer';
         await sendMsg(psid, {
             text:
                 `✅ Transaction Created!\n\n` +
-                `Your transaction has been created and sent to the ${fd.role === 'buyer' ? 'seller' : 'buyer'}.\n\n` +
+                `Your transaction has been created and sent to the ${counterpartyRole.toLowerCase()}.\n\n` +
                 `📋 Transaction ID: ${txn.txn_code || txn.id}\n` +
-                `👤 ${fd.role === 'buyer' ? 'Seller' : 'Buyer'}: ${other}\n` +
-                `💰 Amount: ${displayAmount}\n\n` +
+                `👤 ${counterpartyRole}: ${fd.counterparty_safetag}\n` +
+                `💰 Amount: ${totalAmount} ${fd.currency}\n\n` +
                 `📬 You'll be notified when:\n` +
-                `• ${fd.role === 'buyer' ? 'Seller' : 'Buyer'} accepts your request\n` +
+                `• ${counterpartyRole} accepts your request\n` +
                 `• Payment is required\n` +
                 `• Delivery is confirmed\n\n` +
-                `⏳ Current Status: Awaiting ${fd.role === 'buyer' ? 'Seller' : 'Buyer'} Acceptance`
+                `⏳ Current Status: Awaiting ${counterpartyRole} Acceptance` +
+                (fd.send_invoice ? '\n\n📧 Invoice emailed to buyer!' : '')
         });
         await sendNextOptions(psid, [{ title: '👁️ View Txns', payload: 'MY_TXNS' }]);
     } catch (err: any) {
@@ -1347,6 +1344,26 @@ async function handlePostback(psid: string, payload: string) {
         await sendNextOptions(psid, [{ title: '🛒 Create Txn', payload: 'CREATE_TXN' }]);
 
     } else if (payload === 'CREATE_TXN_CONFIRM') {
+        const state = userStates[psid];
+        if (!state?.formData) return;
+        const fd = state.formData;
+        const isSeller = fd.role === 'seller';
+        const displayAmt = fd.transaction_type === 'ONE_TIME'
+            ? `${fd.amount} ${fd.currency}`
+            : `${(fd.milestones || []).reduce((s: number, m: any) => s + Number(m.amount), 0)} ${fd.currency}`;
+        const invoiceText = isSeller
+            ? `📄 Smart Invoice\n\nWant to send your buyer a professional invoice?\n\nA branded invoice PDF will be emailed to your buyer:\n  📦 Item: ${fd.product_name}\n  💰 Amount: ${displayAmt}\n  👤 Buyer: ${fd.counterparty_safetag}\n\nIncludes a Pay with Safeeely button for easy payment.`
+            : `📄 Smart Invoice\n\nWould you like an invoice for this transaction?\n\nA professional invoice from your seller, emailed to you:\n  📦 Item: ${fd.product_name}\n  💰 Amount: ${displayAmt}\n  🏪 Seller: ${fd.counterparty_safetag}\n\nPerfect for your records or expense tracking.`;
+        await sendMsg(psid, qr(invoiceText, [
+            { title: isSeller ? '📧 Send Invoice' : '📧 Get Invoice', payload: 'INVOICE_YES' },
+            { title: '❌ No, Skip', payload: 'INVOICE_NO' }
+        ]));
+        state.step = 'INVOICE_PROMPT';
+
+    } else if (payload === 'INVOICE_YES' || payload === 'INVOICE_NO') {
+        const state = userStates[psid];
+        if (!state?.formData) return;
+        state.formData.send_invoice = payload === 'INVOICE_YES';
         await createTransaction(psid);
 
     // ── Smart transaction ─────────────────────────────────────────────────────

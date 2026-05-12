@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
 import { sendNotification, sendReferralNotification, recordNotification } from '../services/notifications';
+import { sendTransactionInvoiceEmail } from '../services/email';
 import crypto from 'crypto';
 import axios from 'axios';
 
@@ -31,7 +32,8 @@ const CreateTransactionSchema = z.object({
     milestones: z.array(z.object({
         title: z.string(),
         amount: z.number()
-    })).optional()
+    })).optional(),
+    send_invoice: z.boolean().optional().default(false),
 });
 
 router.post('/create', async (req, res) => {
@@ -40,8 +42,8 @@ router.post('/create', async (req, res) => {
         const data = CreateTransactionSchema.parse(req.body);
 
         // Get IDs from safetags (case-insensitive — safetags may differ in capitalisation)
-        const { data: buyer } = await supabase.from('profiles').select('id, kyc_status, is_blocked, safetag').ilike('safetag', data.buyer_safetag).maybeSingle();
-        const { data: seller } = await supabase.from('profiles').select('id, kyc_status, is_blocked, safetag').ilike('safetag', data.seller_safetag).maybeSingle();
+        const { data: buyer } = await supabase.from('profiles').select('id, kyc_status, is_blocked, safetag, email, first_name, last_name').ilike('safetag', data.buyer_safetag).maybeSingle();
+        const { data: seller } = await supabase.from('profiles').select('id, kyc_status, is_blocked, safetag, email, first_name, last_name').ilike('safetag', data.seller_safetag).maybeSingle();
 
         if (!buyer || !seller) {
             const missing = !buyer ? data.buyer_safetag : data.seller_safetag;
@@ -138,6 +140,37 @@ router.post('/create', async (req, res) => {
         }
 
         console.log('✨ Transaction record created:', txn.txn_code);
+
+        // Smart Invoice — fire-and-forget PDF email to buyer if opted in
+        if (data.send_invoice && buyer?.email) {
+            const invoiceDate = new Date(txn.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+            sendTransactionInvoiceEmail({
+                txnCode: txn.txn_code,
+                txnId: txn.id,
+                invoiceDate,
+                seller: {
+                    firstName: seller?.first_name || seller?.safetag || 'Seller',
+                    lastName: seller?.last_name || '',
+                    safetag: seller?.safetag || '',
+                    email: seller?.email || '',
+                },
+                buyer: {
+                    firstName: buyer?.first_name || buyer?.safetag || 'Buyer',
+                    lastName: buyer?.last_name || '',
+                    safetag: buyer?.safetag || '',
+                    email: buyer?.email || '',
+                },
+                productName: data.product_name,
+                description: data.description,
+                transactionType: data.transaction_type,
+                milestones: data.milestones,
+                amount: data.amount,
+                feeAmount: feeAmount,
+                totalAmount: totalAmount,
+                feeAllocation: data.fee_allocation,
+                currency: data.currency,
+            }).catch(e => console.error('❌ [Invoice] Failed to send invoice email:', e.message));
+        }
 
         // Determine who to notify: Notify the person who is NOT the one who initiated.
         const normTag = (tag: string) => tag.startsWith('@') ? tag : `@${tag}`;

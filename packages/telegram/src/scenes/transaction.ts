@@ -372,62 +372,98 @@ export const transactionScene = new Scenes.WizardScene(
         });
         return ctx.wizard.next();
     },
-    // Step 13: Finalize
+    // Step 13: Smart Invoice Prompt
     async (ctx: any) => {
         if (!ctx.callbackQuery) return;
         const action = ctx.callbackQuery.data;
         await ctx.answerCbQuery();
 
-        if (action === 'confirm') {
-            try {
-                const profileRes = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from.id}`);
-                const mySafetag = profileRes.data.safetag;
-
-                const { role, product_name, description, amount, currency, fee_allocation, other_safetag, transaction_type, milestones } = ctx.wizard.state.formData;
-
-                const payload = {
-                    buyer_safetag: role === 'buyer' ? mySafetag : other_safetag,
-                    seller_safetag: role === 'seller' ? mySafetag : other_safetag,
-                    product_name,
-                    description,
-                    amount,
-                    currency,
-                    fee_allocation,
-                    initiator_safetag: mySafetag,
-                    transaction_type,
-                    milestones
-                };
-
-                const res = await axios.post(`${API_URL}/transactions/create`, payload);
-
-                const finalMsg = `✅ <b>Transaction Created!</b>\n\n` +
-                    `Your transaction has been created and sent to the ${role === 'buyer' ? 'seller' : 'buyer'}.\n\n` +
-                    `📋 <b>Transaction ID: ${res.data.txn_code}</b>\n` +
-                    `👤 <b>${role === 'buyer' ? 'Seller' : 'Buyer'}: ${other_safetag}</b>\n` +
-                    `💰 <b>Amount: ${amount} ${currency}</b>\n\n` +
-                    `📬 <b>You'll be notified when:</b>\n` +
-                    `• ${role === 'buyer' ? 'Seller' : 'Buyer'} accepts your request\n` +
-                    `• Payment is required\n` +
-                    `• Delivery is confirmed\n\n` +
-                    `⏳ <b>Current Status: Awaiting ${role === 'buyer' ? 'Seller' : 'Buyer'} Acceptance</b>`;
-
-                ctx.reply(finalMsg, {
-                    parse_mode: 'HTML',
-                    reply_markup: {
-                        inline_keyboard: [
-                            [{ text: '1️⃣ 👁️ View Transaction', callback_data: `view_txn_details|${res.data.id}` }],
-                            [{ text: '2️⃣ 🔙 Main Menu', callback_data: 'main_menu' }]
-                        ]
-                    }
-                });
-            } catch (err: any) {
-                ctx.reply(`❌ Error: ${err.response?.data?.error || err.message}`);
-            }
-            return ctx.scene.leave();
-        } else {
+        if (action === 'cancel') {
             ctx.reply('❌ Cancelled.');
             return ctx.scene.leave();
         }
+
+        if (action !== 'confirm') return;
+
+        // Fetch and cache the user's own safetag before showing the invoice prompt
+        try {
+            const profileRes = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from.id}`);
+            ctx.wizard.state.formData.my_safetag = profileRes.data.safetag;
+        } catch (err: any) {
+            ctx.reply('❌ Could not fetch your profile. Please try again.');
+            return ctx.scene.leave();
+        }
+
+        const { role, product_name, amount, currency, other_safetag } = ctx.wizard.state.formData;
+        const isSeller = role === 'seller';
+
+        const invoiceMsg = isSeller
+            ? `📄 <b>Smart Invoice</b>\n\nWant to send your buyer a professional invoice?\n\nA branded invoice PDF will be emailed to your buyer with the full transaction details:\n  📦 <b>Item:</b> ${product_name}\n  💰 <b>Amount:</b> ${amount} ${currency}\n  👤 <b>Buyer: @${other_safetag}</b>\n\n<i>It includes a Pay with Safeeely button so they can settle directly from their inbox.</i>`
+            : `📄 <b>Smart Invoice</b>\n\nWould you like an invoice for this transaction?\n\nA professional invoice from your seller will be emailed straight to you with full details:\n  📦 <b>Item:</b> ${product_name}\n  💰 <b>Amount:</b> ${amount} ${currency}\n  🏪 <b>Seller: @${other_safetag}</b>\n\n<i>Perfect for your records or expense tracking.</i>`;
+
+        const yesLabel = isSeller ? '📧 Yes, Send Invoice' : '📧 Yes, Email Me an Invoice';
+
+        ctx.reply(invoiceMsg, {
+            parse_mode: 'HTML',
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: yesLabel, callback_data: 'invoice_yes' }],
+                    [{ text: '❌ No, Skip', callback_data: 'invoice_no' }]
+                ]
+            }
+        });
+        return ctx.wizard.next();
+    },
+    // Step 14: Finalize (after invoice choice)
+    async (ctx: any) => {
+        if (!ctx.callbackQuery) return;
+        const action = ctx.callbackQuery.data;
+        await ctx.answerCbQuery();
+
+        const sendInvoice = action === 'invoice_yes';
+        const { role, product_name, description, amount, currency, fee_allocation, other_safetag, transaction_type, milestones, my_safetag } = ctx.wizard.state.formData;
+
+        try {
+            const res = await axios.post(`${API_URL}/transactions/create`, {
+                buyer_safetag: role === 'buyer' ? my_safetag : other_safetag,
+                seller_safetag: role === 'seller' ? my_safetag : other_safetag,
+                product_name,
+                description,
+                amount,
+                currency,
+                fee_allocation,
+                initiator_safetag: my_safetag,
+                transaction_type,
+                milestones,
+                send_invoice: sendInvoice,
+            });
+
+            const counterpartyRole = role === 'buyer' ? 'Seller' : 'Buyer';
+            const finalMsg = `✅ <b>Transaction Created!</b>\n\n` +
+                `Your transaction has been created and sent to the ${counterpartyRole.toLowerCase()}.\n\n` +
+                `📋 <b>Transaction ID: ${res.data.txn_code}</b>\n` +
+                `👤 <b>${counterpartyRole}: ${other_safetag}</b>\n` +
+                `💰 <b>Amount: ${amount} ${currency}</b>\n\n` +
+                `📬 <b>You'll be notified when:</b>\n` +
+                `• ${counterpartyRole} accepts your request\n` +
+                `• Payment is required\n` +
+                `• Delivery is confirmed\n\n` +
+                `⏳ <b>Current Status: Awaiting ${counterpartyRole} Acceptance</b>` +
+                (sendInvoice ? '\n\n📧 <b>Invoice emailed to buyer!</b>' : '');
+
+            ctx.reply(finalMsg, {
+                parse_mode: 'HTML',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '1️⃣ 👁️ View Transaction', callback_data: `view_txn_details|${res.data.id}` }],
+                        [{ text: '2️⃣ 🔙 Main Menu', callback_data: 'main_menu' }]
+                    ]
+                }
+            });
+        } catch (err: any) {
+            ctx.reply(`❌ Error: ${err.response?.data?.error || err.message}`);
+        }
+        return ctx.scene.leave();
     }
 );
 

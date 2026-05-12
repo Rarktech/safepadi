@@ -399,12 +399,40 @@ app.post('/webhook/:token', (req, res) => {
                     return;
                 }
 
-                // Step 7: Finalize
+                // Step 7: Invoice prompt (before finalizing)
                 if (session.state === 'CONFIRMATION') {
                     if (messageText.includes('confirm')) {
+                        const { role, product_name, amount, currency, other_safetag } = session.formData;
+                        const isSeller = role === 'seller';
+                        const invoiceText = isSeller
+                            ? `📄 Smart Invoice\n\nWant to send your buyer a professional invoice?\n\nA branded invoice PDF will be emailed to your buyer:\n  📦 Item: ${product_name}\n  💰 Amount: ${amount} ${currency}\n  👤 Buyer: @${other_safetag}\n\nIncludes a Pay with Safeeely button for easy payment.`
+                            : `📄 Smart Invoice\n\nWould you like an invoice for this transaction?\n\nA professional invoice from your seller, emailed to you:\n  📦 Item: ${product_name}\n  💰 Amount: ${amount} ${currency}\n  🏪 Seller: @${other_safetag}\n\nPerfect for your records or expense tracking.`;
+                        const yesLabel = isSeller ? '📧 Send Invoice' : '📧 Get Invoice';
+                        await sendJivoChatMessage(clientId, chatId, {
+                            type: 'BUTTON',
+                            title: '📄 Smart Invoice',
+                            text: invoiceText,
+                            force_reply: true,
+                            buttons: [
+                                { text: yesLabel, title: yesLabel, description: 'Send a professional invoice PDF', id: 'invoice_yes' },
+                                { text: '❌ No, Skip', title: 'No, Skip', description: 'Skip the invoice', id: 'invoice_no' }
+                            ]
+                        });
+                        session.state = 'INVOICE_PROMPT';
+                    } else {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '❌ Transaction cancelled.' });
+                        resetSession(clientId);
+                    }
+                    return;
+                }
+
+                // Step 8: Finalize after invoice choice
+                if (session.state === 'INVOICE_PROMPT') {
+                    if (messageText === 'invoice_yes' || messageText === 'invoice_no') {
+                        session.formData.send_invoice = messageText === 'invoice_yes';
                         try {
-                            const { role, product_name, description, amount, currency, fee_allocation, other_safetag } = session.formData;
-                            const payload = {
+                            const { role, product_name, description, amount, currency, fee_allocation, other_safetag, send_invoice } = session.formData;
+                            const res = await axios.post(`${API_URL}/transactions/create`, {
                                 buyer_safetag: role === 'buyer' ? safetag : other_safetag,
                                 seller_safetag: role === 'seller' ? safetag : other_safetag,
                                 product_name,
@@ -412,29 +440,22 @@ app.post('/webhook/:token', (req, res) => {
                                 amount,
                                 currency,
                                 fee_allocation,
-                                initiator_safetag: safetag
-                            };
-
-                            const res = await axios.post(`${API_URL}/transactions/create`, payload);
+                                initiator_safetag: safetag,
+                                send_invoice: send_invoice || false,
+                            });
                             const txnCode = res.data.txn_code;
-
                             await sendJivoChatMessage(clientId, chatId, {
                                 type: 'TEXT',
-                                text: `✅ *Transaction Created!*\n\nYour transaction has been sent to the ${role === 'buyer' ? 'seller' : 'buyer'}.\n\n📋 Transaction ID: ${txnCode}\n💰 Amount: ${amount} ${currency}\n\nYou'll be notified of any updates.`
+                                text: `✅ *Transaction Created!*\n\nYour transaction has been sent to the ${role === 'buyer' ? 'seller' : 'buyer'}.\n\n📋 Transaction ID: ${txnCode}\n💰 Amount: ${amount} ${currency}\n\nYou'll be notified of any updates.` +
+                                    (send_invoice ? '\n\n📧 Invoice emailed to buyer!' : '')
                             });
-                            
-                            // Rich Link
                             const txnLink = `${FRONTEND_URL}/transactions/${res.data.id}`;
                             await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: txnLink });
-
                             resetSession(clientId);
                         } catch (err: any) {
                             await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ Error creating transaction: ${err.response?.data?.error || err.message}` });
                             resetSession(clientId);
                         }
-                    } else {
-                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '❌ Transaction cancelled.' });
-                        resetSession(clientId);
                     }
                     return;
                 }
