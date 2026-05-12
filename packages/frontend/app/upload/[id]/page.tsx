@@ -94,17 +94,14 @@ export default function SecureUploadPage() {
                 setFiles([...updatedFiles]);
             }
 
-            // Actual API call
-            const proofs = files.map(f => ({
-                url: `https://picsum.photos/seed/${f.id}/1200/800`,
-                name: f.name,
-                size: f.rawSize
-            }));
+            // Real file upload to Supabase Storage via API
+            const formData = new FormData();
+            files.forEach(f => formData.append('files', f.file));
 
-            console.log(`🚀 Sending upload request to: ${API_URL}/transactions/${id}/upload-proofs`);
+            console.log(`🚀 Uploading ${files.length} file(s) to: ${API_URL}/transactions/${id}/upload-proof-files`);
 
-            await axios.post(`${API_URL}/transactions/${id}/upload-proofs`, { proofs }, {
-                headers: { 'ngrok-skip-browser-warning': 'true' }
+            await axios.post(`${API_URL}/transactions/${id}/upload-proof-files`, formData, {
+                headers: { 'Content-Type': 'multipart/form-data', 'ngrok-skip-browser-warning': 'true' }
             });
 
             setSuccess(true);
@@ -319,7 +316,7 @@ export default function SecureUploadPage() {
                 </div>
 
                 <div className="mt-12 text-center">
-                    <img src="/sidebar-logo-black.png" alt="Safeeely" className="h-6 md:h-8 mx-auto grayscale opacity-20" />
+                    <img src="/logo-main.svg" alt="Safeeely" className="h-6 md:h-8 mx-auto grayscale opacity-20" />
                 </div>
             </main>
         </div>

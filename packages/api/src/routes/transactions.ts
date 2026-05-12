@@ -5,6 +5,9 @@ import { sendNotification, sendReferralNotification, recordNotification } from '
 import { sendTransactionInvoiceEmail } from '../services/email';
 import crypto from 'crypto';
 import axios from 'axios';
+import multer from 'multer';
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 const router = Router();
 
@@ -924,6 +927,71 @@ router.patch('/:id/milestones/:mId/status', async (req, res) => {
     }
 });
 
+// Real binary file upload from the web portal → Supabase Storage
+router.post('/:id/upload-proof-files', upload.array('files', 10), async (req, res) => {
+    const { id } = req.params;
+    const files = req.files as Express.Multer.File[];
+    try {
+        if (!files || files.length === 0) return res.status(400).json({ error: 'No files provided' });
+
+        const { data: txn, error: txnErr } = await supabase
+            .from('transactions')
+            .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+            .eq('id', id)
+            .single();
+        if (txnErr || !txn) return res.status(404).json({ error: 'Transaction not found' });
+
+        const proofRecords: any[] = [];
+        for (const file of files) {
+            const safeName = file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+            const fileName = `${id}/${Date.now()}-${safeName}`;
+            const { error: storageErr } = await supabase.storage
+                .from('transaction-proofs')
+                .upload(fileName, file.buffer, { contentType: file.mimetype, upsert: false });
+            if (storageErr) throw new Error(`Storage upload failed: ${storageErr.message}`);
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('transaction-proofs').getPublicUrl(fileName);
+            proofRecords.push({
+                transaction_id: txn.id,
+                file_url: publicUrl,
+                file_name: file.originalname,
+                file_size: file.size,
+            });
+        }
+
+        const { error: insertError } = await supabase.from('transaction_proofs').insert(proofRecords);
+        if (insertError) throw insertError;
+
+        await supabase.from('transactions').update({ status: 'COMPLETED_BY_SELLER', updated_at: new Date().toISOString() }).eq('id', txn.id);
+
+        // Notify buyer
+        const { data: linked } = await supabase.from('linked_accounts').select('platform, platform_id').eq('profile_id', txn.buyer_id).eq('is_primary', true).single();
+        if (linked) {
+            const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
+            const msg = `📦 <b>Delivery Update!</b>\n\n<code>${txn.seller.safetag}</code> has uploaded <b>${files.length} proof file(s)</b> for your order.\n\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n\n🔗 <a href="${reviewsUrl}/delivery/${txn.id}">View Documents Portal</a>`;
+            sendNotification(linked.platform, linked.platform_id, msg, [
+                { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
+                { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
+            ]).catch(e => console.error('Background Notification Error:', e));
+            recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted ${files.length} proof file(s) for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/delivery/${txn.id}` }).catch(() => {});
+        }
+
+        // Notify seller
+        const { data: sellerLinked } = await supabase.from('linked_accounts').select('platform, platform_id').eq('profile_id', txn.seller_id).eq('is_primary', true).single();
+        if (sellerLinked) {
+            const sellerMsg = `✅ <b>Proof Uploaded!</b>\n\nBuyer notified for <b>${txn.product_name}</b> — awaiting confirmation.\n📋 ID: <b>${txn.txn_code}</b>`;
+            sendNotification(sellerLinked.platform, sellerLinked.platform_id, sellerMsg, []).catch(e => console.error('Background Notification Error:', e));
+            recordNotification(txn.seller_id, 'transaction', '✅ Proof Upload Confirmed', `Buyer notified for ${txn.product_name} — awaiting confirmation`, { transaction_id: txn.id, transaction_code: txn.txn_code, link_url: `/delivery/${txn.id}` }).catch(() => {});
+        }
+
+        res.json({ success: true, count: proofRecords.length });
+    } catch (err: any) {
+        console.error('❌ Error in upload-proof-files:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 router.post('/:id/upload-proofs', async (req, res) => {
     const { id } = req.params;
     const { proofs } = req.body;
@@ -1077,8 +1145,8 @@ router.post('/:id/upload-proof', async (req, res) => {
         const { error: insertError } = await supabase.from('transaction_proofs').insert({
             transaction_id: txn.id,
             file_url: proof_url,
-            file_name: 'Discord Upload (Image)',
-            file_size: 0
+            file_name: req.body.file_name || `Proof (${new Date().toISOString().slice(0, 10)})`,
+            file_size: req.body.file_size || 0
         });
 
         if (insertError) {

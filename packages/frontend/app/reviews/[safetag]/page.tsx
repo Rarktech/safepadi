@@ -318,8 +318,7 @@ export default function ReviewsPage() {
             {/* ── Header ── */}
             <header className={styles.pageHeader}>
                 <div className={styles.logo}>
-                    <div className={styles.logoMark}>S</div>
-                    <span className={styles.logoText}>Safeeely</span>
+                    <img src="/logo-main.svg" alt="Safeeely" style={{ height: '28px' }} />
                 </div>
                 <div className={styles.headerBadge}>✓ Verified Escrow Platform</div>
             </header>

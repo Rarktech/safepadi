@@ -664,6 +664,34 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         return;
     }
 
+    // ── Delivery proof upload (seller sends image/doc/video while no other session active) ──
+    if (['image', 'document', 'video'].includes(msgType) && !txnSessions.has(from) && !reviewSessions.has(from)) {
+        const proofUrl = message[msgType]?.link;
+        if (proofUrl) {
+            try {
+                const profile = await getProfile(from);
+                const mySafetag = profile?.safetag;
+                if (mySafetag) {
+                    const txnsRes = await axios.get(`${API_URL}/transactions`, {
+                        params: { safetag: mySafetag, status: 'AWAITING_PROOF' }
+                    });
+                    const awaitingTxns = (txnsRes.data || []).filter((t: any) => t.seller?.safetag === mySafetag || t.seller_id === profile.id);
+                    if (awaitingTxns.length > 0) {
+                        const txn = awaitingTxns[0];
+                        await axios.post(`${API_URL}/transactions/${txn.id}/upload-proof`, {
+                            proof_url: proofUrl,
+                            file_name: `WhatsApp ${msgType}`,
+                        });
+                        await sendText(from, `✅ *Proof uploaded* for *${txn.txn_code}*!\n\nThe buyer has been notified and can now review your delivery.`);
+                        return;
+                    }
+                }
+            } catch (err: any) {
+                console.error('WhatsApp proof upload error:', err.message);
+            }
+        }
+    }
+
     // ── Dispute text step ─────────────────────────────────────────────────────
     if (msgType === 'text' && disputeSessions.has(from)) {
         const ds = disputeSessions.get(from)!;

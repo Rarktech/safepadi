@@ -275,7 +275,9 @@ client.on('messageCreate', async (message) => {
                 if (txnsRes.data && txnsRes.data.length > 0) {
                     const txn = txnsRes.data[0];
                     await axios.post(`${API_URL}/transactions/${txn.id}/upload-proof`, {
-                        proof_url: attachment.url
+                        proof_url: attachment.url,
+                        file_name: attachment.name || 'Discord Upload',
+                        file_size: attachment.size || 0,
                     });
                     await message.reply(`✅ **Proof Uploaded** for transaction **${txn.txn_code}**!`);
                     return;
