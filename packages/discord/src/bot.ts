@@ -1024,6 +1024,7 @@ client.on('interactionCreate', async (interaction) => {
                 }
 
             } else if (customId.startsWith('start_group_trade_')) {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 const communityId = customId.replace('start_group_trade_', '');
                 incomingGuildIds.set(interaction.user.id, { communityId, expires: Date.now() + 30 * 60 * 1000 });
                 try {
@@ -1031,9 +1032,9 @@ client.on('interactionCreate', async (interaction) => {
                         content: `🛡️ **Starting a Secure Trade**\n\nThis trade will be recorded under the server's Safeeely program.\n\nClick below to open the transaction form:`,
                         components: [{ type: 1, components: [{ type: 2, label: '🛒 Create Transaction', style: 1, custom_id: 'create_txn' }] }],
                     });
-                    await interaction.reply({ content: '✅ Check your DMs to start the transaction!', flags: MessageFlags.Ephemeral });
+                    await interaction.editReply({ content: '✅ Check your DMs to start the transaction!' });
                 } catch {
-                    await interaction.reply({ content: '⚠️ I couldn\'t DM you. Please enable DMs from server members and try again.', flags: MessageFlags.Ephemeral });
+                    await interaction.editReply({ content: '⚠️ I couldn\'t DM you. Please enable DMs from server members and try again.' });
                 }
 
             } else if (customId === 'my_group_dashboard') {
@@ -1461,6 +1462,7 @@ client.on('interactionCreate', async (interaction) => {
                 const otherSafetag = rawOther.startsWith('@') ? rawOther : `@${rawOther}`;
 
                 // Convert AI draft to manual draft format to reuse final logic
+                const incomingEntry = incomingGuildIds.get(interaction.user.id);
                 txnDrafts.set(interaction.user.id, {
                     role: draft.role!,
                     product: draft.product_name!,
@@ -1470,7 +1472,8 @@ client.on('interactionCreate', async (interaction) => {
                     other: otherSafetag,
                     fee_allocation: draft.fee_allocation,
                     transaction_type: draft.transaction_type as any,
-                    milestones: draft.milestones
+                    milestones: draft.milestones,
+                    incomingGroupId: (incomingEntry && incomingEntry.expires > Date.now()) ? incomingEntry.communityId : undefined,
                 });
                 try {
                     const statsRes = await axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(otherSafetag)}`);
