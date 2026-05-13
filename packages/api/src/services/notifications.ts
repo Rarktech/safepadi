@@ -148,11 +148,11 @@ export async function sendNotification(platform: string, platformId: string, mes
                         type: "BUTTONS",
                         title: "Safeeely Update",
                         text: "Please select an action:",
-                        buttons: options.map((opt, i) => ({
+                        buttons: options.filter(opt => opt.customId).map((opt, i) => ({
                             text: opt.label,
-                            subtitle: "Tap to proceed", 
+                            subtitle: "Tap to proceed",
                             description: "Tap to proceed",
-                            id: opt.customId || `opt_${i}`
+                            id: opt.customId
                         }))
                     }
                 };

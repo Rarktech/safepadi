@@ -973,6 +973,7 @@ router.post('/:id/upload-proof-files', upload.array('files', 10), async (req, re
             sendNotification(linked.platform, linked.platform_id, msg, [
                 { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
                 { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
+                { label: '🔗 View Proofs', url: `${reviewsUrl}/delivery/${txn.id}` },
             ]).catch(e => console.error('Background Notification Error:', e));
             recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted ${files.length} proof file(s) for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/delivery/${txn.id}` }).catch(() => {});
         }
@@ -1071,7 +1072,7 @@ router.post('/:id/upload-proofs', async (req, res) => {
             sendNotification(linked.platform, linked.platform_id, msg, [
                 { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
                 { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
-                { label: '👁️ View Documents', customId: `view_docs_${txn.id}` }
+                { label: '🔗 View Proofs', url: `${reviewsUrl}/delivery/${txn.id}` },
             ]).catch(e => console.error('Background Notification Error:', e));
             recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted ${proofs?.length || 0} proof file(s) for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/delivery/${txn.id}` }).catch(() => {});
         }
@@ -1170,7 +1171,7 @@ router.post('/:id/upload-proof', async (req, res) => {
             sendNotification(linked.platform, linked.platform_id, fullMsg, [
                 { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
                 { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
-                { label: '👁️ View Details', customId: `view_txn_${txn.id}` }
+                { label: '🔗 View Proofs', url: `${reviewsUrl}/delivery/${txn.id}` },
             ]).catch(e => console.error('Background Notification Error:', e));
             recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted proof for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/delivery/${txn.id}` }).catch(() => {});
         }
