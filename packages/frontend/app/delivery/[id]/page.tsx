@@ -77,7 +77,7 @@ export default function DeliveryPortalPage() {
     if (loading) {
         return (
             <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-                <Loader2 className="w-8 h-8 text-green-500 animate-spin" />
+                <Loader2 className="w-8 h-8 text-[#10b981] animate-spin" />
             </div>
         );
     }
@@ -97,7 +97,7 @@ export default function DeliveryPortalPage() {
 
         return (
             <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in duration-500">
-                <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mb-6 shadow-2xl shadow-green-200">
+                <div className="w-20 h-20 bg-[#10b981] rounded-full flex items-center justify-center mb-6 shadow-2xl shadow-green-200">
                     <CheckCircle className="w-10 h-10 text-white" />
                 </div>
                 
@@ -201,7 +201,7 @@ export default function DeliveryPortalPage() {
                         proofs.map((proof) => (
                             <div key={proof.id} className="bg-white rounded-[24px] border border-slate-100 p-6 flex items-center gap-6 hover:shadow-lg transition-all group">
                                 <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center group-hover:bg-green-50 transition-colors">
-                                    <FileText className="w-6 h-6 text-slate-400 group-hover:text-green-500 transition-colors" />
+                                    <FileText className="w-6 h-6 text-slate-400 group-hover:text-[#10b981] transition-colors" />
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm font-bold text-slate-900 truncate mb-0.5">{proof.file_name || 'Untitled document'}</p>
@@ -215,7 +215,7 @@ export default function DeliveryPortalPage() {
                                     href={proof.file_url}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="h-12 w-12 bg-slate-900 text-white rounded-xl flex items-center justify-center hover:bg-green-500 transition-all shadow-lg shadow-slate-200 hover:shadow-green-100"
+                                    className="h-12 w-12 bg-slate-900 text-white rounded-xl flex items-center justify-center hover:bg-[#10b981] transition-all shadow-lg shadow-slate-200 hover:shadow-green-100"
                                 >
                                     <Download className="w-5 h-5" />
                                 </a>
@@ -267,7 +267,7 @@ export default function DeliveryPortalPage() {
 
                 {txn.status === 'FINALIZED' && (
                     <div className="mt-12 p-8 bg-green-50 rounded-[40px] border border-green-100 flex items-center gap-6 shadow-sm">
-                        <div className="w-14 h-14 bg-green-500 rounded-2xl flex items-center justify-center shrink-0 shadow-lg shadow-green-100">
+                        <div className="w-14 h-14 bg-[#10b981] rounded-2xl flex items-center justify-center shrink-0 shadow-lg shadow-green-100">
                             <CheckCircle className="w-8 h-8 text-white" />
                         </div>
                         <div>
