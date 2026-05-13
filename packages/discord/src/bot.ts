@@ -112,7 +112,13 @@ const txnDrafts = new Collection<string, {
     transaction_type?: 'ONE_TIME' | 'MILESTONE',
     milestones?: { title: string, amount: number }[],
     creatorTag?: string,
+    incomingGroupId?: string,
 }>();
+
+// Community bot — per-guild cooldown and incoming group session tracking
+const guildTradeCooldown = new Map<string, number>();
+const GUILD_TRADE_COOLDOWN_MS = 5 * 60 * 1000;
+const incomingGuildIds = new Collection<string, { communityId: string; expires: number }>();
 
 const formatMessageForDiscord = (text: string): string => {
     if (!text) return text;
@@ -124,9 +130,10 @@ const formatMessageForDiscord = (text: string): string => {
 };
 
 const sendMainMenu = async (messageOrInteraction: any) => {
+    const userId: string | undefined = messageOrInteraction.author?.id || messageOrInteraction.user?.id;
     const rawContent = '🏠 **Main Menu**\n\nWhat would you like to do today?';
     const content = formatMessageForDiscord(rawContent);
-    const components = [
+    const components: any[] = [
         {
             type: 1,
             components: [
@@ -150,6 +157,17 @@ const sendMainMenu = async (messageOrInteraction: any) => {
         },
     ];
 
+    if (userId) {
+        try {
+            const communityRes = await axios.get(`${API_URL}/communities/by_admin_platform/discord/${userId}`);
+            const groupCount: number = communityRes.data?.communities?.length || 0;
+            if (groupCount > 0) {
+                const label = groupCount === 1 ? '📊 My Server' : `📊 My Servers (${groupCount})`;
+                components.push({ type: 1, components: [{ type: 2, label, style: 2, custom_id: 'my_group_dashboard' }] });
+            }
+        } catch { /* no community button on error */ }
+    }
+
     try {
         if (messageOrInteraction.replied || messageOrInteraction.deferred) {
             await messageOrInteraction.editReply({ content, components });
@@ -163,8 +181,70 @@ const sendMainMenu = async (messageOrInteraction: any) => {
     }
 };
 
+// Respond to !deal / !trade / @mention in a licensed Discord server
+async function handleGuildTradeRequest(message: any) {
+    const guildId: string = message.guildId;
+    const now = Date.now();
+    const last = guildTradeCooldown.get(guildId);
+    if (last && now - last < GUILD_TRADE_COOLDOWN_MS) return;
+    guildTradeCooldown.set(guildId, now);
+
+    try {
+        const communityRes = await axios.get(`${API_URL}/communities/by_discord/${guildId}`);
+        const group = communityRes.data?.group;
+        if (group && group.status === 'active') {
+            return message.reply({
+                content: `🛡️ **Start a Secure Trade**\n\nThis server uses Safeeely escrow. Click below to open a private transaction — your payment is held safely until delivery is confirmed.`,
+                components: [{
+                    type: 1,
+                    components: [{ type: 2, label: '🛡️ Start Secure Trade', style: 3, custom_id: `start_group_trade_${group.id}` }],
+                }],
+            });
+        }
+    } catch { /* guild not licensed — fall through */ }
+
+    return message.reply({
+        content: `⚡ **Secure payments aren't set up here yet.**\n\nServer admin: activate Safeeely in 2 minutes and earn a commission on every deal.`,
+        components: [{
+            type: 1,
+            components: [{ type: 2, label: '⚡ Set Up Server Payments', style: 1, custom_id: `setup_server_${guildId}` }],
+        }],
+    });
+}
+
+// When bot is added to a Discord server — post setup prompt
+client.on('guildCreate', async (guild) => {
+    const channels = [
+        guild.systemChannel,
+        guild.publicUpdatesChannel,
+        (guild.channels.cache.find((c: any) => c.type === 0) as any),
+    ].filter(Boolean);
+
+    for (const channel of channels) {
+        try {
+            await (channel as any).send({
+                content: `👋 Hi! I'm **Safeeely** — secure escrow for your buy/sell server.\n\nTo activate Safeeely payments for **${guild.name}**, the admin who added me should click below and complete a quick setup.`,
+                components: [{
+                    type: 1,
+                    components: [{ type: 2, label: '⚡ Set Up Server Payments', style: 1, custom_id: `setup_server_${guild.id}` }],
+                }],
+            });
+            break;
+        } catch { continue; }
+    }
+});
+
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
+
+    // Guild channel: only respond to !deal, !trade, or @mention — ignore everything else
+    if (message.guild) {
+        const text = message.content.toLowerCase();
+        if (text.startsWith('!deal') || text.startsWith('!trade') || message.mentions.has(client.user!)) {
+            await handleGuildTradeRequest(message);
+        }
+        return;
+    }
 
     console.log(`💬 Discord msg from ${message.author.tag}: ${message.content}`);
 
@@ -824,8 +904,10 @@ client.on('interactionCreate', async (interaction) => {
                         transaction_type: draft.transaction_type,
                         milestones: draft.milestones,
                         send_invoice: sendInvoice,
+                        ...(draft.incomingGroupId ? { group_id: draft.incomingGroupId } : {}),
                     });
                     txnDrafts.delete(interaction.user.id);
+                    if (draft.incomingGroupId) incomingGuildIds.delete(interaction.user.id);
 
                     const roleLabel = draft.role === 'buyer' ? 'seller' : 'buyer';
                     const finalMsg = `✅ **Transaction Created!**\n\n` +
@@ -888,6 +970,158 @@ client.on('interactionCreate', async (interaction) => {
                     ],
                     flags: MessageFlags.Ephemeral
                 });
+            } else if (customId.startsWith('setup_server_')) {
+                const guildId = customId.replace('setup_server_', '');
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const existingRes = await axios.get(`${API_URL}/communities/by_discord/${guildId}`).catch(() => null);
+                if (existingRes?.data?.group) {
+                    return interaction.editReply('✅ This server is already licensed on Safeeely!');
+                }
+                const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`).catch(() => null);
+                if (!profileRes?.data?.safetag) {
+                    return interaction.editReply('👋 You need a Safeeely account first. Type `!start` in DMs to register.');
+                }
+                if (profileRes.data.is_deactivated) {
+                    return interaction.editReply('⚠️ Your account is deactivated. Contact support@safeeely.com.');
+                }
+                const guild = client.guilds.cache.get(guildId);
+                const guildName = guild?.name || 'Your Server';
+                return interaction.editReply({
+                    content: `🏘️ **License ${guildName}**\n\nChoose your tier:\n\n🟢 **Free** — 10% of every platform fee\n🔵 **Pro** — 25% of every platform fee (₦15,000/month)\n🟡 **Enterprise** — 40% of every platform fee (₦35,000/month)`,
+                    components: [{
+                        type: 1,
+                        components: [
+                            { type: 2, label: '🟢 Free', style: 2, custom_id: `register_server_${guildId}_free` },
+                            { type: 2, label: '🔵 Pro', style: 1, custom_id: `register_server_${guildId}_pro` },
+                            { type: 2, label: '🟡 Enterprise', style: 3, custom_id: `register_server_${guildId}_enterprise` },
+                        ],
+                    }],
+                });
+
+            } else if (customId.startsWith('register_server_')) {
+                const parts = customId.split('_');
+                const tier = parts[parts.length - 1];
+                const guildId = parts.slice(2, -1).join('_');
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                try {
+                    const guild = client.guilds.cache.get(guildId);
+                    const guildName = guild?.name || 'Your Server';
+                    const regRes = await axios.post(`${API_URL}/communities/register`, {
+                        discord_guild_id: guildId,
+                        group_name: guildName,
+                        admin_discord_id: interaction.user.id,
+                        license_tier: tier,
+                    });
+                    const group = regRes.data.group;
+                    // Announce in server
+                    const channels = [guild?.systemChannel, guild?.publicUpdatesChannel, guild?.channels.cache.find((c: any) => c.type === 0)].filter(Boolean);
+                    for (const ch of channels) {
+                        try { await (ch as any).send(`✅ **Safeeely is now active in ${guildName}!**\n\nUse \`!deal\` or \`!trade\` to start a secure escrow transaction.`); break; } catch { continue; }
+                    }
+                    await interaction.editReply(`🎉 **${guildName} is now licensed!**\n\nTier: **${tier.charAt(0).toUpperCase() + tier.slice(1)}**\n💰 You'll earn **${group.admin_revenue_share_percent}%** of every platform fee from deals here.\n\nView your dashboard from the main menu → 📊 My Server.`);
+                } catch (err: any) {
+                    await interaction.editReply(`❌ Registration failed: ${err.response?.data?.error || err.message}`);
+                }
+
+            } else if (customId.startsWith('start_group_trade_')) {
+                const communityId = customId.replace('start_group_trade_', '');
+                incomingGuildIds.set(interaction.user.id, { communityId, expires: Date.now() + 30 * 60 * 1000 });
+                try {
+                    await interaction.user.send({
+                        content: `🛡️ **Starting a Secure Trade**\n\nThis trade will be recorded under the server's Safeeely program.\n\nClick below to open the transaction form:`,
+                        components: [{ type: 1, components: [{ type: 2, label: '🛒 Create Transaction', style: 1, custom_id: 'create_txn' }] }],
+                    });
+                    await interaction.reply({ content: '✅ Check your DMs to start the transaction!', flags: MessageFlags.Ephemeral });
+                } catch {
+                    await interaction.reply({ content: '⚠️ I couldn\'t DM you. Please enable DMs from server members and try again.', flags: MessageFlags.Ephemeral });
+                }
+
+            } else if (customId === 'my_group_dashboard') {
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                try {
+                    const communityRes = await axios.get(`${API_URL}/communities/by_admin_platform/discord/${interaction.user.id}`);
+                    const { communities } = communityRes.data;
+                    if (!communities || communities.length === 0) {
+                        return interaction.editReply('ℹ️ You don\'t have any active licensed servers yet.');
+                    }
+                    if (communities.length === 1) {
+                        const statsRes = await axios.get(`${API_URL}/communities/${communities[0].id}/stats`);
+                        const { group, earnings, totalDeals, completedDeals } = statsRes.data;
+                        const earningsLine = earnings?.length ? earnings.map((e: any) => `  • **${e.total.toLocaleString()} ${e.currency}**`).join('\n') : '  • None yet';
+                        const tierEmoji: Record<string, string> = { free: '🟢', pro: '🔵', enterprise: '🟡' };
+                        const msg = `📊 **Server Dashboard**\n\n🏘️ **${group.group_name}**\n${tierEmoji[group.license_tier] || '🟢'} Tier: **${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}**\n💰 Revenue Share: **${group.admin_revenue_share_percent}%**\n\n📈 **Activity**\n  • Total Deals: **${totalDeals}**\n  • Completed: **${completedDeals}**\n\n💵 **Your Earnings:**\n${earningsLine}`;
+                        const btns: any[] = [];
+                        if (group.license_tier !== 'enterprise') btns.push({ type: 2, label: '🚀 Upgrade License', style: 1, custom_id: `upgrade_tier_${group.id}` });
+                        btns.push({ type: 2, label: '🔙 Main Menu', style: 2, custom_id: 'main_menu' });
+                        return interaction.editReply({ content: msg, components: [{ type: 1, components: btns }] });
+                    }
+                    // Multiple servers: show list
+                    const btns = communities.map((g: any) => ({ type: 2, label: `🏘️ ${g.group_name.slice(0, 30)}  ·  ${g.license_tier}`, style: 2, custom_id: `view_group_stats_${g.id}` }));
+                    const rows: any[] = [];
+                    for (let i = 0; i < btns.length; i += 5) rows.push({ type: 1, components: btns.slice(i, i + 5) });
+                    rows.push({ type: 1, components: [{ type: 2, label: '🔙 Main Menu', style: 2, custom_id: 'main_menu' }] });
+                    return interaction.editReply({ content: `📊 **My Servers**\n\nYou manage **${communities.length}** licensed servers. Select one:`, components: rows });
+                } catch (err: any) {
+                    await interaction.editReply(`❌ Error: ${err.message}`);
+                }
+
+            } else if (customId.startsWith('view_group_stats_')) {
+                const groupId = customId.replace('view_group_stats_', '');
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                try {
+                    const statsRes = await axios.get(`${API_URL}/communities/${groupId}/stats`);
+                    const { group, earnings, totalDeals, completedDeals } = statsRes.data;
+                    const earningsLine = earnings?.length ? earnings.map((e: any) => `  • **${e.total.toLocaleString()} ${e.currency}**`).join('\n') : '  • None yet';
+                    const tierEmoji: Record<string, string> = { free: '🟢', pro: '🔵', enterprise: '🟡' };
+                    const msg = `📊 **Server Dashboard**\n\n🏘️ **${group.group_name}**\n${tierEmoji[group.license_tier] || '🟢'} Tier: **${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}**\n💰 Revenue Share: **${group.admin_revenue_share_percent}%**\n\n📈 **Activity**\n  • Total Deals: **${totalDeals}**\n  • Completed: **${completedDeals}**\n\n💵 **Your Earnings:**\n${earningsLine}`;
+                    const btns: any[] = [];
+                    if (group.license_tier !== 'enterprise') btns.push({ type: 2, label: '🚀 Upgrade License', style: 1, custom_id: `upgrade_tier_${group.id}` });
+                    btns.push({ type: 2, label: '🔙 My Servers', style: 2, custom_id: 'my_group_dashboard' });
+                    return interaction.editReply({ content: msg, components: [{ type: 1, components: btns }] });
+                } catch (err: any) {
+                    await interaction.editReply(`❌ Error: ${err.message}`);
+                }
+
+            } else if (customId.startsWith('upgrade_tier_')) {
+                const groupId = customId.replace('upgrade_tier_', '');
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                try {
+                    const statsRes = await axios.get(`${API_URL}/communities/${groupId}/stats`);
+                    const { group } = statsRes.data;
+                    const currentTier: string = group.license_tier;
+                    const msg = `🚀 **Upgrade Your License**\n\nServer: **${group.group_name}**\nCurrent tier: **${currentTier.charAt(0).toUpperCase() + currentTier.slice(1)}**\n\n🔵 **Pro** — ₦15,000/month\n  • 25% revenue share on every platform fee\n\n🟡 **Enterprise** — ₦35,000/month\n  • 40% revenue share on every platform fee`;
+                    const btns: any[] = [];
+                    if (currentTier === 'free') btns.push({ type: 2, label: '🔵 Pro — ₦15,000/mo', style: 1, custom_id: `confirm_upgrade_${groupId}_pro` });
+                    btns.push({ type: 2, label: '🟡 Enterprise — ₦35,000/mo', style: 3, custom_id: `confirm_upgrade_${groupId}_enterprise` });
+                    btns.push({ type: 2, label: '🔙 Back', style: 2, custom_id: `view_group_stats_${groupId}` });
+                    return interaction.editReply({ content: msg, components: [{ type: 1, components: btns }] });
+                } catch (err: any) {
+                    await interaction.editReply(`❌ Error: ${err.message}`);
+                }
+
+            } else if (customId.startsWith('confirm_upgrade_')) {
+                const parts = customId.split('_');
+                const tier = parts[parts.length - 1];
+                const groupId = parts.slice(2, -1).join('_');
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                try {
+                    const upgradeRes = await axios.post(`${API_URL}/communities/${groupId}/upgrade/initiate`, { target_tier: tier });
+                    const { payment_url } = upgradeRes.data;
+                    const tierName = tier.charAt(0).toUpperCase() + tier.slice(1);
+                    const tierLabels: Record<string, string> = { pro: 'Pro — ₦15,000', enterprise: 'Enterprise — ₦35,000' };
+                    return interaction.editReply({
+                        content: `💳 **Complete Your Upgrade**\n\nPlan: **${tierLabels[tier]}/month**\n\nClick the button below to pay securely. Your tier upgrades automatically once payment is confirmed.`,
+                        components: [{
+                            type: 1,
+                            components: [
+                                { type: 2, label: `💳 Pay for ${tierName} Now`, style: 5, url: payment_url },
+                            ],
+                        }],
+                    });
+                } catch (err: any) {
+                    await interaction.editReply(`❌ Could not generate payment link: ${err.response?.data?.error || err.message}`);
+                }
+
             } else if (customId === 'main_menu' || customId === 'main_menu_back') {
                 await sendMainMenu(interaction);
             } else if (customId.startsWith('view_txns_category|')) {
@@ -1416,12 +1650,16 @@ client.on('interactionCreate', async (interaction) => {
                 
                 if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
+                const incomingGuild = incomingGuildIds.get(interaction.user.id);
+                const incomingGroupId = (incomingGuild && incomingGuild.expires > Date.now()) ? incomingGuild.communityId : undefined;
+
                 txnDrafts.set(interaction.user.id, {
                     role,
                     transaction_type: type,
                     milestones: [],
                     product: interaction.fields.getTextInputValue('product_name'),
-                    desc: interaction.fields.getTextInputValue('description')
+                    desc: interaction.fields.getTextInputValue('description'),
+                    ...(incomingGroupId ? { incomingGroupId } : {}),
                 });
 
                 await interaction.editReply({

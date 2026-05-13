@@ -9,21 +9,29 @@ router.use((req, res, next) => {
     next();
 });
 
-// Register a new community group
+// Register a new community group — supports both Telegram and Discord
 router.post('/register', async (req, res) => {
     try {
-        const { telegram_group_id, group_name, admin_telegram_id, license_tier = 'free' } = req.body;
+        const {
+            telegram_group_id, admin_telegram_id,   // Telegram fields
+            discord_guild_id, admin_discord_id,      // Discord fields
+            group_name, license_tier = 'free',
+        } = req.body;
 
-        if (!telegram_group_id || !group_name || !admin_telegram_id) {
-            return res.status(400).json({ error: 'telegram_group_id, group_name, and admin_telegram_id are required' });
+        const platform: 'telegram' | 'discord' = discord_guild_id ? 'discord' : 'telegram';
+        const platformAdminId = platform === 'discord' ? admin_discord_id : admin_telegram_id;
+        const nativeGroupId = platform === 'discord' ? discord_guild_id : telegram_group_id;
+        const nativeGroupField = platform === 'discord' ? 'discord_guild_id' : 'telegram_group_id';
+
+        if (!nativeGroupId || !group_name || !platformAdminId) {
+            return res.status(400).json({ error: 'group_id, group_name, and admin_id are required' });
         }
 
-        // Look up admin profile by Telegram platform ID
         const { data: linkedAccount } = await supabase
             .from('linked_accounts')
             .select('profile_id')
-            .eq('platform', 'telegram')
-            .eq('platform_id', String(admin_telegram_id))
+            .eq('platform', platform)
+            .eq('platform_id', String(platformAdminId))
             .maybeSingle();
 
         if (!linkedAccount?.profile_id) {
@@ -32,18 +40,16 @@ router.post('/register', async (req, res) => {
 
         const adminProfileId = linkedAccount.profile_id;
 
-        // Check if this group is already registered
         const { data: existing } = await supabase
             .from('community_groups')
             .select('id, status')
-            .eq('telegram_group_id', telegram_group_id)
+            .eq(nativeGroupField, Number(nativeGroupId))
             .maybeSingle();
 
         if (existing) {
             if (existing.status === 'active') {
                 return res.status(409).json({ error: 'This group is already licensed', group_id: existing.id });
             }
-            // Reactivate suspended group
             const { data: reactivated } = await supabase
                 .from('community_groups')
                 .update({ status: 'active', license_tier, updated_at: new Date().toISOString() })
@@ -56,15 +62,18 @@ router.post('/register', async (req, res) => {
         const revenueShareMap: Record<string, number> = { free: 10, pro: 25, enterprise: 40 };
         const adminRevenueSharePercent = revenueShareMap[license_tier] ?? 10;
 
+        const insertPayload: Record<string, any> = {
+            [nativeGroupField]: Number(nativeGroupId),
+            platform,
+            group_name,
+            admin_profile_id: adminProfileId,
+            license_tier,
+            admin_revenue_share_percent: adminRevenueSharePercent,
+        };
+
         const { data: group, error } = await supabase
             .from('community_groups')
-            .insert({
-                telegram_group_id: Number(telegram_group_id),
-                group_name,
-                admin_profile_id: adminProfileId,
-                license_tier,
-                admin_revenue_share_percent: adminRevenueSharePercent,
-            })
+            .insert(insertPayload)
             .select()
             .single();
 
@@ -111,6 +120,51 @@ router.get('/by_admin_platform/telegram/:platformId', async (req, res) => {
             .from('community_groups')
             .select('*')
             .eq('admin_profile_id', profileId)
+            .eq('platform', 'telegram')
+            .eq('status', 'active')
+            .order('created_at', { ascending: false });
+
+        const communities = groups || [];
+        return res.json({ communities, community: communities[0] || null });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Check if a Discord guild is registered
+router.get('/by_discord/:guildId', async (req, res) => {
+    try {
+        const { data: group } = await supabase
+            .from('community_groups')
+            .select('*')
+            .eq('discord_guild_id', Number(req.params.guildId))
+            .maybeSingle();
+        if (!group) return res.status(404).json({ error: 'Guild not found' });
+        return res.json({ group });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Check if a Discord user is an admin of any licensed servers
+router.get('/by_admin_platform/discord/:platformId', async (req, res) => {
+    try {
+        const { platformId } = req.params;
+        const { data: linked } = await supabase
+            .from('linked_accounts')
+            .select('profile_id')
+            .eq('platform', 'discord')
+            .eq('platform_id', platformId)
+            .maybeSingle();
+
+        const profileId = linked?.profile_id;
+        if (!profileId) return res.json({ communities: [], community: null });
+
+        const { data: groups } = await supabase
+            .from('community_groups')
+            .select('*')
+            .eq('admin_profile_id', profileId)
+            .eq('platform', 'discord')
             .eq('status', 'active')
             .order('created_at', { ascending: false });
 
