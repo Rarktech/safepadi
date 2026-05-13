@@ -1036,6 +1036,37 @@ client.on('interactionCreate', async (interaction) => {
                         }]
                     });
                 } catch (err: any) { await interaction.editReply(`❌ Error: ${err.message}`); }
+            } else if (customId.startsWith('leave_review_')) {
+                const txnId = customId.replace('leave_review_', '');
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                reviewStates.set(interaction.user.id, { txnId });
+                await interaction.editReply({
+                    content: '⭐ **Leave a Review**\n\nHow would you rate this transaction? Select your star rating:',
+                    components: [{
+                        type: 1,
+                        components: [
+                            { type: 2, label: '⭐ 1', style: 2, custom_id: 'review_star_1' },
+                            { type: 2, label: '⭐⭐ 2', style: 2, custom_id: 'review_star_2' },
+                            { type: 2, label: '⭐⭐⭐ 3', style: 2, custom_id: 'review_star_3' },
+                            { type: 2, label: '⭐⭐⭐⭐ 4', style: 2, custom_id: 'review_star_4' },
+                            { type: 2, label: '⭐⭐⭐⭐⭐ 5', style: 3, custom_id: 'review_star_5' }
+                        ]
+                    }]
+                });
+            } else if (customId.startsWith('review_star_')) {
+                const stars = parseInt(customId.replace('review_star_', ''), 10);
+                const reviewState = reviewStates.get(interaction.user.id);
+                if (!reviewState) {
+                    await interaction.reply({ content: '❌ Review session expired. Please click **Leave Review Now** again.', flags: MessageFlags.Ephemeral });
+                    return;
+                }
+                reviewState.stars = stars;
+                AWAITING_REVIEW_REMARK.set(interaction.user.id, true);
+                await interaction.deferUpdate();
+                await interaction.editReply({
+                    content: `✅ **${stars} star${stars > 1 ? 's' : ''} selected!**\n\nOptionally, send a screenshot/image as proof, then type your review comment in this chat.`,
+                    components: []
+                });
             } else if (customId === 'settings') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
