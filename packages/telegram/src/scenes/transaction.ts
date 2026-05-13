@@ -436,7 +436,13 @@ export const transactionScene = new Scenes.WizardScene(
                 transaction_type,
                 milestones,
                 send_invoice: sendInvoice,
+                group_id: (ctx as any).session?.incomingGroupId || undefined,
             });
+
+            // Clear group context after use so future transactions aren't incorrectly tagged
+            if ((ctx as any).session?.incomingGroupId) {
+                delete (ctx as any).session.incomingGroupId;
+            }
 
             const counterpartyRole = role === 'buyer' ? 'Seller' : 'Buyer';
             const finalMsg = `✅ <b>Transaction Created!</b>\n\n` +

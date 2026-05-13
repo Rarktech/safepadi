@@ -11,6 +11,7 @@ import { transactionScene } from './scenes/transaction';
 import { reviewScene } from './scenes/review';
 import { disputeScene } from './scenes/dispute';
 import { accountDeletionScene } from './scenes/account_deletion';
+import { communityLicensingScene } from './scenes/community_licensing';
 import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
 
 interface SafeeelyWizardSession extends Scenes.WizardSessionData {
@@ -19,6 +20,7 @@ interface SafeeelyWizardSession extends Scenes.WizardSessionData {
 
 interface SafeeelySession extends Scenes.WizardSession<SafeeelyWizardSession> {
     smartTxnDraft?: SmartTransactionDraft;
+    incomingGroupId?: string;
 }
 
 interface SafeeelyContext extends Scenes.WizardContext<SafeeelyWizardSession> {
@@ -27,7 +29,7 @@ interface SafeeelyContext extends Scenes.WizardContext<SafeeelyWizardSession> {
 
 const bot = new Telegraf<SafeeelyContext>(process.env.TELEGRAM_BOT_TOKEN || '');
 
-const stage = new Scenes.Stage<SafeeelyContext>([registrationScene, transactionScene, reviewScene, disputeScene, accountDeletionScene] as any);
+const stage = new Scenes.Stage<SafeeelyContext>([registrationScene, transactionScene, reviewScene, disputeScene, accountDeletionScene, communityLicensingScene] as any);
 
 bot.use(session());
 bot.use(stage.middleware());
@@ -46,21 +48,39 @@ console.log(`🚀 Telegram Bot Starting:`);
 console.log(`📡 API_URL: ${API_URL}`);
 console.log(`🔗 REVIEWS_URL: ${REVIEWS_URL}`);
 
-const showMainMenu = (ctx: SafeeelyContext) => {
+const showMainMenu = async (ctx: SafeeelyContext) => {
+    const userId = ctx.from?.id;
+    let communityRow: any[] = [];
+
+    if (userId) {
+        try {
+            const communityRes = await axios.get(`${API_URL}/communities/by_admin_platform/telegram/${userId}`);
+            if (communityRes.data?.community) {
+                communityRow = [[{ text: '📊 My Group', callback_data: 'my_group_dashboard' }]];
+            }
+        } catch {
+            // No group button if check fails
+        }
+    }
+
     return ctx.reply('🏠 <b>Main Menu</b>\n\nWhat would you like to do today?', {
         parse_mode: 'HTML',
         reply_markup: {
             inline_keyboard: [
                 [{ text: '🛒 Create Transaction', callback_data: 'create_txn' }, { text: '📋 My Transactions', callback_data: 'my_txns' }],
                 [{ text: '💰 Balance & Withdrawals', callback_data: 'balance' }, { text: '🎁 Referral', callback_data: 'referral' }],
-                [{ text: '⭐ Reviews & Ratings', callback_data: 'reviews' }, { text: '⚙️ Settings & Account', callback_data: 'settings' }]
+                [{ text: '⭐ Reviews & Ratings', callback_data: 'reviews' }, { text: '⚙️ Settings & Account', callback_data: 'settings' }],
+                ...communityRow
             ]
         }
     });
 };
 
 bot.command('cancel', async (ctx) => {
-    if (ctx.session) delete ctx.session.smartTxnDraft;
+    if (ctx.session) {
+        delete ctx.session.smartTxnDraft;
+        delete ctx.session.incomingGroupId;
+    }
     ctx.reply('❌ Action cancelled. Returning to main menu.');
     await ctx.scene.leave();
     return showMainMenu(ctx);
@@ -74,6 +94,49 @@ bot.start(async (ctx) => {
     try {
         const userId = ctx.from?.id;
         console.log(`🚀 Telegram /start by user: ${ctx.from?.id} (@${ctx.from?.username})`);
+
+        // Deep link: /start group_{communityGroupId} — user came from a licensed group
+        if (ctx.payload && ctx.payload.startsWith('group_')) {
+            const groupId = ctx.payload.substring(6);
+            if (ctx.session) ctx.session.incomingGroupId = groupId;
+        }
+
+        // Deep link: /start setup_{telegramGroupId} — admin wants to license their group
+        if (ctx.payload && ctx.payload.startsWith('setup_')) {
+            const telegramGroupId = Number(ctx.payload.substring(6));
+            if (telegramGroupId) {
+                try {
+                    // Check if group is already licensed
+                    const existingRes = await axios.get(`${API_URL}/communities/by_telegram/${telegramGroupId}`).catch(() => null);
+                    if (existingRes?.data?.group) {
+                        return ctx.reply('✅ This group is already licensed on Safeeely!');
+                    }
+                    // Try to get group name from Telegram
+                    let groupName = 'Your Group';
+                    try {
+                        const chat = await ctx.telegram.getChat(telegramGroupId);
+                        groupName = (chat as any).title || 'Your Group';
+                    } catch { /* use fallback */ }
+
+                    // Check if user is registered
+                    const profileRes = await axios.get(`${API_URL}/profiles/by_platform/telegram/${userId}`).catch(() => null);
+                    if (!profileRes?.data?.safetag) {
+                        await ctx.reply('👋 You need a Safeeely account first. Let\'s get you registered!');
+                        return ctx.scene.enter('registration_wizard', {});
+                    }
+                    if (profileRes.data.is_deactivated) {
+                        return ctx.reply('⚠️ Your account is deactivated. Contact support@safeeely.com.');
+                    }
+
+                    return ctx.scene.enter('community_licensing_wizard', {
+                        telegram_group_id: telegramGroupId,
+                        group_name: groupName,
+                    });
+                } catch (e: any) {
+                    return ctx.reply(`❌ Could not start group setup: ${e.message}`);
+                }
+            }
+        }
 
         // Deep link: /start resume_{txnId} — continue a transaction to payment
         if (ctx.payload && ctx.payload.startsWith('resume_')) {
@@ -157,7 +220,10 @@ bot.action('create_txn', (ctx) => {
 
 bot.action('main_menu', async (ctx) => {
     try { await ctx.answerCbQuery(); } catch (e) { console.error('Answer CB Error:', e); }
-    if (ctx.session) delete ctx.session.smartTxnDraft;
+    if (ctx.session) {
+        delete ctx.session.smartTxnDraft;
+        delete ctx.session.incomingGroupId;
+    }
     return showMainMenu(ctx);
 });
 
@@ -659,6 +725,7 @@ bot.action(/^txn_(upload_delivery|external_upload)_(.+)$/, async (ctx) => {
 });
 
 bot.on('photo', async (ctx) => {
+    if (ctx.chat?.type !== 'private') return;
     try {
         const profileRes = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
         const mySafetag = profileRes.data.safetag;
@@ -721,9 +788,84 @@ bot.action('smart_txn_cancel', async (ctx) => {
     await ctx.reply("❌ Transaction draft cancelled.");
 });
 
+// When bot is added to a Telegram group — post setup prompt in the group
+bot.on('my_chat_member', async (ctx) => {
+    const newStatus = ctx.myChatMember?.new_chat_member?.status;
+    const chat = ctx.myChatMember?.chat;
+    if (!chat || chat.type === 'private') return;
+
+    if (newStatus === 'member' || newStatus === 'administrator') {
+        const botUsername = ctx.botInfo?.username || process.env.TELEGRAM_BOT_USERNAME || 'SafeeelyBot';
+        const deepLink = `https://t.me/${botUsername}?start=setup_${chat.id}`;
+
+        try {
+            await ctx.telegram.sendMessage(
+                chat.id,
+                `👋 Hi! I'm <b>Safeeely</b> — secure escrow for your buy/sell group.\n\nTo activate Safeeely payments for this group, the admin who added me should tap below and complete a quick setup.`,
+                {
+                    parse_mode: 'HTML',
+                    reply_markup: {
+                        inline_keyboard: [[
+                            { text: '⚡ Set Up Group Payments', url: deepLink },
+                        ]],
+                    },
+                }
+            );
+        } catch (e) {
+            console.error('Could not post welcome in group:', e);
+        }
+    }
+});
+
+// Admin group dashboard
+bot.action('my_group_dashboard', async (ctx) => {
+    try { await ctx.answerCbQuery(); } catch (e) { }
+    try {
+        const communityRes = await axios.get(`${API_URL}/communities/by_admin_platform/telegram/${ctx.from?.id}`);
+        const group = communityRes.data?.community;
+        if (!group) return ctx.reply('ℹ️ You don\'t have an active licensed group yet.');
+
+        const statsRes = await axios.get(`${API_URL}/communities/${group.id}/stats`);
+        const { earnings, totalDeals, completedDeals } = statsRes.data;
+
+        const fmtAmt = (amount: number, currency: string) => {
+            const sym: Record<string, string> = { USD: '$', NGN: '₦', EUR: '€', GBP: '£' };
+            return sym[currency]
+                ? `${sym[currency]}${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                : `${parseFloat(Number(amount).toFixed(8))} ${currency}`;
+        };
+
+        const earningsLines = earnings?.length
+            ? earnings.map((e: any) => `  • <b>${fmtAmt(e.total, e.currency)}</b>`).join('\n')
+            : '  • None yet';
+
+        const tierEmoji: Record<string, string> = { free: '🟢', pro: '🔵', enterprise: '🟡' };
+        const msg = `📊 <b>My Group Dashboard</b>\n\n` +
+            `🏘️ <b>${group.group_name}</b>\n` +
+            `${tierEmoji[group.license_tier] || '🟢'} Tier: <b>${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}</b>\n` +
+            `💰 Revenue Share: <b>${group.admin_revenue_share_percent}%</b>\n\n` +
+            `📈 <b>Activity</b>\n` +
+            `  • Total Deals: <b>${totalDeals}</b>\n` +
+            `  • Completed: <b>${completedDeals}</b>\n\n` +
+            `💵 <b>Your Earnings:</b>\n${earningsLines}`;
+
+        return ctx.reply(msg, {
+            parse_mode: 'HTML',
+            reply_markup: {
+                inline_keyboard: [[{ text: '🔙 Main Menu', callback_data: 'main_menu' }]],
+            },
+        });
+    } catch (err: any) {
+        ctx.reply(`❌ Error: ${err.response?.data?.error || err.message}`);
+    }
+});
+
 bot.on('message', async (ctx) => {
     const msg = ctx.message;
     if (!msg) return;
+
+    // Only process private DMs — ignore group/channel messages
+    if (ctx.chat?.type !== 'private') return;
 
     let textBody = '';
     let audioBuffer: Buffer | undefined;

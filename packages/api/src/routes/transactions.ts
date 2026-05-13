@@ -37,6 +37,7 @@ const CreateTransactionSchema = z.object({
         amount: z.number()
     })).optional(),
     send_invoice: z.boolean().optional().default(false),
+    group_id: z.string().uuid().optional(),
 });
 
 router.post('/create', async (req, res) => {
@@ -102,7 +103,8 @@ router.post('/create', async (req, res) => {
                     fee_amount: feeAmount,
                     total_amount: totalAmount,
                     status: 'PENDING_SELLER_ACCEPTANCE',
-                    transaction_type: data.transaction_type
+                    transaction_type: data.transaction_type,
+                    ...(data.group_id ? { group_id: data.group_id } : {})
                 })
                 .select()
                 .single();
@@ -573,6 +575,44 @@ router.patch('/:id/status', async (req, res) => {
             }
         }
         // --- END COMMISSION ENGINE ---
+
+        // --- COMMUNITY COMMISSION ENGINE ---
+        if (newStatus === 'FINALIZED' && (txn as any).group_id && txn.fee_amount > 0) {
+            try {
+                const groupId = (txn as any).group_id;
+                const { data: group } = await supabase
+                    .from('community_groups')
+                    .select('*')
+                    .eq('id', groupId)
+                    .eq('status', 'active')
+                    .single();
+
+                if (group) {
+                    const commissionAmount = txn.fee_amount * (group.admin_revenue_share_percent / 100);
+
+                    await supabase.from('community_commissions').insert({
+                        group_id: group.id,
+                        admin_profile_id: group.admin_profile_id,
+                        txn_id: txn.id,
+                        amount: commissionAmount,
+                        currency: txn.currency,
+                        status: 'COMPLETED',
+                    });
+
+                    console.log(`🏘️ Community commission: ${commissionAmount} ${txn.currency} to admin of "${group.group_name}"`);
+
+                    sendReferralNotification(
+                        group.admin_profile_id,
+                        `🏘️ <b>Group Commission Earned!</b>\n\nA deal was completed in your group <b>${group.group_name}</b>.\n\nYou earned <b>${commissionAmount.toFixed(2)} ${txn.currency}</b> — keep growing your community! 🚀`,
+                        'You earned a group commission on Safeeely!',
+                        `<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:20px;border:1px solid #eee;border-radius:8px;"><h2 style="color:#0f172a;">Group Commission Earned! 🏘️</h2><p style="color:#475569;">A deal was completed in your group <b>${group.group_name}</b>. You earned <b>${commissionAmount.toFixed(2)} ${txn.currency}</b>.</p></div>`
+                    ).catch((e: any) => console.error('Community commission notification failed:', e.message));
+                }
+            } catch (communityCommError) {
+                console.error('❌ Failed to distribute community commission:', communityCommError);
+            }
+        }
+        // --- END COMMUNITY COMMISSION ENGINE ---
 
         // --- GAMIFIED BADGES ENGINE ---
         if (newStatus === 'FINALIZED') {
