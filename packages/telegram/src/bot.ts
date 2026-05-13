@@ -48,6 +48,10 @@ console.log(`🚀 Telegram Bot Starting:`);
 console.log(`📡 API_URL: ${API_URL}`);
 console.log(`🔗 REVIEWS_URL: ${REVIEWS_URL}`);
 
+// Per-group cooldown — prevents bot flooding when many members trigger commands at once
+const groupTradeCooldown = new Map<number, number>();
+const GROUP_TRADE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+
 const showMainMenu = async (ctx: SafeeelyContext) => {
     const userId = ctx.from?.id;
     let communityRow: any[] = [];
@@ -76,6 +80,41 @@ const showMainMenu = async (ctx: SafeeelyContext) => {
     });
 };
 
+// Responds to /deal, /trade, or @mention in a group chat
+async function handleGroupTradeRequest(ctx: SafeeelyContext, chatId: number) {
+    const now = Date.now();
+    const last = groupTradeCooldown.get(chatId);
+    if (last && now - last < GROUP_TRADE_COOLDOWN_MS) return;
+    groupTradeCooldown.set(chatId, now);
+
+    const botUsername = (ctx as any).botInfo?.username || process.env.TELEGRAM_BOT_USERNAME || 'SafeeelyBot';
+
+    try {
+        const communityRes = await axios.get(`${API_URL}/communities/by_telegram/${chatId}`);
+        const group = communityRes.data?.group;
+        if (group && group.status === 'active') {
+            const deepLink = `https://t.me/${botUsername}?start=group_${group.id}`;
+            return ctx.reply(
+                `🛡️ <b>Start a Secure Trade</b>\n\nTap below to open an escrow transaction — your payment is held safely until delivery is confirmed.`,
+                {
+                    parse_mode: 'HTML',
+                    reply_markup: { inline_keyboard: [[{ text: '🛡️ Start Secure Trade', url: deepLink }]] },
+                }
+            );
+        }
+    } catch { /* group not licensed — fall through */ }
+
+    // Unlicensed group: pitch the admin to set up
+    const setupLink = `https://t.me/${botUsername}?start=setup_${chatId}`;
+    return ctx.reply(
+        `⚡ <b>Secure payments aren't set up here yet.</b>\n\nGroup admin: activate Safeeely in 2 minutes and earn a commission on every deal in your group.`,
+        {
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: [[{ text: '⚡ Set Up Group Payments', url: setupLink }]] },
+        }
+    );
+}
+
 bot.command('cancel', async (ctx) => {
     if (ctx.session) {
         delete ctx.session.smartTxnDraft;
@@ -87,7 +126,15 @@ bot.command('cancel', async (ctx) => {
 });
 
 bot.command('help', (ctx) => {
-    ctx.reply('📚 <b>Safeeely Help</b>\n\n• /start - Main Menu\n• /cancel - Stop current action\n\nFor support, contact @SafeeelySupport', { parse_mode: 'HTML' });
+    ctx.reply('📚 <b>Safeeely Help</b>\n\n• /start - Main Menu\n• /cancel - Stop current action\n• /deal or /trade - Start a secure trade\n\nFor support, contact @SafeeelySupport', { parse_mode: 'HTML' });
+});
+
+// /deal and /trade: in groups → show trade button; in DMs → open transaction wizard
+bot.command(['deal', 'trade'], async (ctx) => {
+    if (ctx.chat?.type === 'private') {
+        return ctx.scene.enter('transaction_wizard');
+    }
+    await handleGroupTradeRequest(ctx, ctx.chat.id);
 });
 
 bot.start(async (ctx) => {
@@ -864,8 +911,20 @@ bot.on('message', async (ctx) => {
     const msg = ctx.message;
     if (!msg) return;
 
-    // Only process private DMs — ignore group/channel messages
-    if (ctx.chat?.type !== 'private') return;
+    // Handle @mention of the bot in group chats — everything else in groups is ignored
+    if (ctx.chat?.type !== 'private') {
+        const textMsg = msg as any;
+        const botUsername = (ctx as any).botInfo?.username;
+        const hasMention = botUsername && Array.isArray(textMsg.entities) &&
+            textMsg.entities.some((e: any) =>
+                e.type === 'mention' &&
+                textMsg.text?.substring(e.offset + 1, e.offset + e.length) === botUsername
+            );
+        if (hasMention) {
+            await handleGroupTradeRequest(ctx, ctx.chat.id);
+        }
+        return;
+    }
 
     let textBody = '';
     let audioBuffer: Buffer | undefined;
