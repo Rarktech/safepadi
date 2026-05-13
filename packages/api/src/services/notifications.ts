@@ -431,3 +431,29 @@ export async function recordNotification(
         log(`❌ recordNotification error for profile ${profileId}: ${err.message}`);
     }
 }
+
+export async function sendTelegramGroupMessage(
+    telegramGroupId: number,
+    message: string,
+    button?: { text: string; url: string }
+): Promise<void> {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (!token) {
+        console.warn('TELEGRAM_BOT_TOKEN not set — cannot send group announcement');
+        return;
+    }
+
+    const payload: any = {
+        chat_id: telegramGroupId,
+        text: message,
+        parse_mode: 'HTML',
+    };
+
+    if (button) {
+        payload.reply_markup = {
+            inline_keyboard: [[{ text: button.text, url: button.url }]],
+        };
+    }
+
+    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, payload);
+}

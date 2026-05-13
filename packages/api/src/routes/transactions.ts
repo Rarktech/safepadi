@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
-import { sendNotification, sendReferralNotification, recordNotification } from '../services/notifications';
+import { sendNotification, sendReferralNotification, recordNotification, sendTelegramGroupMessage } from '../services/notifications';
 import { sendTransactionInvoiceEmail } from '../services/email';
 import crypto from 'crypto';
 import axios from 'axios';
@@ -607,6 +607,15 @@ router.patch('/:id/status', async (req, res) => {
                         'You earned a group commission on Safeeely!',
                         `<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:20px;border:1px solid #eee;border-radius:8px;"><h2 style="color:#0f172a;">Group Commission Earned! 🏘️</h2><p style="color:#475569;">A deal was completed in your group <b>${group.group_name}</b>. You earned <b>${commissionAmount.toFixed(2)} ${txn.currency}</b>.</p></div>`
                     ).catch((e: any) => console.error('Community commission notification failed:', e.message));
+
+                    // Post social proof announcement in the group (fire-and-forget)
+                    const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'SafeeelyBot';
+                    const tradeDeepLink = `https://t.me/${botUsername}?start=group_${group.id}`;
+                    sendTelegramGroupMessage(
+                        group.telegram_group_id,
+                        `🎉 <b>Secure trade completed!</b>\n\nAnother deal was just protected by Safeeely escrow in this group. Both buyer and seller traded safely.\n\n🛡️ Want to trade securely too?`,
+                        { text: '🛡️ Start Secure Trade', url: tradeDeepLink }
+                    ).catch((e: any) => console.error('Group social proof announcement failed:', e.message));
                 }
             } catch (communityCommError) {
                 console.error('❌ Failed to distribute community commission:', communityCommError);
