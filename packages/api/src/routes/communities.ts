@@ -200,6 +200,17 @@ router.patch('/:id/settings', async (req, res) => {
     }
 });
 
+// Manually trigger the weekly digest (for testing)
+router.post('/digest/trigger', async (req, res) => {
+    try {
+        const { runWeeklyDigest } = await import('../cron/weeklyDigest');
+        await runWeeklyDigest();
+        res.json({ ok: true, message: 'Weekly digest sent to all active group admins' });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Suspend a community group (admin use)
 router.post('/:id/suspend', async (req, res) => {
     try {

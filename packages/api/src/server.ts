@@ -26,6 +26,8 @@ import authRoutes from './routes/auth';
 import marketplaceRoutes from './routes/marketplace';
 import notificationRoutes from './routes/notifications';
 import communityRoutes from './routes/communities';
+import cron from 'node-cron';
+import { runWeeklyDigest } from './cron/weeklyDigest';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -98,6 +100,11 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
             stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
         });
     }
+});
+
+// Weekly group earnings digest — every Monday at 9:00 AM UTC
+cron.schedule('0 9 * * 1', () => {
+    runWeeklyDigest().catch((err) => console.error('Weekly digest cron failed:', err));
 });
 
 app.listen(PORT, () => {
