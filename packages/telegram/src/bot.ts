@@ -12,6 +12,7 @@ import { reviewScene } from './scenes/review';
 import { disputeScene } from './scenes/dispute';
 import { accountDeletionScene } from './scenes/account_deletion';
 import { communityLicensingScene } from './scenes/community_licensing';
+import { communityWithdrawScene } from './scenes/community_withdraw';
 import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
 
 interface SafeeelyWizardSession extends Scenes.WizardSessionData {
@@ -29,7 +30,7 @@ interface SafeeelyContext extends Scenes.WizardContext<SafeeelyWizardSession> {
 
 const bot = new Telegraf<SafeeelyContext>(process.env.TELEGRAM_BOT_TOKEN || '');
 
-const stage = new Scenes.Stage<SafeeelyContext>([registrationScene, transactionScene, reviewScene, disputeScene, accountDeletionScene, communityLicensingScene] as any);
+const stage = new Scenes.Stage<SafeeelyContext>([registrationScene, transactionScene, reviewScene, disputeScene, accountDeletionScene, communityLicensingScene, communityWithdrawScene] as any);
 
 bot.use(session());
 bot.use(stage.middleware());
@@ -869,7 +870,7 @@ bot.on('my_chat_member', async (ctx) => {
 // Helper: render stats for a single group with configurable back button
 async function renderGroupDashboard(ctx: SafeeelyContext, group: any, backCallback: string) {
     const statsRes = await axios.get(`${API_URL}/communities/${group.id}/stats`);
-    const { earnings, totalDeals, completedDeals } = statsRes.data;
+    const { earnings, withdrawable, totalDeals, completedDeals } = statsRes.data;
 
     const fmtAmt = (amount: number, currency: string) => {
         const sym: Record<string, string> = { USD: '$', NGN: '₦', EUR: '€', GBP: '£' };
@@ -882,6 +883,10 @@ async function renderGroupDashboard(ctx: SafeeelyContext, group: any, backCallba
         ? earnings.map((e: any) => `  • <b>${fmtAmt(e.total, e.currency)}</b>`).join('\n')
         : '  • None yet';
 
+    const withdrawLines = withdrawable?.length
+        ? withdrawable.map((w: any) => `  • <b>${fmtAmt(w.available, w.currency)}</b>`).join('\n')
+        : '  • None available';
+
     const tierEmoji: Record<string, string> = { free: '🟢', pro: '🔵', enterprise: '🟡' };
     const msg =
         `📊 <b>Group Dashboard</b>\n\n` +
@@ -891,9 +896,17 @@ async function renderGroupDashboard(ctx: SafeeelyContext, group: any, backCallba
         `📈 <b>Activity</b>\n` +
         `  • Total Deals: <b>${totalDeals}</b>\n` +
         `  • Completed: <b>${completedDeals}</b>\n\n` +
-        `💵 <b>Your Earnings:</b>\n${earningsLines}`;
+        `💵 <b>Your Earnings:</b>\n${earningsLines}\n\n` +
+        `💸 <b>Withdrawable:</b>\n${withdrawLines}`;
 
     const buttons: any[][] = [];
+    if (withdrawable?.length) {
+        if (withdrawable.length === 1) {
+            buttons.push([{ text: '💸 Withdraw Earnings', callback_data: `withdraw_community_${group.id}_${withdrawable[0].currency}` }]);
+        } else {
+            buttons.push(withdrawable.map((w: any) => ({ text: `💸 Withdraw ${w.currency}`, callback_data: `withdraw_community_${group.id}_${w.currency}` })));
+        }
+    }
     if (group.license_tier !== 'enterprise') {
         buttons.push([{ text: '🚀 Upgrade License', callback_data: `upgrade_tier_${group.id}` }]);
     }
@@ -939,6 +952,29 @@ bot.action(/^view_group_stats_([0-9a-f-]+)$/, async (ctx) => {
     try {
         const statsRes = await axios.get(`${API_URL}/communities/${groupId}/stats`);
         return renderGroupDashboard(ctx, statsRes.data.group, 'my_group_dashboard');
+    } catch (err: any) {
+        ctx.reply(`❌ Error: ${err.message}`);
+    }
+});
+
+// Commission withdrawal — enter wizard with the chosen currency
+bot.action(/^withdraw_community_([0-9a-f-]+)_([A-Z]+)$/, async (ctx) => {
+    const groupId = ctx.match[1];
+    const currency = ctx.match[2];
+    try { await ctx.answerCbQuery(); } catch (e) { }
+    try {
+        const statsRes = await axios.get(`${API_URL}/communities/${groupId}/stats`);
+        const { group, withdrawable } = statsRes.data;
+        const entry = (withdrawable || []).find((w: any) => w.currency === currency);
+        if (!entry || entry.available <= 0) {
+            return ctx.reply('ℹ️ No withdrawable balance for this currency.');
+        }
+        return (ctx as any).scene.enter('community_withdraw_wizard', {
+            groupId,
+            currency,
+            available: entry.available,
+            groupName: group.group_name,
+        });
     } catch (err: any) {
         ctx.reply(`❌ Error: ${err.message}`);
     }

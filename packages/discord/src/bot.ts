@@ -119,6 +119,7 @@ const txnDrafts = new Collection<string, {
 const guildTradeCooldown = new Map<string, number>();
 const GUILD_TRADE_COOLDOWN_MS = 5 * 60 * 1000;
 const incomingGuildIds = new Collection<string, { communityId: string; expires: number }>();
+const communityWithdrawSessions = new Collection<string, { groupId: string; currency: string }>();
 
 const formatMessageForDiscord = (text: string): string => {
     if (!text) return text;
@@ -1047,14 +1048,18 @@ client.on('interactionCreate', async (interaction) => {
                     }
                     if (communities.length === 1) {
                         const statsRes = await axios.get(`${API_URL}/communities/${communities[0].id}/stats`);
-                        const { group, earnings, totalDeals, completedDeals } = statsRes.data;
+                        const { group, earnings, withdrawable, totalDeals, completedDeals } = statsRes.data;
                         const earningsLine = earnings?.length ? earnings.map((e: any) => `  • **${e.total.toLocaleString()} ${e.currency}**`).join('\n') : '  • None yet';
+                        const withdrawLine = withdrawable?.length ? withdrawable.map((w: any) => `  • **${w.available.toLocaleString()} ${w.currency}**`).join('\n') : '  • None available';
                         const tierEmoji: Record<string, string> = { free: '🟢', pro: '🔵', enterprise: '🟡' };
-                        const msg = `📊 **Server Dashboard**\n\n🏘️ **${group.group_name}**\n${tierEmoji[group.license_tier] || '🟢'} Tier: **${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}**\n💰 Revenue Share: **${group.admin_revenue_share_percent}%**\n\n📈 **Activity**\n  • Total Deals: **${totalDeals}**\n  • Completed: **${completedDeals}**\n\n💵 **Your Earnings:**\n${earningsLine}`;
+                        const msg = `📊 **Server Dashboard**\n\n🏘️ **${group.group_name}**\n${tierEmoji[group.license_tier] || '🟢'} Tier: **${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}**\n💰 Revenue Share: **${group.admin_revenue_share_percent}%**\n\n📈 **Activity**\n  • Total Deals: **${totalDeals}**\n  • Completed: **${completedDeals}**\n\n💵 **Your Earnings:**\n${earningsLine}\n\n💸 **Withdrawable:**\n${withdrawLine}`;
                         const btns: any[] = [];
+                        if (withdrawable?.length) btns.push({ type: 2, label: '💸 Withdraw Earnings', style: 3, custom_id: `withdraw_community_${group.id}` });
                         if (group.license_tier !== 'enterprise') btns.push({ type: 2, label: '🚀 Upgrade License', style: 1, custom_id: `upgrade_tier_${group.id}` });
                         btns.push({ type: 2, label: '🔙 Main Menu', style: 2, custom_id: 'main_menu' });
-                        return interaction.editReply({ content: msg, components: [{ type: 1, components: btns }] });
+                        const rows: any[] = [];
+                        for (let i = 0; i < btns.length; i += 5) rows.push({ type: 1, components: btns.slice(i, i + 5) });
+                        return interaction.editReply({ content: msg, components: rows });
                     }
                     // Multiple servers: show list
                     const btns = communities.map((g: any) => ({ type: 2, label: `🏘️ ${g.group_name.slice(0, 30)}  ·  ${g.license_tier}`, style: 2, custom_id: `view_group_stats_${g.id}` }));
@@ -1071,14 +1076,18 @@ client.on('interactionCreate', async (interaction) => {
                 if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
                     const statsRes = await axios.get(`${API_URL}/communities/${groupId}/stats`);
-                    const { group, earnings, totalDeals, completedDeals } = statsRes.data;
+                    const { group, earnings, withdrawable, totalDeals, completedDeals } = statsRes.data;
                     const earningsLine = earnings?.length ? earnings.map((e: any) => `  • **${e.total.toLocaleString()} ${e.currency}**`).join('\n') : '  • None yet';
+                    const withdrawLine = withdrawable?.length ? withdrawable.map((w: any) => `  • **${w.available.toLocaleString()} ${w.currency}**`).join('\n') : '  • None available';
                     const tierEmoji: Record<string, string> = { free: '🟢', pro: '🔵', enterprise: '🟡' };
-                    const msg = `📊 **Server Dashboard**\n\n🏘️ **${group.group_name}**\n${tierEmoji[group.license_tier] || '🟢'} Tier: **${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}**\n💰 Revenue Share: **${group.admin_revenue_share_percent}%**\n\n📈 **Activity**\n  • Total Deals: **${totalDeals}**\n  • Completed: **${completedDeals}**\n\n💵 **Your Earnings:**\n${earningsLine}`;
+                    const msg = `📊 **Server Dashboard**\n\n🏘️ **${group.group_name}**\n${tierEmoji[group.license_tier] || '🟢'} Tier: **${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}**\n💰 Revenue Share: **${group.admin_revenue_share_percent}%**\n\n📈 **Activity**\n  • Total Deals: **${totalDeals}**\n  • Completed: **${completedDeals}**\n\n💵 **Your Earnings:**\n${earningsLine}\n\n💸 **Withdrawable:**\n${withdrawLine}`;
                     const btns: any[] = [];
+                    if (withdrawable?.length) btns.push({ type: 2, label: '💸 Withdraw Earnings', style: 3, custom_id: `withdraw_community_${group.id}` });
                     if (group.license_tier !== 'enterprise') btns.push({ type: 2, label: '🚀 Upgrade License', style: 1, custom_id: `upgrade_tier_${group.id}` });
                     btns.push({ type: 2, label: '🔙 My Servers', style: 2, custom_id: 'my_group_dashboard' });
-                    return interaction.editReply({ content: msg, components: [{ type: 1, components: btns }] });
+                    const rows: any[] = [];
+                    for (let i = 0; i < btns.length; i += 5) rows.push({ type: 1, components: btns.slice(i, i + 5) });
+                    return interaction.editReply({ content: msg, components: rows });
                 } catch (err: any) {
                     await interaction.editReply(`❌ Error: ${err.message}`);
                 }
@@ -1122,6 +1131,57 @@ client.on('interactionCreate', async (interaction) => {
                 } catch (err: any) {
                     await interaction.editReply(`❌ Could not generate payment link: ${err.response?.data?.error || err.message}`);
                 }
+
+            } else if (customId.startsWith('withdraw_community_')) {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const groupId = customId.replace('withdraw_community_', '');
+                try {
+                    const statsRes = await axios.get(`${API_URL}/communities/${groupId}/stats`);
+                    const { withdrawable } = statsRes.data;
+                    if (!withdrawable?.length) return interaction.editReply('ℹ️ No withdrawable balance at this time.');
+                    const sym: Record<string, string> = { USD: '$', NGN: '₦', EUR: '€', GBP: '£' };
+                    const fmtAmt = (a: number, c: string) => `${sym[c] || ''}${a.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${c}`;
+                    if (withdrawable.length === 1) {
+                        communityWithdrawSessions.set(interaction.user.id, { groupId, currency: withdrawable[0].currency });
+                        return interaction.editReply({
+                            content: `💸 **Withdraw Earnings**\n\nAvailable: **${fmtAmt(withdrawable[0].available, withdrawable[0].currency)}**\n\nClick below to enter your bank details:`,
+                            components: [{ type: 1, components: [{ type: 2, label: '🏦 Enter Bank Details', style: 1, custom_id: `cwd_modal_${groupId}_${withdrawable[0].currency}` }] }],
+                        });
+                    }
+                    // Multiple currencies — show picker
+                    const btns = withdrawable.map((w: any) => ({ type: 2, label: `${w.currency} — ${fmtAmt(w.available, w.currency)}`, style: 2, custom_id: `cwd_pick_${groupId}_${w.currency}` }));
+                    return interaction.editReply({ content: '💸 **Withdraw Earnings**\n\nSelect the currency to withdraw:', components: [{ type: 1, components: btns }] });
+                } catch (err: any) {
+                    await interaction.editReply(`❌ Error: ${err.message}`);
+                }
+
+            } else if (customId.startsWith('cwd_pick_')) {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const parts = customId.split('_');
+                const currency = parts[parts.length - 1];
+                const groupId = parts.slice(2, -1).join('_');
+                communityWithdrawSessions.set(interaction.user.id, { groupId, currency });
+                return interaction.editReply({
+                    content: `Currency selected: **${currency}**\n\nClick below to enter your bank details:`,
+                    components: [{ type: 1, components: [{ type: 2, label: '🏦 Enter Bank Details', style: 1, custom_id: `cwd_modal_${groupId}_${currency}` }] }],
+                });
+
+            } else if (customId.startsWith('cwd_modal_')) {
+                // Direct button response — can showModal()
+                const parts = customId.split('_');
+                const currency = parts[parts.length - 1];
+                const groupId = parts.slice(2, -1).join('_');
+                communityWithdrawSessions.set(interaction.user.id, { groupId, currency });
+                await interaction.showModal({
+                    custom_id: 'cwd_submit',
+                    title: `Withdraw ${currency} Earnings`,
+                    components: [
+                        { type: 1, components: [{ type: 4, custom_id: 'amount', label: 'Amount', style: 1, placeholder: '0.00', required: true }] },
+                        { type: 1, components: [{ type: 4, custom_id: 'bank_name', label: 'Bank Name', style: 1, placeholder: 'e.g. GTBank', required: true }] },
+                        { type: 1, components: [{ type: 4, custom_id: 'account_number', label: 'Account Number', style: 1, placeholder: '10-digit account number', required: true }] },
+                        { type: 1, components: [{ type: 4, custom_id: 'account_name', label: 'Account Name', style: 1, placeholder: 'As on your bank account', required: true }] },
+                    ],
+                });
 
             } else if (customId === 'main_menu' || customId === 'main_menu_back') {
                 await sendMainMenu(interaction);
@@ -1801,6 +1861,29 @@ client.on('interactionCreate', async (interaction) => {
                     });
                 } catch (err: any) {
                     await interaction.editReply(`❌ Error: ${err.response?.data?.error || err.message}`);
+                }
+            } else if (customId === 'cwd_submit') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const session = communityWithdrawSessions.get(interaction.user.id);
+                if (!session) return interaction.editReply('❌ Session expired. Please try again from the dashboard.');
+                communityWithdrawSessions.delete(interaction.user.id);
+                const amountStr = interaction.fields.getTextInputValue('amount');
+                const bank_name = interaction.fields.getTextInputValue('bank_name');
+                const account_number = interaction.fields.getTextInputValue('account_number');
+                const account_name = interaction.fields.getTextInputValue('account_name');
+                const amount = parseFloat(amountStr);
+                if (isNaN(amount) || amount <= 0) return interaction.editReply('❌ Invalid amount. Please enter a positive number.');
+                try {
+                    await axios.post(`${API_URL}/communities/${session.groupId}/withdraw`, {
+                        currency: session.currency,
+                        amount,
+                        bank_name,
+                        account_number,
+                        account_name,
+                    });
+                    await interaction.editReply(`✅ **Withdrawal Requested!**\n\nAmount: **${amount.toLocaleString()} ${session.currency}**\nBank: ${bank_name} · ${account_number}\nAccount: ${account_name}\n\n⏳ We'll process this within 1–2 business days. You'll receive a notification when it's done.`);
+                } catch (err: any) {
+                    await interaction.editReply(`❌ ${err.response?.data?.error || err.message}`);
                 }
             }
         }

@@ -200,6 +200,24 @@ router.get('/:id/stats', async (req, res) => {
             earningsByCurrency[c.currency] = (earningsByCurrency[c.currency] || 0) + Number(c.amount);
         });
 
+        // Already-withdrawn amounts (PENDING / PROCESSING / PAID count against balance)
+        const { data: priorWithdrawals } = await supabase
+            .from('withdrawals')
+            .select('amount, currency')
+            .eq('group_id', id)
+            .in('status', ['PENDING', 'PROCESSING', 'PAID']);
+
+        const withdrawnByCurrency: Record<string, number> = {};
+        (priorWithdrawals || []).forEach((w: any) => {
+            withdrawnByCurrency[w.currency] = (withdrawnByCurrency[w.currency] || 0) + Number(w.amount);
+        });
+
+        const withdrawableByCurrency: Record<string, number> = {};
+        Object.entries(earningsByCurrency).forEach(([currency, total]) => {
+            const available = total - (withdrawnByCurrency[currency] || 0);
+            if (available > 0) withdrawableByCurrency[currency] = available;
+        });
+
         // Total transaction volume in this group
         const { data: groupTxns } = await supabase
             .from('transactions')
@@ -218,11 +236,82 @@ router.get('/:id/stats', async (req, res) => {
         return res.json({
             group,
             earnings: Object.entries(earningsByCurrency).map(([currency, total]) => ({ currency, total })),
+            withdrawable: Object.entries(withdrawableByCurrency).map(([currency, available]) => ({ currency, available })),
             volume: Object.entries(volumeByCurrency).map(([currency, total]) => ({ currency, total })),
             totalDeals,
             completedDeals,
         });
     } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Request a commission withdrawal for a licensed group
+router.post('/:id/withdraw', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { currency, amount, bank_name, account_number, account_name } = req.body;
+
+        if (!currency || !amount || !bank_name || !account_number || !account_name) {
+            return res.status(400).json({ error: 'currency, amount, bank_name, account_number, and account_name are required' });
+        }
+
+        const { data: group } = await supabase
+            .from('community_groups')
+            .select('id, group_name, admin_profile_id')
+            .eq('id', id)
+            .single();
+        if (!group) return res.status(404).json({ error: 'Group not found' });
+
+        // Calculate available balance
+        const { data: commissions } = await supabase
+            .from('community_commissions')
+            .select('amount')
+            .eq('group_id', id)
+            .eq('currency', currency)
+            .eq('status', 'COMPLETED');
+        const totalEarned = (commissions || []).reduce((s: number, c: any) => s + Number(c.amount), 0);
+
+        const { data: priorW } = await supabase
+            .from('withdrawals')
+            .select('amount')
+            .eq('group_id', id)
+            .eq('currency', currency)
+            .in('status', ['PENDING', 'PROCESSING', 'PAID']);
+        const totalWithdrawn = (priorW || []).reduce((s: number, w: any) => s + Number(w.amount), 0);
+
+        const available = totalEarned - totalWithdrawn;
+        if (Number(amount) > available) {
+            return res.status(400).json({ error: `Insufficient balance. Available: ${available.toFixed(2)} ${currency}` });
+        }
+
+        const reference = `CWD-${id.replace(/-/g, '').slice(0, 16)}-${Date.now()}`;
+        const { data: withdrawal, error } = await supabase
+            .from('withdrawals')
+            .insert({
+                profile_id: group.admin_profile_id,
+                group_id: id,
+                amount: Number(amount),
+                currency,
+                status: 'PENDING',
+                reference,
+                details: { bank_name, account_number, account_name },
+            })
+            .select()
+            .single();
+        if (error) throw error;
+
+        const { sendReferralNotification } = await import('../services/notifications');
+        await sendReferralNotification(
+            group.admin_profile_id,
+            `💸 <b>Withdrawal Requested</b>\n\nGroup: <b>${group.group_name}</b>\nAmount: <b>${Number(amount).toLocaleString()} ${currency}</b>\nBank: ${bank_name} · ${account_number}\nAccount: ${account_name}\n\nStatus: <b>Pending</b> — we'll process within 1–2 business days.`,
+            `Withdrawal request for ${group.group_name}`,
+            `<p>Withdrawal of <b>${Number(amount).toLocaleString()} ${currency}</b> requested for <b>${group.group_name}</b>.<br>Bank: ${bank_name} · ${account_number} · ${account_name}<br>We'll process within 1–2 business days.</p>`
+        );
+
+        return res.status(201).json({ withdrawal });
+    } catch (err: any) {
+        console.error('❌ Community withdraw error:', err);
         res.status(500).json({ error: err.message });
     }
 });
