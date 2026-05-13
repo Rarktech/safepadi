@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
-import { sendNotification, recordNotification } from '../services/notifications';
+import { sendNotification, recordNotification, sendReferralNotification } from '../services/notifications';
 import crypto from 'crypto';
 import axios from 'axios';
 
@@ -306,6 +306,53 @@ router.post('/flutterwave/webhook', async (req, res) => {
             if (!txRef) {
                 console.warn('⚠️ Webhook received without tx_ref');
                 return res.status(200).send('OK (No ref)');
+            }
+
+            // Community license upgrade payment
+            if (txRef.startsWith('UPLG-')) {
+                // Format: UPLG-{32hexChars}-{tier}-{timestamp}
+                const parts = txRef.split('-');
+                const rawGroupId = parts[1];
+                const targetTier = parts[2];
+                if (rawGroupId?.length === 32 && ['pro', 'enterprise'].includes(targetTier)) {
+                    const groupId = `${rawGroupId.slice(0,8)}-${rawGroupId.slice(8,12)}-${rawGroupId.slice(12,16)}-${rawGroupId.slice(16,20)}-${rawGroupId.slice(20)}`;
+                    const revenueShareMap: Record<string, number> = { free: 10, pro: 25, enterprise: 40 };
+                    const { data: group } = await supabase
+                        .from('community_groups')
+                        .update({
+                            license_tier: targetTier,
+                            admin_revenue_share_percent: revenueShareMap[targetTier],
+                            updated_at: new Date().toISOString(),
+                        })
+                        .eq('id', groupId)
+                        .select()
+                        .single();
+                    if (group) {
+                        console.log(`✅ [Upgrade] "${group.group_name}" upgraded to ${targetTier}`);
+                        const tierName = targetTier.charAt(0).toUpperCase() + targetTier.slice(1);
+                        const platformMsg =
+                            `🎉 <b>License Upgraded!</b>\n\n` +
+                            `Your group <b>${group.group_name}</b> is now on the <b>${tierName}</b> plan.\n\n` +
+                            `💰 New revenue share: <b>${revenueShareMap[targetTier]}%</b> of every platform fee earned in your group.\n\n` +
+                            `Keep growing your community! 🚀`;
+                        const emailHtml =
+                            `<div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:8px;">` +
+                            `<h2 style="color:#0f172a;">🎉 License Upgraded to ${tierName}!</h2>` +
+                            `<p><b>${group.group_name}</b> is now on the ${tierName} plan.</p>` +
+                            `<p>Revenue share: <b>${revenueShareMap[targetTier]}%</b> of every platform fee earned in your group.</p>` +
+                            `<p style="color:#64748b;font-size:13px;">Keep growing your Safeeely community! 🚀</p>` +
+                            `</div>`;
+                        sendReferralNotification(
+                            group.admin_profile_id,
+                            platformMsg,
+                            `License upgraded to ${tierName} — ${group.group_name}`,
+                            emailHtml
+                        ).catch(e => console.error('Upgrade notification error:', e));
+                    }
+                } else {
+                    console.warn(`⚠️ [Upgrade] Malformed UPLG tx_ref: ${txRef}`);
+                }
+                return res.status(200).send('OK');
             }
 
             const txnCode = txRef.split('_')[0];

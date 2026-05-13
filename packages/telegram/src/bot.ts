@@ -896,14 +896,82 @@ bot.action('my_group_dashboard', async (ctx) => {
             `  • Completed: <b>${completedDeals}</b>\n\n` +
             `💵 <b>Your Earnings:</b>\n${earningsLines}`;
 
+        const dashboardButtons: any[][] = [];
+        if (group.license_tier !== 'enterprise') {
+            dashboardButtons.push([{ text: '🚀 Upgrade License', callback_data: `upgrade_tier_${group.id}` }]);
+        }
+        dashboardButtons.push([{ text: '🔙 Main Menu', callback_data: 'main_menu' }]);
+
         return ctx.reply(msg, {
             parse_mode: 'HTML',
-            reply_markup: {
-                inline_keyboard: [[{ text: '🔙 Main Menu', callback_data: 'main_menu' }]],
-            },
+            reply_markup: { inline_keyboard: dashboardButtons },
         });
     } catch (err: any) {
         ctx.reply(`❌ Error: ${err.response?.data?.error || err.message}`);
+    }
+});
+
+// Show tier upgrade options
+bot.action(/^upgrade_tier_([0-9a-f-]+)$/, async (ctx) => {
+    const groupId = ctx.match[1];
+    try { await ctx.answerCbQuery(); } catch (e) { }
+    try {
+        const communityRes = await axios.get(`${API_URL}/communities/by_admin_platform/telegram/${ctx.from?.id}`);
+        const group = communityRes.data?.community;
+        if (!group) return ctx.reply('ℹ️ No active licensed group found.');
+
+        const currentTier = group.license_tier as string;
+        const msg =
+            `🚀 <b>Upgrade Your License</b>\n\n` +
+            `Current tier: <b>${currentTier.charAt(0).toUpperCase() + currentTier.slice(1)}</b>\n\n` +
+            `Choose a plan:\n\n` +
+            `🔵 <b>Pro</b> — ₦15,000/month\n  • 25% revenue share on every platform fee\n\n` +
+            `🟡 <b>Enterprise</b> — ₦35,000/month\n  • 40% revenue share on every platform fee`;
+
+        const buttons: any[][] = [];
+        if (currentTier === 'free') {
+            buttons.push([{ text: '🔵 Pro — ₦15,000/mo', callback_data: `confirm_upgrade_${groupId}_pro` }]);
+        }
+        buttons.push([{ text: '🟡 Enterprise — ₦35,000/mo', callback_data: `confirm_upgrade_${groupId}_enterprise` }]);
+        buttons.push([{ text: '🔙 Back', callback_data: 'my_group_dashboard' }]);
+
+        return ctx.reply(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } });
+    } catch (err: any) {
+        ctx.reply(`❌ Error: ${err.message}`);
+    }
+});
+
+// Generate payment link and send to admin
+bot.action(/^confirm_upgrade_([0-9a-f-]+)_(pro|enterprise)$/, async (ctx) => {
+    const groupId = ctx.match[1];
+    const targetTier = ctx.match[2];
+    try { await ctx.answerCbQuery('⏳ Generating payment link...'); } catch (e) { }
+    try {
+        const tierLabels: Record<string, string> = { pro: 'Pro — ₦15,000', enterprise: 'Enterprise — ₦35,000' };
+        await ctx.reply('⏳ <b>Generating your payment link...</b>', { parse_mode: 'HTML' });
+
+        const upgradeRes = await axios.post(`${API_URL}/communities/${groupId}/upgrade/initiate`, {
+            target_tier: targetTier,
+        });
+        const { payment_url } = upgradeRes.data;
+
+        const tierName = targetTier.charAt(0).toUpperCase() + targetTier.slice(1);
+        const msg =
+            `💳 <b>Complete Your Upgrade</b>\n\n` +
+            `Plan: <b>${tierLabels[targetTier]}/month</b>\n\n` +
+            `Tap the button below to pay securely. Your tier will upgrade automatically once payment is confirmed.`;
+
+        return ctx.reply(msg, {
+            parse_mode: 'HTML',
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: `💳 Pay for ${tierName} Now`, url: payment_url }],
+                    [{ text: '🔙 Back', callback_data: 'my_group_dashboard' }],
+                ],
+            },
+        });
+    } catch (err: any) {
+        ctx.reply(`❌ Could not generate payment link: ${err.response?.data?.error || err.message}`);
     }
 });
 

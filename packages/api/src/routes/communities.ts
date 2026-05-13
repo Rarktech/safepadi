@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
+import axios from 'axios';
 
 const router = Router();
 
@@ -207,6 +208,74 @@ router.post('/digest/trigger', async (req, res) => {
         await runWeeklyDigest();
         res.json({ ok: true, message: 'Weekly digest sent to all active group admins' });
     } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Initiate a tier upgrade payment via Flutterwave
+router.post('/:id/upgrade/initiate', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { target_tier } = req.body;
+
+        if (!['pro', 'enterprise'].includes(target_tier)) {
+            return res.status(400).json({ error: 'target_tier must be "pro" or "enterprise"' });
+        }
+
+        const { data: group } = await supabase
+            .from('community_groups')
+            .select('*, admin:admin_profile_id(id, email, first_name, last_name, safetag)')
+            .eq('id', id)
+            .single();
+
+        if (!group) return res.status(404).json({ error: 'Group not found' });
+        if (group.status !== 'active') return res.status(400).json({ error: 'Group is not active' });
+        if (group.license_tier === target_tier) return res.status(400).json({ error: `Already on the ${target_tier} tier` });
+        if (group.license_tier === 'enterprise') return res.status(400).json({ error: 'Already on the highest tier' });
+
+        const tierPrices: Record<string, { amount: number; currency: string }> = {
+            pro: { amount: 15000, currency: 'NGN' },
+            enterprise: { amount: 35000, currency: 'NGN' },
+        };
+        const price = tierPrices[target_tier];
+
+        const secretKey = process.env.FLUTTERWAVE_SECRET_KEY;
+        if (!secretKey) return res.status(500).json({ error: 'Payment gateway not configured' });
+
+        // Encode groupId without dashes so tx_ref is unambiguously parseable
+        const groupIdEncoded = id.replace(/-/g, '');
+        const txRef = `UPLG-${groupIdEncoded}-${target_tier}-${Date.now()}`;
+
+        const admin = group.admin as any;
+        const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
+
+        const payload = {
+            tx_ref: txRef,
+            amount: price.amount,
+            currency: price.currency,
+            redirect_url: `${reviewsUrl}/upgrade/success`,
+            payment_options: 'card,banktransfer,ussd',
+            customer: {
+                email: admin?.email || 'admin@safeeely.com',
+                name: `${admin?.first_name || ''} ${admin?.last_name || ''}`.trim() || admin?.safetag || 'Group Admin',
+            },
+            customizations: {
+                title: 'Safeeely Community License',
+                description: `Upgrade to ${target_tier.charAt(0).toUpperCase() + target_tier.slice(1)} tier — ${group.group_name}`,
+                logo: 'https://safeeely.com/logo.png',
+            },
+        };
+
+        const response = await axios.post('https://api.flutterwave.com/v3/payments', payload, {
+            headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/json' },
+        });
+
+        if (response.data.status === 'success') {
+            return res.json({ payment_url: response.data.data.link, tx_ref: txRef });
+        }
+        throw new Error(response.data.message || 'Flutterwave initialization failed');
+    } catch (err: any) {
+        console.error('❌ Community upgrade initiate error:', err.response?.data || err.message);
         res.status(500).json({ error: err.message });
     }
 });
