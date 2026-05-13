@@ -86,6 +86,9 @@ export async function sendNotification(platform: string, platformId: string, mes
             if (options && options.length > 0) {
                 payload.components = [{ type: 1, components: options.map(opt => ({ type: 2, label: opt.label, style: opt.url ? 5 : 2, url: opt.url, custom_id: opt.customId })) }];
             }
+            if (imageUrl) {
+                payload.embeds = [{ image: { url: imageUrl } }];
+            }
             await axios.post(`https://discord.com/api/v10/channels/${channelId}/messages`, payload, { headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` } });
             log(`✅ [Discord Notification] Sent to ${platformId}`);
         } catch (err: any) { log(`❌ Discord Error: ${err.message}`); }
