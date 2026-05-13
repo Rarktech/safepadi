@@ -59,8 +59,10 @@ const showMainMenu = async (ctx: SafeeelyContext) => {
     if (userId) {
         try {
             const communityRes = await axios.get(`${API_URL}/communities/by_admin_platform/telegram/${userId}`);
-            if (communityRes.data?.community) {
-                communityRow = [[{ text: '📊 My Group', callback_data: 'my_group_dashboard' }]];
+            const groupCount = communityRes.data?.communities?.length || 0;
+            if (groupCount > 0) {
+                const label = groupCount === 1 ? '📊 My Group' : `📊 My Groups (${groupCount})`;
+                communityRow = [[{ text: label, callback_data: 'my_group_dashboard' }]];
             }
         } catch {
             // No group button if check fails
@@ -864,65 +866,96 @@ bot.on('my_chat_member', async (ctx) => {
     }
 });
 
-// Admin group dashboard
+// Helper: render stats for a single group with configurable back button
+async function renderGroupDashboard(ctx: SafeeelyContext, group: any, backCallback: string) {
+    const statsRes = await axios.get(`${API_URL}/communities/${group.id}/stats`);
+    const { earnings, totalDeals, completedDeals } = statsRes.data;
+
+    const fmtAmt = (amount: number, currency: string) => {
+        const sym: Record<string, string> = { USD: '$', NGN: '₦', EUR: '€', GBP: '£' };
+        return sym[currency]
+            ? `${sym[currency]}${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            : `${parseFloat(Number(amount).toFixed(8))} ${currency}`;
+    };
+
+    const earningsLines = earnings?.length
+        ? earnings.map((e: any) => `  • <b>${fmtAmt(e.total, e.currency)}</b>`).join('\n')
+        : '  • None yet';
+
+    const tierEmoji: Record<string, string> = { free: '🟢', pro: '🔵', enterprise: '🟡' };
+    const msg =
+        `📊 <b>Group Dashboard</b>\n\n` +
+        `🏘️ <b>${group.group_name}</b>\n` +
+        `${tierEmoji[group.license_tier] || '🟢'} Tier: <b>${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}</b>\n` +
+        `💰 Revenue Share: <b>${group.admin_revenue_share_percent}%</b>\n\n` +
+        `📈 <b>Activity</b>\n` +
+        `  • Total Deals: <b>${totalDeals}</b>\n` +
+        `  • Completed: <b>${completedDeals}</b>\n\n` +
+        `💵 <b>Your Earnings:</b>\n${earningsLines}`;
+
+    const buttons: any[][] = [];
+    if (group.license_tier !== 'enterprise') {
+        buttons.push([{ text: '🚀 Upgrade License', callback_data: `upgrade_tier_${group.id}` }]);
+    }
+    buttons.push([{ text: '🔙 Back', callback_data: backCallback }]);
+
+    return ctx.reply(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } });
+}
+
+// Admin group dashboard — single group → stats directly; multiple → picker list
 bot.action('my_group_dashboard', async (ctx) => {
     try { await ctx.answerCbQuery(); } catch (e) { }
     try {
         const communityRes = await axios.get(`${API_URL}/communities/by_admin_platform/telegram/${ctx.from?.id}`);
-        const group = communityRes.data?.community;
-        if (!group) return ctx.reply('ℹ️ You don\'t have an active licensed group yet.');
+        const { communities } = communityRes.data;
 
-        const statsRes = await axios.get(`${API_URL}/communities/${group.id}/stats`);
-        const { earnings, totalDeals, completedDeals } = statsRes.data;
-
-        const fmtAmt = (amount: number, currency: string) => {
-            const sym: Record<string, string> = { USD: '$', NGN: '₦', EUR: '€', GBP: '£' };
-            return sym[currency]
-                ? `${sym[currency]}${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                : `${parseFloat(Number(amount).toFixed(8))} ${currency}`;
-        };
-
-        const earningsLines = earnings?.length
-            ? earnings.map((e: any) => `  • <b>${fmtAmt(e.total, e.currency)}</b>`).join('\n')
-            : '  • None yet';
-
-        const tierEmoji: Record<string, string> = { free: '🟢', pro: '🔵', enterprise: '🟡' };
-        const msg = `📊 <b>My Group Dashboard</b>\n\n` +
-            `🏘️ <b>${group.group_name}</b>\n` +
-            `${tierEmoji[group.license_tier] || '🟢'} Tier: <b>${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}</b>\n` +
-            `💰 Revenue Share: <b>${group.admin_revenue_share_percent}%</b>\n\n` +
-            `📈 <b>Activity</b>\n` +
-            `  • Total Deals: <b>${totalDeals}</b>\n` +
-            `  • Completed: <b>${completedDeals}</b>\n\n` +
-            `💵 <b>Your Earnings:</b>\n${earningsLines}`;
-
-        const dashboardButtons: any[][] = [];
-        if (group.license_tier !== 'enterprise') {
-            dashboardButtons.push([{ text: '🚀 Upgrade License', callback_data: `upgrade_tier_${group.id}` }]);
+        if (!communities || communities.length === 0) {
+            return ctx.reply('ℹ️ You don\'t have any active licensed groups yet.');
         }
-        dashboardButtons.push([{ text: '🔙 Main Menu', callback_data: 'main_menu' }]);
 
-        return ctx.reply(msg, {
-            parse_mode: 'HTML',
-            reply_markup: { inline_keyboard: dashboardButtons },
-        });
+        if (communities.length === 1) {
+            return renderGroupDashboard(ctx, communities[0], 'main_menu');
+        }
+
+        const buttons: any[][] = communities.map((g: any) => [{
+            text: `🏘️ ${g.group_name}  ·  ${g.license_tier.charAt(0).toUpperCase() + g.license_tier.slice(1)}`,
+            callback_data: `view_group_stats_${g.id}`,
+        }]);
+        buttons.push([{ text: '🔙 Main Menu', callback_data: 'main_menu' }]);
+
+        return ctx.reply(
+            `📊 <b>My Groups</b>\n\nYou manage <b>${communities.length}</b> licensed groups. Select one to view its dashboard:`,
+            { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }
+        );
     } catch (err: any) {
         ctx.reply(`❌ Error: ${err.response?.data?.error || err.message}`);
     }
 });
 
-// Show tier upgrade options
+// Per-group stats (navigated to from the multi-group list)
+bot.action(/^view_group_stats_([0-9a-f-]+)$/, async (ctx) => {
+    const groupId = ctx.match[1];
+    try { await ctx.answerCbQuery(); } catch (e) { }
+    try {
+        const statsRes = await axios.get(`${API_URL}/communities/${groupId}/stats`);
+        return renderGroupDashboard(ctx, statsRes.data.group, 'my_group_dashboard');
+    } catch (err: any) {
+        ctx.reply(`❌ Error: ${err.message}`);
+    }
+});
+
+// Show tier upgrade options — always fetches the specific group's tier from stats
 bot.action(/^upgrade_tier_([0-9a-f-]+)$/, async (ctx) => {
     const groupId = ctx.match[1];
     try { await ctx.answerCbQuery(); } catch (e) { }
     try {
-        const communityRes = await axios.get(`${API_URL}/communities/by_admin_platform/telegram/${ctx.from?.id}`);
-        const group = communityRes.data?.community;
-        if (!group) return ctx.reply('ℹ️ No active licensed group found.');
+        const statsRes = await axios.get(`${API_URL}/communities/${groupId}/stats`);
+        const { group } = statsRes.data;
 
         const currentTier = group.license_tier as string;
         const msg =
             `🚀 <b>Upgrade Your License</b>\n\n` +
+            `Group: <b>${group.group_name}</b>\n` +
             `Current tier: <b>${currentTier.charAt(0).toUpperCase() + currentTier.slice(1)}</b>\n\n` +
             `Choose a plan:\n\n` +
             `🔵 <b>Pro</b> — ₦15,000/month\n  • 25% revenue share on every platform fee\n\n` +
@@ -933,7 +966,7 @@ bot.action(/^upgrade_tier_([0-9a-f-]+)$/, async (ctx) => {
             buttons.push([{ text: '🔵 Pro — ₦15,000/mo', callback_data: `confirm_upgrade_${groupId}_pro` }]);
         }
         buttons.push([{ text: '🟡 Enterprise — ₦35,000/mo', callback_data: `confirm_upgrade_${groupId}_enterprise` }]);
-        buttons.push([{ text: '🔙 Back', callback_data: 'my_group_dashboard' }]);
+        buttons.push([{ text: '🔙 Back', callback_data: `view_group_stats_${groupId}` }]);
 
         return ctx.reply(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } });
     } catch (err: any) {

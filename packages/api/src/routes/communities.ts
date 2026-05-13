@@ -92,12 +92,11 @@ router.get('/by_telegram/:groupId', async (req, res) => {
     }
 });
 
-// Check if a user is a group admin (used to show "My Group" button conditionally)
+// Check if a user is a group admin — returns all active groups for multi-group management
 router.get('/by_admin_platform/telegram/:platformId', async (req, res) => {
     try {
         const { platformId } = req.params;
 
-        // Find profile by linked account
         const { data: linked } = await supabase
             .from('linked_accounts')
             .select('profile_id')
@@ -106,16 +105,17 @@ router.get('/by_admin_platform/telegram/:platformId', async (req, res) => {
             .maybeSingle();
 
         const profileId = linked?.profile_id;
-        if (!profileId) return res.json({ community: null });
+        if (!profileId) return res.json({ communities: [], community: null });
 
-        const { data: group } = await supabase
+        const { data: groups } = await supabase
             .from('community_groups')
             .select('*')
             .eq('admin_profile_id', profileId)
             .eq('status', 'active')
-            .maybeSingle();
+            .order('created_at', { ascending: false });
 
-        return res.json({ community: group || null });
+        const communities = groups || [];
+        return res.json({ communities, community: communities[0] || null });
     } catch (err: any) {
         res.status(500).json({ error: err.message });
     }
