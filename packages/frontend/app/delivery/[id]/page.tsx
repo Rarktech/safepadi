@@ -101,7 +101,7 @@ export default function DeliveryPortalPage() {
                     <CheckCircle className="w-10 h-10 text-white" />
                 </div>
                 
-                <h1 className="text-4xl font-black text-slate-900 tracking-tighter mb-2">Deal Secured!</h1>
+                <h1 className="text-4xl font-bold text-slate-900 tracking-tighter mb-2">Deal Secured!</h1>
                 <p className="text-slate-500 max-w-md mx-auto mb-8 font-medium">
                     Funds have been released to <span className="text-slate-900 font-bold">{txn.seller?.safetag}</span>. Your transaction is now officially complete.
                 </p>
@@ -116,14 +116,14 @@ export default function DeliveryPortalPage() {
                     />
                     <div className="mt-4 flex items-center justify-center gap-2 py-2">
                         <Shield className="w-4 h-4 text-emerald-500" />
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Verified by Safeeely Protocol</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Verified by Safeeely Protocol</span>
                     </div>
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-4 items-center w-full max-w-sm">
                     <Button
                         onClick={() => window.open(`${reviewsUrl}/reviews/${txn.id}`, '_blank')}
-                        className="bg-primary hover:bg-primary/90 text-white font-black px-8 h-16 rounded-2xl shadow-xl shadow-green-100 flex items-center gap-2 flex-1 w-full"
+                        className="bg-primary hover:bg-primary/90 text-white font-bold px-8 h-16 rounded-2xl shadow-xl shadow-green-100 flex items-center gap-2 flex-1 w-full"
                     >
                         <Star className="w-5 h-5 fill-white" />
                         Leave a Review
@@ -152,11 +152,11 @@ export default function DeliveryPortalPage() {
                     <div className="flex items-center gap-4">
                         <img src="/logo-main.svg" alt="Safeeely" className="h-6" />
                         <div className="h-4 w-px bg-slate-200" />
-                        <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Delivery Portal</span>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Delivery Portal</span>
                     </div>
                     <div className="flex items-center gap-2 text-green-600">
                         <Shield className="w-4 h-4" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">Escrow Protected</span>
+                        <span className="text-[10px] font-bold uppercase tracking-widest">Escrow Protected</span>
                     </div>
                 </div>
             </nav>
@@ -164,11 +164,11 @@ export default function DeliveryPortalPage() {
             <main className="max-w-3xl mx-auto pt-12 pb-24 px-6">
                 {/* Hero Header */}
                 <div className="mb-12">
-                    <div className="inline-flex items-center gap-2 bg-green-50 text-green-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest mb-4">
+                    <div className="inline-flex items-center gap-2 bg-green-50 text-green-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest mb-4">
                         {txn.status === 'FINALIZED' ? <CheckCircle className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
                         {txn.status.replace(/_/g, ' ')}
                     </div>
-                    <h1 className="text-4xl font-black text-slate-900 tracking-tighter mb-2">Review Delivery Documents</h1>
+                    <h1 className="text-4xl font-bold text-slate-900 tracking-tighter mb-2">Review Delivery Documents</h1>
                     <p className="text-slate-500 font-medium">
                         Delivery for <span className="text-slate-900 font-bold">{txn.product_name}</span> from <span className="text-slate-900 font-bold">{txn.seller?.safetag}</span>
                     </p>
@@ -177,12 +177,12 @@ export default function DeliveryPortalPage() {
                 {/* Transaction Snap */}
                 <div className="bg-white rounded-[32px] border border-slate-100 p-8 shadow-sm mb-8 flex items-center justify-between">
                     <div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Transaction ID</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Transaction ID</p>
                         <p className="text-sm font-bold text-slate-900 font-mono">{txn.txn_code}</p>
                     </div>
                     <div className="text-right">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Amount</p>
-                        <p className="text-xl font-black text-slate-900">{txn.total_amount} {txn.currency}</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Amount</p>
+                        <p className="text-xl font-bold text-slate-900">{txn.total_amount} {txn.currency}</p>
                     </div>
                 </div>
 
@@ -245,7 +245,7 @@ export default function DeliveryPortalPage() {
                             <Button
                                 onClick={handleConfirmReceipt}
                                 disabled={confirming}
-                                className="bg-[#10b981] hover:bg-[#059669] text-white font-black h-16 rounded-[24px] text-lg shadow-xl shadow-green-200 flex items-center gap-3 w-full"
+                                className="bg-[#10b981] hover:bg-[#059669] text-white font-bold h-16 rounded-[24px] text-lg shadow-xl shadow-green-200 flex items-center gap-3 w-full"
                             >
                                 {confirming ? (
                                     <Loader2 className="w-6 h-6 animate-spin" />
@@ -271,7 +271,7 @@ export default function DeliveryPortalPage() {
                             <CheckCircle className="w-8 h-8 text-white" />
                         </div>
                         <div>
-                            <p className="text-xl font-black text-slate-900">Payment Released</p>
+                            <p className="text-xl font-bold text-slate-900">Payment Released</p>
                             <p className="text-sm text-green-700 font-medium">This transaction is complete and funds have been sent to the seller.</p>
                         </div>
                     </div>
