@@ -1047,14 +1047,19 @@ client.on('interactionCreate', async (interaction) => {
                         return interaction.editReply('ℹ️ You don\'t have any active licensed servers yet.');
                     }
                     if (communities.length === 1) {
-                        const statsRes = await axios.get(`${API_URL}/communities/${communities[0].id}/stats`);
-                        const { group, earnings, withdrawable, totalDeals, completedDeals } = statsRes.data;
-                        const earningsLine = earnings?.length ? earnings.map((e: any) => `  • **${e.total.toLocaleString()} ${e.currency}**`).join('\n') : '  • None yet';
-                        const withdrawLine = withdrawable?.length ? withdrawable.map((w: any) => `  • **${w.available.toLocaleString()} ${w.currency}**`).join('\n') : '  • None available';
+                        const analyticsRes = await axios.get(`${API_URL}/communities/${communities[0].id}/analytics?period=30d`);
+                        const { group, funnel, summary } = analyticsRes.data;
+                        const earnings = summary?.earnings ?? [];
+                        const withdrawable = summary?.withdrawable ?? [];
+                        const earningsLine = earnings.length ? earnings.map((e: any) => `  • **${e.total.toLocaleString()} ${e.currency}**`).join('\n') : '  • None yet';
+                        const withdrawLine = withdrawable.length ? withdrawable.map((w: any) => `  • **${w.available.toLocaleString()} ${w.currency}**`).join('\n') : '  • None available';
                         const tierEmoji: Record<string, string> = { free: '🟢', pro: '🔵', enterprise: '🟡' };
-                        const msg = `📊 **Server Dashboard**\n\n🏘️ **${group.group_name}**\n${tierEmoji[group.license_tier] || '🟢'} Tier: **${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}**\n💰 Revenue Share: **${group.admin_revenue_share_percent}%**\n\n📈 **Activity**\n  • Total Deals: **${totalDeals}**\n  • Completed: **${completedDeals}**\n\n💵 **Your Earnings:**\n${earningsLine}\n\n💸 **Withdrawable:**\n${withdrawLine}`;
+                        const disputeLine = funnel?.disputedDeals ? `  • Disputed: **${funnel.disputedDeals}**\n` : '';
+                        const msg = `📊 **Server Dashboard**\n\n🏘️ **${group.group_name}**\n${tierEmoji[group.license_tier] || '🟢'} Tier: **${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}**\n💰 Revenue Share: **${group.admin_revenue_share_percent}%**\n\n📈 **Activity**\n  • Total Deals: **${funnel?.totalDeals ?? 0}**\n  • Completed: **${funnel?.completedDeals ?? 0}**\n  • Completion Rate: **${funnel?.completionRate ?? 0}%**\n${disputeLine}\n💵 **Your Earnings:**\n${earningsLine}\n\n💸 **Withdrawable:**\n${withdrawLine}`;
+                        const analyticsUrl = `${process.env.REVIEWS_URL || 'http://localhost:3001'}/community/${group.id}/analytics`;
                         const btns: any[] = [];
-                        if (withdrawable?.length) btns.push({ type: 2, label: '💸 Withdraw Earnings', style: 3, custom_id: `withdraw_community_${group.id}` });
+                        if (withdrawable.length) btns.push({ type: 2, label: '💸 Withdraw Earnings', style: 3, custom_id: `withdraw_community_${group.id}` });
+                        btns.push({ type: 2, label: '📊 Full Analytics', style: 5, url: analyticsUrl });
                         if (group.license_tier !== 'enterprise') btns.push({ type: 2, label: '🚀 Upgrade License', style: 1, custom_id: `upgrade_tier_${group.id}` });
                         btns.push({ type: 2, label: '🔙 Main Menu', style: 2, custom_id: 'main_menu' });
                         const rows: any[] = [];
@@ -1075,14 +1080,19 @@ client.on('interactionCreate', async (interaction) => {
                 const groupId = customId.replace('view_group_stats_', '');
                 if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
-                    const statsRes = await axios.get(`${API_URL}/communities/${groupId}/stats`);
-                    const { group, earnings, withdrawable, totalDeals, completedDeals } = statsRes.data;
-                    const earningsLine = earnings?.length ? earnings.map((e: any) => `  • **${e.total.toLocaleString()} ${e.currency}**`).join('\n') : '  • None yet';
-                    const withdrawLine = withdrawable?.length ? withdrawable.map((w: any) => `  • **${w.available.toLocaleString()} ${w.currency}**`).join('\n') : '  • None available';
+                    const analyticsRes = await axios.get(`${API_URL}/communities/${groupId}/analytics?period=30d`);
+                    const { group, funnel, summary } = analyticsRes.data;
+                    const earnings = summary?.earnings ?? [];
+                    const withdrawable = summary?.withdrawable ?? [];
+                    const earningsLine = earnings.length ? earnings.map((e: any) => `  • **${e.total.toLocaleString()} ${e.currency}**`).join('\n') : '  • None yet';
+                    const withdrawLine = withdrawable.length ? withdrawable.map((w: any) => `  • **${w.available.toLocaleString()} ${w.currency}**`).join('\n') : '  • None available';
                     const tierEmoji: Record<string, string> = { free: '🟢', pro: '🔵', enterprise: '🟡' };
-                    const msg = `📊 **Server Dashboard**\n\n🏘️ **${group.group_name}**\n${tierEmoji[group.license_tier] || '🟢'} Tier: **${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}**\n💰 Revenue Share: **${group.admin_revenue_share_percent}%**\n\n📈 **Activity**\n  • Total Deals: **${totalDeals}**\n  • Completed: **${completedDeals}**\n\n💵 **Your Earnings:**\n${earningsLine}\n\n💸 **Withdrawable:**\n${withdrawLine}`;
+                    const disputeLine = funnel?.disputedDeals ? `  • Disputed: **${funnel.disputedDeals}**\n` : '';
+                    const msg = `📊 **Server Dashboard**\n\n🏘️ **${group.group_name}**\n${tierEmoji[group.license_tier] || '🟢'} Tier: **${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}**\n💰 Revenue Share: **${group.admin_revenue_share_percent}%**\n\n📈 **Activity**\n  • Total Deals: **${funnel?.totalDeals ?? 0}**\n  • Completed: **${funnel?.completedDeals ?? 0}**\n  • Completion Rate: **${funnel?.completionRate ?? 0}%**\n${disputeLine}\n💵 **Your Earnings:**\n${earningsLine}\n\n💸 **Withdrawable:**\n${withdrawLine}`;
+                    const analyticsUrl = `${process.env.REVIEWS_URL || 'http://localhost:3001'}/community/${groupId}/analytics`;
                     const btns: any[] = [];
-                    if (withdrawable?.length) btns.push({ type: 2, label: '💸 Withdraw Earnings', style: 3, custom_id: `withdraw_community_${group.id}` });
+                    if (withdrawable.length) btns.push({ type: 2, label: '💸 Withdraw Earnings', style: 3, custom_id: `withdraw_community_${group.id}` });
+                    btns.push({ type: 2, label: '📊 Full Analytics', style: 5, url: analyticsUrl });
                     if (group.license_tier !== 'enterprise') btns.push({ type: 2, label: '🚀 Upgrade License', style: 1, custom_id: `upgrade_tier_${group.id}` });
                     btns.push({ type: 2, label: '🔙 My Servers', style: 2, custom_id: 'my_group_dashboard' });
                     const rows: any[] = [];

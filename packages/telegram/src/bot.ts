@@ -869,8 +869,10 @@ bot.on('my_chat_member', async (ctx) => {
 
 // Helper: render stats for a single group with configurable back button
 async function renderGroupDashboard(ctx: SafeeelyContext, group: any, backCallback: string) {
-    const statsRes = await axios.get(`${API_URL}/communities/${group.id}/stats`);
-    const { earnings, withdrawable, totalDeals, completedDeals } = statsRes.data;
+    const analyticsRes = await axios.get(`${API_URL}/communities/${group.id}/analytics?period=30d`);
+    const { funnel, summary } = analyticsRes.data;
+    const earnings = summary?.earnings ?? [];
+    const withdrawable = summary?.withdrawable ?? [];
 
     const fmtAmt = (amount: number, currency: string) => {
         const sym: Record<string, string> = { USD: '$', NGN: '₦', EUR: '€', GBP: '£' };
@@ -879,34 +881,41 @@ async function renderGroupDashboard(ctx: SafeeelyContext, group: any, backCallba
             : `${parseFloat(Number(amount).toFixed(8))} ${currency}`;
     };
 
-    const earningsLines = earnings?.length
+    const earningsLines = earnings.length
         ? earnings.map((e: any) => `  • <b>${fmtAmt(e.total, e.currency)}</b>`).join('\n')
         : '  • None yet';
 
-    const withdrawLines = withdrawable?.length
+    const withdrawLines = withdrawable.length
         ? withdrawable.map((w: any) => `  • <b>${fmtAmt(w.available, w.currency)}</b>`).join('\n')
         : '  • None available';
 
     const tierEmoji: Record<string, string> = { free: '🟢', pro: '🔵', enterprise: '🟡' };
+    const completionRate = funnel?.completionRate ?? 0;
     const msg =
         `📊 <b>Group Dashboard</b>\n\n` +
         `🏘️ <b>${group.group_name}</b>\n` +
         `${tierEmoji[group.license_tier] || '🟢'} Tier: <b>${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}</b>\n` +
         `💰 Revenue Share: <b>${group.admin_revenue_share_percent}%</b>\n\n` +
         `📈 <b>Activity</b>\n` +
-        `  • Total Deals: <b>${totalDeals}</b>\n` +
-        `  • Completed: <b>${completedDeals}</b>\n\n` +
-        `💵 <b>Your Earnings:</b>\n${earningsLines}\n\n` +
+        `  • Total Deals: <b>${funnel?.totalDeals ?? 0}</b>\n` +
+        `  • Completed: <b>${funnel?.completedDeals ?? 0}</b>\n` +
+        `  • Completion Rate: <b>${completionRate}%</b>\n` +
+        (funnel?.disputedDeals ? `  • Disputed: <b>${funnel.disputedDeals}</b>\n` : '') +
+        `\n💵 <b>Your Earnings:</b>\n${earningsLines}\n\n` +
         `💸 <b>Withdrawable:</b>\n${withdrawLines}`;
 
+    const reviewsUrl = (process.env.REVIEWS_URL || 'http://localhost:3001').replace('localhost', '127.0.0.1');
+    const analyticsUrl = `${reviewsUrl}/community/${group.id}/analytics`;
+
     const buttons: any[][] = [];
-    if (withdrawable?.length) {
+    if (withdrawable.length) {
         if (withdrawable.length === 1) {
             buttons.push([{ text: '💸 Withdraw Earnings', callback_data: `withdraw_community_${group.id}_${withdrawable[0].currency}` }]);
         } else {
             buttons.push(withdrawable.map((w: any) => ({ text: `💸 Withdraw ${w.currency}`, callback_data: `withdraw_community_${group.id}_${w.currency}` })));
         }
     }
+    buttons.push([{ text: '📊 Full Analytics', url: analyticsUrl }]);
     if (group.license_tier !== 'enterprise') {
         buttons.push([{ text: '🚀 Upgrade License', callback_data: `upgrade_tier_${group.id}` }]);
     }

@@ -246,6 +246,168 @@ router.get('/:id/stats', async (req, res) => {
     }
 });
 
+// Full analytics for the group admin dashboard
+router.get('/:id/analytics', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const period = (req.query.period as string) || '30d';
+
+        const { data: group } = await supabase
+            .from('community_groups')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        if (!group) return res.status(404).json({ error: 'Group not found' });
+
+        // Date boundary for period-scoped queries
+        let startDate: string | null = null;
+        if (period !== 'all') {
+            const days = period === '7d' ? 7 : period === '90d' ? 90 : 30;
+            const d = new Date();
+            d.setDate(d.getDate() - days);
+            startDate = d.toISOString();
+        }
+
+        // --- Commission data (all time for balance, period-filtered for timeline) ---
+        const { data: allCommissions } = await supabase
+            .from('community_commissions')
+            .select('id, txn_id, amount, currency, created_at, status')
+            .eq('group_id', id)
+            .eq('status', 'COMPLETED')
+            .order('created_at', { ascending: false });
+
+        const earningsByCurrency: Record<string, number> = {};
+        (allCommissions || []).forEach((c: any) => {
+            earningsByCurrency[c.currency] = (earningsByCurrency[c.currency] || 0) + Number(c.amount);
+        });
+
+        // Withdrawable = earned minus already-claimed
+        const { data: priorWithdrawals } = await supabase
+            .from('withdrawals')
+            .select('amount, currency, status, created_at')
+            .eq('group_id', id)
+            .order('created_at', { ascending: false });
+
+        const withdrawnByCurrency: Record<string, number> = {};
+        ((priorWithdrawals || []) as any[])
+            .filter((w: any) => ['PENDING', 'PROCESSING', 'PAID'].includes(w.status))
+            .forEach((w: any) => {
+                withdrawnByCurrency[w.currency] = (withdrawnByCurrency[w.currency] || 0) + Number(w.amount);
+            });
+
+        const withdrawableByCurrency: Record<string, number> = {};
+        Object.entries(earningsByCurrency).forEach(([currency, total]) => {
+            const avail = total - (withdrawnByCurrency[currency] || 0);
+            if (avail > 0) withdrawableByCurrency[currency] = avail;
+        });
+
+        // --- Earnings timeline (period-scoped, daily buckets) ---
+        const periodCommissions = startDate
+            ? (allCommissions || []).filter((c: any) => c.created_at >= startDate)
+            : (allCommissions || []);
+
+        const timelineMap: Record<string, Record<string, number>> = {};
+        periodCommissions.forEach((c: any) => {
+            const day = c.created_at.slice(0, 10);
+            if (!timelineMap[day]) timelineMap[day] = {};
+            timelineMap[day][c.currency] = (timelineMap[day][c.currency] || 0) + Number(c.amount);
+        });
+        const earningsTimeline = Object.entries(timelineMap)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .flatMap(([date, byCurrency]) =>
+                Object.entries(byCurrency).map(([currency, amount]) => ({ date, amount, currency }))
+            );
+
+        // Commission log (last 20, all time)
+        const commissionLog = (allCommissions || []).slice(0, 20).map((c: any) => ({
+            id: c.id,
+            txn_id: c.txn_id,
+            amount: Number(c.amount),
+            currency: c.currency,
+            created_at: c.created_at,
+        }));
+
+        // Withdrawal history (all time)
+        const withdrawalHistory = (priorWithdrawals || []).map((w: any) => ({
+            id: w.id,
+            amount: Number(w.amount),
+            currency: w.currency,
+            status: w.status,
+            created_at: w.created_at,
+        }));
+
+        // --- Transactions (all time for funnel + top traders) ---
+        const { data: groupTxns } = await supabase
+            .from('transactions')
+            .select('id, amount, currency, status, buyer_profile_id, created_at')
+            .eq('group_id', id);
+
+        const txns = groupTxns || [];
+        const totalDeals = txns.length;
+        const accepted = txns.filter((t: any) =>
+            !['PENDING_SELLER_ACCEPTANCE', 'CANCELLED'].includes(t.status)
+        ).length;
+        const completedDeals = txns.filter((t: any) =>
+            ['COMPLETED', 'FINALIZED'].includes(t.status)
+        ).length;
+        const disputedDeals = txns.filter((t: any) => t.status === 'DISPUTED').length;
+        const cancelledDeals = txns.filter((t: any) => t.status === 'CANCELLED').length;
+        const eligible = totalDeals - cancelledDeals;
+        const completionRate = eligible > 0 ? Math.round((completedDeals / eligible) * 100) : 0;
+
+        // Top traders (by buyer_profile_id, top 5 by deal count)
+        const traderMap: Record<string, { dealCount: number; volume: Record<string, number> }> = {};
+        txns.forEach((t: any) => {
+            if (!t.buyer_profile_id) return;
+            if (!traderMap[t.buyer_profile_id]) traderMap[t.buyer_profile_id] = { dealCount: 0, volume: {} };
+            traderMap[t.buyer_profile_id].dealCount++;
+            traderMap[t.buyer_profile_id].volume[t.currency] =
+                (traderMap[t.buyer_profile_id].volume[t.currency] || 0) + Number(t.amount);
+        });
+
+        const topProfileIds = Object.entries(traderMap)
+            .sort(([, a], [, b]) => b.dealCount - a.dealCount)
+            .slice(0, 5)
+            .map(([pid]) => pid);
+
+        let topTraders: any[] = [];
+        if (topProfileIds.length > 0) {
+            const { data: profiles } = await supabase
+                .from('profiles')
+                .select('id, safetag')
+                .in('id', topProfileIds);
+
+            topTraders = topProfileIds.map((pid) => {
+                const profile = (profiles || []).find((p: any) => p.id === pid);
+                const { dealCount, volume } = traderMap[pid];
+                return {
+                    safetag: profile?.safetag || pid,
+                    dealCount,
+                    volume: Object.entries(volume).map(([currency, total]) => ({ currency, total })),
+                };
+            });
+        }
+
+        return res.json({
+            group,
+            period,
+            funnel: { totalDeals, accepted, completedDeals, disputedDeals, cancelledDeals, completionRate },
+            summary: {
+                earnings: Object.entries(earningsByCurrency).map(([currency, total]) => ({ currency, total })),
+                withdrawable: Object.entries(withdrawableByCurrency).map(([currency, available]) => ({ currency, available })),
+            },
+            earningsTimeline,
+            commissionLog,
+            withdrawalHistory,
+            topTraders,
+        });
+    } catch (err: any) {
+        console.error('❌ Community analytics error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Request a commission withdrawal for a licensed group
 router.post('/:id/withdraw', async (req, res) => {
     try {
