@@ -1007,17 +1007,20 @@ client.on('interactionCreate', async (interaction) => {
                 try {
                     const guild = client.guilds.cache.get(guildId);
                     const guildName = guild?.name || 'Your Server';
+                    // Resolve announcement channel before registering so it can be persisted
+                    const announceCandidates = [guild?.systemChannel, guild?.publicUpdatesChannel, guild?.channels.cache.find((c: any) => c.type === 0)].filter(Boolean) as any[];
+                    const announceCh = announceCandidates[0] || null;
                     const regRes = await axios.post(`${API_URL}/communities/register`, {
                         discord_guild_id: guildId,
                         group_name: guildName,
                         admin_discord_id: interaction.user.id,
                         license_tier: tier,
+                        ...(announceCh ? { discord_announcement_channel_id: announceCh.id } : {}),
                     });
                     const group = regRes.data.group;
                     // Announce in server
-                    const channels = [guild?.systemChannel, guild?.publicUpdatesChannel, guild?.channels.cache.find((c: any) => c.type === 0)].filter(Boolean);
-                    for (const ch of channels) {
-                        try { await (ch as any).send(`✅ **Safeeely is now active in ${guildName}!**\n\nUse \`!deal\` or \`!trade\` to start a secure escrow transaction.`); break; } catch { continue; }
+                    if (announceCh) {
+                        try { await announceCh.send(`✅ **Safeeely is now active in ${guildName}!**\n\nUse \`!deal\` or \`!trade\` to start a secure escrow transaction.`); } catch { /* ignore */ }
                     }
                     await interaction.editReply(`🎉 **${guildName} is now licensed!**\n\nTier: **${tier.charAt(0).toUpperCase() + tier.slice(1)}**\n💰 You'll earn **${group.admin_revenue_share_percent}%** of every platform fee from deals here.\n\nView your dashboard from the main menu → 📊 My Server.`);
                 } catch (err: any) {

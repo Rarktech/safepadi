@@ -457,3 +457,30 @@ export async function sendTelegramGroupMessage(
 
     await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, payload);
 }
+
+export async function sendDiscordChannelMessage(
+    channelId: string | number,
+    message: string,
+    button?: { label: string; url: string }
+): Promise<void> {
+    const token = process.env.DISCORD_BOT_TOKEN;
+    if (!token) {
+        console.warn('DISCORD_BOT_TOKEN not set — cannot send Discord channel announcement');
+        return;
+    }
+
+    const payload: any = { content: message };
+
+    if (button) {
+        payload.components = [{
+            type: 1,
+            components: [{ type: 2, style: 5, label: button.label, url: button.url }],
+        }];
+    }
+
+    await axios.post(
+        `https://discord.com/api/v10/channels/${channelId}/messages`,
+        payload,
+        { headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' } }
+    );
+}

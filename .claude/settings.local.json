@@ -27,7 +27,8 @@
       "mcp__supabase__execute_sql",
       "Bash(curl *)",
       "Bash(xargs grep -l \"link_url\\\\|recordNotification\")",
-      "Bash(xargs grep -l \"transaction\\\\|modal\\\\|accept\")"
+      "Bash(xargs grep -l \"transaction\\\\|modal\\\\|accept\")",
+      "mcp__supabase__apply_migration"
     ]
   },
   "disabledMcpjsonServers": [

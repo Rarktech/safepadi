@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
-import { sendNotification, sendReferralNotification, recordNotification, sendTelegramGroupMessage } from '../services/notifications';
+import { sendNotification, sendReferralNotification, recordNotification, sendTelegramGroupMessage, sendDiscordChannelMessage } from '../services/notifications';
 import { sendTransactionInvoiceEmail } from '../services/email';
 import crypto from 'crypto';
 import axios from 'axios';
@@ -609,13 +609,22 @@ router.patch('/:id/status', async (req, res) => {
                     ).catch((e: any) => console.error('Community commission notification failed:', e.message));
 
                     // Post social proof announcement in the group (fire-and-forget)
-                    const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'SafeeelyBot';
-                    const tradeDeepLink = `https://t.me/${botUsername}?start=group_${group.id}`;
-                    sendTelegramGroupMessage(
-                        group.telegram_group_id,
-                        `🎉 <b>Secure trade completed!</b>\n\nAnother deal was just protected by Safeeely escrow in this group. Both buyer and seller traded safely.\n\n🛡️ Want to trade securely too?`,
-                        { text: '🛡️ Start Secure Trade', url: tradeDeepLink }
-                    ).catch((e: any) => console.error('Group social proof announcement failed:', e.message));
+                    if (group.platform === 'telegram' && group.telegram_group_id) {
+                        const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'SafeeelyBot';
+                        const tradeDeepLink = `https://t.me/${botUsername}?start=group_${group.id}`;
+                        sendTelegramGroupMessage(
+                            group.telegram_group_id,
+                            `🎉 <b>Secure trade completed!</b>\n\nAnother deal was just protected by Safeeely escrow in this group. Both buyer and seller traded safely.\n\n🛡️ Want to trade securely too?`,
+                            { text: '🛡️ Start Secure Trade', url: tradeDeepLink }
+                        ).catch((e: any) => console.error('Telegram group social proof announcement failed:', e.message));
+                    } else if (group.platform === 'discord' && group.discord_announcement_channel_id) {
+                        const reviewsBase = process.env.REVIEWS_URL || 'http://localhost:3001';
+                        sendDiscordChannelMessage(
+                            group.discord_announcement_channel_id,
+                            `🎉 **Secure trade completed!**\n\nAnother deal was just protected by Safeeely escrow in this server. Both buyer and seller traded safely.\n\n🛡️ Want to trade securely too?`,
+                            { label: '🛡️ Start Secure Trade', url: `${reviewsBase}/trade` }
+                        ).catch((e: any) => console.error('Discord group social proof announcement failed:', e.message));
+                    }
                 }
             } catch (communityCommError) {
                 console.error('❌ Failed to distribute community commission:', communityCommError);

@@ -33,8 +33,9 @@ router.use((req, res, next) => {
 router.post('/register', async (req, res) => {
     try {
         const {
-            telegram_group_id, admin_telegram_id,   // Telegram fields
-            discord_guild_id, admin_discord_id,      // Discord fields
+            telegram_group_id, admin_telegram_id,           // Telegram fields
+            discord_guild_id, admin_discord_id,              // Discord fields
+            discord_announcement_channel_id,                 // Discord announcement channel
             group_name, license_tier = 'free',
         } = req.body;
 
@@ -88,6 +89,7 @@ router.post('/register', async (req, res) => {
             admin_profile_id: adminProfileId,
             license_tier,
             admin_revenue_share_percent: adminRevenueSharePercent,
+            ...(discord_announcement_channel_id ? { discord_announcement_channel_id: Number(discord_announcement_channel_id) } : {}),
         };
 
         const { data: group, error } = await supabase
