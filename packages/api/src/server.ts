@@ -28,6 +28,7 @@ import notificationRoutes from './routes/notifications';
 import communityRoutes from './routes/communities';
 import cron from 'node-cron';
 import { runWeeklyDigest } from './cron/weeklyDigest';
+import { runLicenseExpiryCheck } from './cron/licenseExpiry';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -105,6 +106,11 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // Weekly group earnings digest — every Monday at 9:00 AM UTC
 cron.schedule('0 9 * * 1', () => {
     runWeeklyDigest().catch((err) => console.error('Weekly digest cron failed:', err));
+});
+
+// Daily license expiry check — 8:00 AM UTC
+cron.schedule('0 8 * * *', () => {
+    runLicenseExpiryCheck().catch((err) => console.error('License expiry cron failed:', err));
 });
 
 app.listen(PORT, () => {

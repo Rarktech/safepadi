@@ -891,12 +891,26 @@ async function renderGroupDashboard(ctx: SafeeelyContext, group: any, backCallba
 
     const tierEmoji: Record<string, string> = { free: '🟢', pro: '🔵', enterprise: '🟡' };
     const completionRate = funnel?.completionRate ?? 0;
+
+    let expiryLine = '';
+    if (group.license_tier !== 'free' && group.license_expires_at) {
+        const expiryDate = new Date(group.license_expires_at);
+        const daysLeft = Math.ceil((expiryDate.getTime() - Date.now()) / 86400000);
+        const expiryStr = expiryDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+        expiryLine = daysLeft <= 0
+            ? `⚠️ License: <b>EXPIRED</b> — renew to restore earnings\n`
+            : daysLeft <= 7
+                ? `🚨 Expires: <b>${expiryStr}</b> (${daysLeft} day${daysLeft === 1 ? '' : 's'} left!)\n`
+                : `📅 Expires: <b>${expiryStr}</b>\n`;
+    }
+
     const msg =
         `📊 <b>Group Dashboard</b>\n\n` +
         `🏘️ <b>${group.group_name}</b>\n` +
         `${tierEmoji[group.license_tier] || '🟢'} Tier: <b>${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}</b>\n` +
-        `💰 Revenue Share: <b>${group.admin_revenue_share_percent}%</b>\n\n` +
-        `📈 <b>Activity</b>\n` +
+        `💰 Revenue Share: <b>${group.admin_revenue_share_percent}%</b>\n` +
+        expiryLine +
+        `\n📈 <b>Activity</b>\n` +
         `  • Total Deals: <b>${funnel?.totalDeals ?? 0}</b>\n` +
         `  • Completed: <b>${funnel?.completedDeals ?? 0}</b>\n` +
         `  • Completion Rate: <b>${completionRate}%</b>\n` +
@@ -916,6 +930,9 @@ async function renderGroupDashboard(ctx: SafeeelyContext, group: any, backCallba
         }
     }
     buttons.push([{ text: '📊 Full Analytics', url: analyticsUrl }]);
+    if (group.license_tier !== 'free') {
+        buttons.push([{ text: '🔄 Renew License', callback_data: `renew_license_${group.id}` }]);
+    }
     if (group.license_tier !== 'enterprise') {
         buttons.push([{ text: '🚀 Upgrade License', callback_data: `upgrade_tier_${group.id}` }]);
     }
@@ -1050,6 +1067,39 @@ bot.action(/^confirm_upgrade_([0-9a-f-]+)_(pro|enterprise)$/, async (ctx) => {
         });
     } catch (err: any) {
         ctx.reply(`❌ Could not generate payment link: ${err.response?.data?.error || err.message}`);
+    }
+});
+
+// Renew an existing paid license
+bot.action(/^renew_license_([0-9a-f-]+)$/, async (ctx) => {
+    const groupId = ctx.match[1];
+    try { await ctx.answerCbQuery('⏳ Generating renewal link...'); } catch (e) { }
+    try {
+        await ctx.reply('⏳ <b>Generating your renewal link...</b>', { parse_mode: 'HTML' });
+
+        const renewRes = await axios.post(`${API_URL}/communities/${groupId}/renew/initiate`);
+        const statsRes = await axios.get(`${API_URL}/communities/${groupId}/stats`);
+        const { group } = statsRes.data;
+        const renewUrl = renewRes.data.payment_url.replace('localhost', '127.0.0.1');
+        const tierName = group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1);
+
+        return ctx.reply(
+            `🔄 <b>Renew License</b>\n\n` +
+            `Group: <b>${group.group_name}</b>\n` +
+            `Tier: <b>${tierName}</b>\n\n` +
+            `Tap below to renew for another 30 days and keep your revenue share.`,
+            {
+                parse_mode: 'HTML',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '💳 Pay & Renew', url: renewUrl }],
+                        [{ text: '🔙 Back', callback_data: `view_group_stats_${groupId}` }],
+                    ],
+                },
+            }
+        );
+    } catch (err: any) {
+        ctx.reply(`❌ Could not generate renewal link: ${err.response?.data?.error || err.message}`);
     }
 });
 

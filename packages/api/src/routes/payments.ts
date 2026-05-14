@@ -227,7 +227,7 @@ router.post('/chainrails/webhook', async (req, res) => {
                     }
                 }).eq('id', txn.id);
 
-                console.log(`✅ [ChainRails] Transaction ${txnCode} marked as PAID`);
+                console.log(`✅ [ChainRails] Transaction ${txn.txn_code} marked as PAID`);
 
                 const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
                 const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
@@ -270,7 +270,7 @@ router.post('/chainrails/webhook', async (req, res) => {
                     recordNotification(txn.seller_id, 'payment', '🔐 Crypto Payment Received', `${txn.amount} ${txn.currency} secured for ${txn.product_name} via ChainRails`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
                 }
             } else {
-                console.log(`ℹ️ [ChainRails] ${txnCode} already ${txn.status}, skipping.`);
+                console.log(`ℹ️ [ChainRails] ${txn.txn_code} already ${txn.status}, skipping.`);
             }
         }
 
@@ -316,30 +316,43 @@ router.post('/flutterwave/webhook', async (req, res) => {
                 const targetTier = parts[2];
                 if (rawGroupId?.length === 32 && ['pro', 'enterprise'].includes(targetTier)) {
                     const groupId = `${rawGroupId.slice(0,8)}-${rawGroupId.slice(8,12)}-${rawGroupId.slice(12,16)}-${rawGroupId.slice(16,20)}-${rawGroupId.slice(20)}`;
-                    const revenueShareMap: Record<string, number> = { free: 10, pro: 25, enterprise: 40 };
+
+                    // Read share and duration from platform_settings
+                    const shareRow = await supabase.from('platform_settings').select('value').eq('key', `community_${targetTier}_revenue_share`).maybeSingle();
+                    const shareDefaults: Record<string, number> = { pro: 25, enterprise: 40 };
+                    const newShare = shareRow.data?.value ? Number(shareRow.data.value) : (shareDefaults[targetTier] ?? 25);
+
+                    const durRow = await supabase.from('platform_settings').select('value').eq('key', `community_${targetTier}_duration_days`).maybeSingle();
+                    const durationDays = durRow.data?.value ? Number(durRow.data.value) : 30;
+                    const expiresAt = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
+
                     const { data: group } = await supabase
                         .from('community_groups')
                         .update({
                             license_tier: targetTier,
-                            admin_revenue_share_percent: revenueShareMap[targetTier],
+                            admin_revenue_share_percent: newShare,
+                            license_expires_at: expiresAt,
                             updated_at: new Date().toISOString(),
                         })
                         .eq('id', groupId)
                         .select()
                         .single();
                     if (group) {
-                        console.log(`✅ [Upgrade] "${group.group_name}" upgraded to ${targetTier}`);
+                        console.log(`✅ [Upgrade] "${group.group_name}" upgraded to ${targetTier}, expires ${expiresAt}`);
                         const tierName = targetTier.charAt(0).toUpperCase() + targetTier.slice(1);
+                        const expiryStr = new Date(expiresAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
                         const platformMsg =
                             `🎉 <b>License Upgraded!</b>\n\n` +
                             `Your group <b>${group.group_name}</b> is now on the <b>${tierName}</b> plan.\n\n` +
-                            `💰 New revenue share: <b>${revenueShareMap[targetTier]}%</b> of every platform fee earned in your group.\n\n` +
+                            `💰 Revenue share: <b>${newShare}%</b> of every platform fee earned in your group.\n` +
+                            `📅 Expires: <b>${expiryStr}</b>\n\n` +
                             `Keep growing your community! 🚀`;
                         const emailHtml =
                             `<div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:8px;">` +
                             `<h2 style="color:#0f172a;">🎉 License Upgraded to ${tierName}!</h2>` +
                             `<p><b>${group.group_name}</b> is now on the ${tierName} plan.</p>` +
-                            `<p>Revenue share: <b>${revenueShareMap[targetTier]}%</b> of every platform fee earned in your group.</p>` +
+                            `<p>Revenue share: <b>${newShare}%</b> of every platform fee earned in your group.</p>` +
+                            `<p>License expires: <b>${expiryStr}</b></p>` +
                             `<p style="color:#64748b;font-size:13px;">Keep growing your Safeeely community! 🚀</p>` +
                             `</div>`;
                         sendReferralNotification(
@@ -351,6 +364,63 @@ router.post('/flutterwave/webhook', async (req, res) => {
                     }
                 } else {
                     console.warn(`⚠️ [Upgrade] Malformed UPLG tx_ref: ${txRef}`);
+                }
+                return res.status(200).send('OK');
+            }
+
+            // Community license renewal payment
+            if (txRef.startsWith('RNWL-')) {
+                // Format: RNWL-{32hexChars}-{tier}-{timestamp}
+                const parts = txRef.split('-');
+                const rawGroupId = parts[1];
+                const tier = parts[2];
+                if (rawGroupId?.length === 32 && ['pro', 'enterprise'].includes(tier)) {
+                    const groupId = `${rawGroupId.slice(0,8)}-${rawGroupId.slice(8,12)}-${rawGroupId.slice(12,16)}-${rawGroupId.slice(16,20)}-${rawGroupId.slice(20)}`;
+
+                    const { data: group } = await supabase
+                        .from('community_groups')
+                        .select('*')
+                        .eq('id', groupId)
+                        .single();
+
+                    if (group) {
+                        const durRow = await supabase.from('platform_settings').select('value').eq('key', `community_${tier}_duration_days`).maybeSingle();
+                        const durationDays = durRow.data?.value ? Number(durRow.data.value) : 30;
+
+                        // Extend from current expiry if still in future, otherwise from now
+                        const base = group.license_expires_at && new Date(group.license_expires_at) > new Date()
+                            ? new Date(group.license_expires_at) : new Date();
+                        const newExpiry = new Date(base.getTime() + durationDays * 24 * 60 * 60 * 1000).toISOString();
+
+                        await supabase
+                            .from('community_groups')
+                            .update({ license_expires_at: newExpiry, updated_at: new Date().toISOString() })
+                            .eq('id', groupId);
+
+                        console.log(`✅ [Renewal] "${group.group_name}" renewed, new expiry: ${newExpiry}`);
+                        const tierName = tier.charAt(0).toUpperCase() + tier.slice(1);
+                        const expiryStr = new Date(newExpiry).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+                        const platformMsg =
+                            `✅ <b>License Renewed!</b>\n\n` +
+                            `Your <b>${group.group_name}</b> ${tierName} license has been renewed.\n\n` +
+                            `📅 New expiry: <b>${expiryStr}</b>\n\n` +
+                            `Thank you for staying with Safeeely! 🚀`;
+                        const emailHtml =
+                            `<div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:8px;">` +
+                            `<h2 style="color:#0f172a;">✅ License Renewed!</h2>` +
+                            `<p><b>${group.group_name}</b> ${tierName} license renewed successfully.</p>` +
+                            `<p>New expiry: <b>${expiryStr}</b></p>` +
+                            `<p style="color:#64748b;font-size:13px;">Thank you for staying with Safeeely! 🚀</p>` +
+                            `</div>`;
+                        sendReferralNotification(
+                            group.admin_profile_id,
+                            platformMsg,
+                            `License renewed — ${group.group_name} (expires ${expiryStr})`,
+                            emailHtml
+                        ).catch(e => console.error('Renewal notification error:', e));
+                    }
+                } else {
+                    console.warn(`⚠️ [Renewal] Malformed RNWL tx_ref: ${txRef}`);
                 }
                 return res.status(200).send('OK');
             }

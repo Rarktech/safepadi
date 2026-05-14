@@ -1112,7 +1112,18 @@ router.patch('/settings', async (req, res) => {
             return res.status(403).json({ error: 'Only Super Admins can modify platform settings' });
         }
 
-        const allowed = ['platform_fee_rate', 'referral_tier1_percent', 'referral_tier2_percent'];
+        const allowed = [
+            'platform_fee_rate',
+            'referral_tier1_percent',
+            'referral_tier2_percent',
+            'community_free_revenue_share',
+            'community_pro_revenue_share',
+            'community_enterprise_revenue_share',
+            'community_pro_price',
+            'community_enterprise_price',
+            'community_pro_duration_days',
+            'community_enterprise_duration_days',
+        ];
         const updates = req.body as Record<string, number>;
 
         const unknownKeys = Object.keys(updates).filter(k => !allowed.includes(k));

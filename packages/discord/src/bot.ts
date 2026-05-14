@@ -1055,11 +1055,28 @@ client.on('interactionCreate', async (interaction) => {
                         const withdrawLine = withdrawable.length ? withdrawable.map((w: any) => `  • **${w.available.toLocaleString()} ${w.currency}**`).join('\n') : '  • None available';
                         const tierEmoji: Record<string, string> = { free: '🟢', pro: '🔵', enterprise: '🟡' };
                         const disputeLine = funnel?.disputedDeals ? `  • Disputed: **${funnel.disputedDeals}**\n` : '';
-                        const msg = `📊 **Server Dashboard**\n\n🏘️ **${group.group_name}**\n${tierEmoji[group.license_tier] || '🟢'} Tier: **${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}**\n💰 Revenue Share: **${group.admin_revenue_share_percent}%**\n\n📈 **Activity**\n  • Total Deals: **${funnel?.totalDeals ?? 0}**\n  • Completed: **${funnel?.completedDeals ?? 0}**\n  • Completion Rate: **${funnel?.completionRate ?? 0}%**\n${disputeLine}\n💵 **Your Earnings:**\n${earningsLine}\n\n💸 **Withdrawable:**\n${withdrawLine}`;
+                        let expiryLine1 = '';
+                        if (group.license_tier !== 'free' && group.license_expires_at) {
+                            const expiryDate = new Date(group.license_expires_at);
+                            const daysLeft = Math.ceil((expiryDate.getTime() - Date.now()) / 86400000);
+                            const expiryStr = expiryDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+                            expiryLine1 = daysLeft <= 0
+                                ? `\n⚠️ License: **EXPIRED** — renew to restore earnings`
+                                : daysLeft <= 7
+                                    ? `\n🚨 Expires: **${expiryStr}** (${daysLeft} day${daysLeft === 1 ? '' : 's'} left!)`
+                                    : `\n📅 Expires: **${expiryStr}**`;
+                        }
+                        const msg = `📊 **Server Dashboard**\n\n🏘️ **${group.group_name}**\n${tierEmoji[group.license_tier] || '🟢'} Tier: **${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}**\n💰 Revenue Share: **${group.admin_revenue_share_percent}%**${expiryLine1}\n\n📈 **Activity**\n  • Total Deals: **${funnel?.totalDeals ?? 0}**\n  • Completed: **${funnel?.completedDeals ?? 0}**\n  • Completion Rate: **${funnel?.completionRate ?? 0}%**\n${disputeLine}\n💵 **Your Earnings:**\n${earningsLine}\n\n💸 **Withdrawable:**\n${withdrawLine}`;
                         const analyticsUrl = `${process.env.REVIEWS_URL || 'http://localhost:3001'}/community/${group.id}/analytics`;
                         const btns: any[] = [];
                         if (withdrawable.length) btns.push({ type: 2, label: '💸 Withdraw Earnings', style: 3, custom_id: `withdraw_community_${group.id}` });
                         btns.push({ type: 2, label: '📊 Full Analytics', style: 5, url: analyticsUrl });
+                        if (group.license_tier !== 'free') {
+                            try {
+                                const renewRes = await axios.post(`${API_URL}/communities/${group.id}/renew/initiate`);
+                                btns.push({ type: 2, label: '🔄 Renew License', style: 5, url: renewRes.data.payment_url });
+                            } catch { /* skip if initiation fails */ }
+                        }
                         if (group.license_tier !== 'enterprise') btns.push({ type: 2, label: '🚀 Upgrade License', style: 1, custom_id: `upgrade_tier_${group.id}` });
                         btns.push({ type: 2, label: '🔙 Main Menu', style: 2, custom_id: 'main_menu' });
                         const rows: any[] = [];
@@ -1088,11 +1105,28 @@ client.on('interactionCreate', async (interaction) => {
                     const withdrawLine = withdrawable.length ? withdrawable.map((w: any) => `  • **${w.available.toLocaleString()} ${w.currency}**`).join('\n') : '  • None available';
                     const tierEmoji: Record<string, string> = { free: '🟢', pro: '🔵', enterprise: '🟡' };
                     const disputeLine = funnel?.disputedDeals ? `  • Disputed: **${funnel.disputedDeals}**\n` : '';
-                    const msg = `📊 **Server Dashboard**\n\n🏘️ **${group.group_name}**\n${tierEmoji[group.license_tier] || '🟢'} Tier: **${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}**\n💰 Revenue Share: **${group.admin_revenue_share_percent}%**\n\n📈 **Activity**\n  • Total Deals: **${funnel?.totalDeals ?? 0}**\n  • Completed: **${funnel?.completedDeals ?? 0}**\n  • Completion Rate: **${funnel?.completionRate ?? 0}%**\n${disputeLine}\n💵 **Your Earnings:**\n${earningsLine}\n\n💸 **Withdrawable:**\n${withdrawLine}`;
+                    let expiryLine2 = '';
+                    if (group.license_tier !== 'free' && group.license_expires_at) {
+                        const expiryDate = new Date(group.license_expires_at);
+                        const daysLeft = Math.ceil((expiryDate.getTime() - Date.now()) / 86400000);
+                        const expiryStr = expiryDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+                        expiryLine2 = daysLeft <= 0
+                            ? `\n⚠️ License: **EXPIRED** — renew to restore earnings`
+                            : daysLeft <= 7
+                                ? `\n🚨 Expires: **${expiryStr}** (${daysLeft} day${daysLeft === 1 ? '' : 's'} left!)`
+                                : `\n📅 Expires: **${expiryStr}**`;
+                    }
+                    const msg = `📊 **Server Dashboard**\n\n🏘️ **${group.group_name}**\n${tierEmoji[group.license_tier] || '🟢'} Tier: **${group.license_tier.charAt(0).toUpperCase() + group.license_tier.slice(1)}**\n💰 Revenue Share: **${group.admin_revenue_share_percent}%**${expiryLine2}\n\n📈 **Activity**\n  • Total Deals: **${funnel?.totalDeals ?? 0}**\n  • Completed: **${funnel?.completedDeals ?? 0}**\n  • Completion Rate: **${funnel?.completionRate ?? 0}%**\n${disputeLine}\n💵 **Your Earnings:**\n${earningsLine}\n\n💸 **Withdrawable:**\n${withdrawLine}`;
                     const analyticsUrl = `${process.env.REVIEWS_URL || 'http://localhost:3001'}/community/${groupId}/analytics`;
                     const btns: any[] = [];
                     if (withdrawable.length) btns.push({ type: 2, label: '💸 Withdraw Earnings', style: 3, custom_id: `withdraw_community_${group.id}` });
                     btns.push({ type: 2, label: '📊 Full Analytics', style: 5, url: analyticsUrl });
+                    if (group.license_tier !== 'free') {
+                        try {
+                            const renewRes = await axios.post(`${API_URL}/communities/${group.id}/renew/initiate`);
+                            btns.push({ type: 2, label: '🔄 Renew License', style: 5, url: renewRes.data.payment_url });
+                        } catch { /* skip if initiation fails */ }
+                    }
                     if (group.license_tier !== 'enterprise') btns.push({ type: 2, label: '🚀 Upgrade License', style: 1, custom_id: `upgrade_tier_${group.id}` });
                     btns.push({ type: 2, label: '🔙 My Servers', style: 2, custom_id: 'my_group_dashboard' });
                     const rows: any[] = [];

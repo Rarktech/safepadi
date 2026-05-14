@@ -4,6 +4,26 @@ import axios from 'axios';
 
 const router = Router();
 
+async function getRevenueShare(tier: string): Promise<number> {
+    const key = `community_${tier}_revenue_share`;
+    const { data } = await supabase.from('platform_settings').select('value').eq('key', key).maybeSingle();
+    const defaults: Record<string, number> = { free: 10, pro: 25, enterprise: 40 };
+    return data?.value ? Number(data.value) : (defaults[tier] ?? 10);
+}
+
+async function getTierPrice(tier: string): Promise<number> {
+    const key = `community_${tier}_price`;
+    const { data } = await supabase.from('platform_settings').select('value').eq('key', key).maybeSingle();
+    const defaults: Record<string, number> = { pro: 15000, enterprise: 35000 };
+    return data?.value ? Number(data.value) : (defaults[tier] ?? 15000);
+}
+
+async function getTierDuration(tier: string): Promise<number> {
+    const key = `community_${tier}_duration_days`;
+    const { data } = await supabase.from('platform_settings').select('value').eq('key', key).maybeSingle();
+    return data?.value ? Number(data.value) : 30;
+}
+
 router.use((req, res, next) => {
     console.log(`[Community Service] ${req.method} ${req.url}`);
     next();
@@ -59,8 +79,7 @@ router.post('/register', async (req, res) => {
             return res.json({ group: reactivated, reactivated: true });
         }
 
-        const revenueShareMap: Record<string, number> = { free: 10, pro: 25, enterprise: 40 };
-        const adminRevenueSharePercent = revenueShareMap[license_tier] ?? 10;
+        const adminRevenueSharePercent = await getRevenueShare(license_tier);
 
         const insertPayload: Record<string, any> = {
             [nativeGroupField]: Number(nativeGroupId),
@@ -487,9 +506,8 @@ router.patch('/:id/settings', async (req, res) => {
         const updates: Record<string, any> = { updated_at: new Date().toISOString() };
         if (welcome_message !== undefined) updates.welcome_message = welcome_message;
         if (license_tier) {
-            const revenueShareMap: Record<string, number> = { free: 10, pro: 25, enterprise: 40 };
             updates.license_tier = license_tier;
-            updates.admin_revenue_share_percent = revenueShareMap[license_tier] ?? 10;
+            updates.admin_revenue_share_percent = await getRevenueShare(license_tier);
         }
 
         const { data: group, error } = await supabase
@@ -538,11 +556,7 @@ router.post('/:id/upgrade/initiate', async (req, res) => {
         if (group.license_tier === target_tier) return res.status(400).json({ error: `Already on the ${target_tier} tier` });
         if (group.license_tier === 'enterprise') return res.status(400).json({ error: 'Already on the highest tier' });
 
-        const tierPrices: Record<string, { amount: number; currency: string }> = {
-            pro: { amount: 15000, currency: 'NGN' },
-            enterprise: { amount: 35000, currency: 'NGN' },
-        };
-        const price = tierPrices[target_tier];
+        const priceAmount = await getTierPrice(target_tier);
 
         const secretKey = process.env.FLUTTERWAVE_SECRET_KEY;
         if (!secretKey) return res.status(500).json({ error: 'Payment gateway not configured' });
@@ -556,8 +570,8 @@ router.post('/:id/upgrade/initiate', async (req, res) => {
 
         const payload = {
             tx_ref: txRef,
-            amount: price.amount,
-            currency: price.currency,
+            amount: priceAmount,
+            currency: 'NGN',
             redirect_url: `${reviewsUrl}/upgrade/success`,
             payment_options: 'card,banktransfer,ussd',
             customer: {
@@ -581,6 +595,63 @@ router.post('/:id/upgrade/initiate', async (req, res) => {
         throw new Error(response.data.message || 'Flutterwave initialization failed');
     } catch (err: any) {
         console.error('❌ Community upgrade initiate error:', err.response?.data || err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Initiate a license renewal payment via Flutterwave
+router.post('/:id/renew/initiate', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const { data: group } = await supabase
+            .from('community_groups')
+            .select('*, admin:admin_profile_id(id, email, first_name, last_name, safetag)')
+            .eq('id', id)
+            .single();
+
+        if (!group) return res.status(404).json({ error: 'Group not found' });
+        if (group.status !== 'active') return res.status(400).json({ error: 'Group is not active' });
+        if (group.license_tier === 'free') return res.status(400).json({ error: 'Free tier does not require renewal' });
+
+        const priceAmount = await getTierPrice(group.license_tier);
+
+        const secretKey = process.env.FLUTTERWAVE_SECRET_KEY;
+        if (!secretKey) return res.status(500).json({ error: 'Payment gateway not configured' });
+
+        const groupIdEncoded = id.replace(/-/g, '');
+        const txRef = `RNWL-${groupIdEncoded}-${group.license_tier}-${Date.now()}`;
+
+        const admin = group.admin as any;
+        const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
+
+        const payload = {
+            tx_ref: txRef,
+            amount: priceAmount,
+            currency: 'NGN',
+            redirect_url: `${reviewsUrl}/upgrade/success`,
+            payment_options: 'card,banktransfer,ussd',
+            customer: {
+                email: admin?.email || 'admin@safeeely.com',
+                name: `${admin?.first_name || ''} ${admin?.last_name || ''}`.trim() || admin?.safetag || 'Group Admin',
+            },
+            customizations: {
+                title: 'Safeeely Community License Renewal',
+                description: `Renewal — ${group.group_name}`,
+                logo: 'https://safeeely.com/logo.png',
+            },
+        };
+
+        const response = await axios.post('https://api.flutterwave.com/v3/payments', payload, {
+            headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/json' },
+        });
+
+        if (response.data.status === 'success') {
+            return res.json({ payment_url: response.data.data.link, tx_ref: txRef });
+        }
+        throw new Error(response.data.message || 'Flutterwave initialization failed');
+    } catch (err: any) {
+        console.error('❌ Community renew initiate error:', err.response?.data || err.message);
         res.status(500).json({ error: err.message });
     }
 });
