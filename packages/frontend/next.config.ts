@@ -1,6 +1,16 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: any = {
+  turbopack: {
+    resolveAlias: {
+      '@farcaster/miniapp-sdk': './farcaster-stub.js',
+    },
+  },
+  webpack(config: any) {
+    config.resolve.alias['@farcaster/miniapp-sdk'] = path.resolve(__dirname, 'farcaster-stub.js');
+    return config;
+  },
   images: {
     unoptimized: true,
     remotePatterns: [
