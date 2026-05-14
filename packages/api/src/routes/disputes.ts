@@ -3,6 +3,8 @@ import { supabase } from '@safepal/shared';
 import { z } from 'zod';
 import { sendNotification, recordNotification } from '../services/notifications';
 import multer from 'multer';
+import { classifyDisputeType } from '../services/dispute-ai/classifier';
+import { quickTierHint } from '../services/dispute-ai/config/disputeTypes';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -69,7 +71,7 @@ async function runAIForDispute(disputeId: string, txn?: any) {
 
     if (!lockAcquired) return;
 
-    const { processAIDispute } = require('../services/gemini');
+    const { processAIDispute } = require('../services/dispute-ai');
     processAIDispute(disputeId).then(async (aiResult: any) => {
         try {
             if (!aiResult || !aiResult.content) return;
@@ -172,6 +174,32 @@ router.post('/raise', async (req: Request, res: Response) => {
             .single();
 
         if (disputeError) throw disputeError;
+
+        // Classify dispute type + tier (awaited so AI receives it)
+        try {
+            const classification = await classifyDisputeType(
+                data.reason,
+                txn.product_name,
+                txn.amount,
+                txn.currency,
+                txn.buyer?.primary_platform || '',
+                txn.seller?.primary_platform || ''
+            );
+            await supabase
+                .from('disputes')
+                .update({ dispute_type: classification.dispute_type, pipeline_tier: classification.pipeline_tier })
+                .eq('id', dispute.id);
+        } catch (classifyErr) {
+            console.warn('⚠️ Dispute classification failed (non-critical):', classifyErr);
+        }
+
+        // Upsert reputation rows so AI can load them immediately
+        await Promise.all([txn.buyer?.id, txn.seller?.id].filter(Boolean).map((pid: string) =>
+            Promise.resolve(
+                supabase.from('profile_reputation')
+                    .upsert({ profile_id: pid }, { onConflict: 'profile_id', ignoreDuplicates: true })
+            ).catch(() => {})
+        ));
 
         await supabase
             .from('dispute_messages')
@@ -409,6 +437,17 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
 
             if (error) throw error;
             savedMessage = message;
+
+            // Tag evidence tier on user messages (fire-and-forget — non-critical)
+            if (sender_type !== 'ADMIN' && savedMessage?.id) {
+                const tierHint = quickTierHint(content || '', attachments || []);
+                Promise.resolve(
+                    supabase
+                        .from('dispute_messages')
+                        .update({ evidence_tier: tierHint.tier, evidence_tags: tierHint.tags })
+                        .eq('id', savedMessage.id)
+                ).catch(() => {});
+            }
         } catch (insertErr: any) {
             console.error('❌ Insert Message Error:', insertErr.message);
             return res.status(500).json({ error: insertErr.message });
@@ -756,6 +795,64 @@ router.post('/cron/timeouts', async (req: Request, res: Response) => {
         console.error('Cron error:', err);
         res.status(500).json({ error: err.message });
     }
+});
+
+/**
+ * Admin: List SOPs
+ */
+router.get('/admin/sops', async (req: Request, res: Response) => {
+    try {
+        const { type, status } = req.query;
+        let query = supabase.from('dispute_sops').select('*').order('priority', { ascending: false });
+        if (type) query = query.eq('dispute_type', type as string);
+        if (status) query = query.eq('status', status as string);
+        const { data, error } = await query;
+        if (error) throw error;
+        res.json(data || []);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Admin: Approve a HARD_GATE SOP
+ */
+router.post('/admin/sops/:sopId/approve', async (req: Request, res: Response) => {
+    try {
+        const { sopId } = req.params;
+        const { error } = await supabase
+            .from('dispute_sops')
+            .update({ human_approved: true, status: 'ACTIVE' })
+            .eq('id', sopId);
+        if (error) throw error;
+        res.json({ success: true });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Admin: Archive a SOP
+ */
+router.post('/admin/sops/:sopId/archive', async (req: Request, res: Response) => {
+    try {
+        const { sopId } = req.params;
+        const { error } = await supabase
+            .from('dispute_sops')
+            .update({ status: 'ARCHIVED' })
+            .eq('id', sopId);
+        if (error) throw error;
+        res.json({ success: true });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Get dispute evolution log (stub — Phase 3 will populate)
+ */
+router.get('/:id/evolution-log', async (req: Request, res: Response) => {
+    res.json([]);
 });
 
 export default router;
