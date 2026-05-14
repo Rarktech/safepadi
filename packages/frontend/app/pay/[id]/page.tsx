@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Shield, CreditCard, Lock, CheckCircle, ArrowRight, ShoppingBag, X, Zap, Layers } from 'lucide-react';
 import axios from 'axios';
+import { usePaymentModal, PaymentModal } from '@chainrails/react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 
@@ -15,6 +16,16 @@ export default function PaymentPage() {
     const [initializing, setInitializing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [showMethods, setShowMethods] = useState(false);
+    const [crSuccess, setCrSuccess] = useState(false);
+
+    const cr = usePaymentModal({
+        sessionToken: null,
+        onSuccess: () => {
+            setShowMethods(false);
+            setCrSuccess(true);
+        },
+        onCancel: () => {},
+    });
 
     useEffect(() => {
         const fetchTxn = async () => {
@@ -121,8 +132,9 @@ export default function PaymentPage() {
                 }
             );
 
-            if (res.data.checkoutUrl) {
-                window.location.href = res.data.checkoutUrl;
+            if (res.data.sessionToken) {
+                cr.updateSession(res.data.sessionToken);
+                cr.open();
             } else {
                 throw new Error('Could not initialize crypto payment');
             }
@@ -239,10 +251,10 @@ export default function PaymentPage() {
 
                     {/* Action Area */}
                     <div className="p-8 bg-slate-50/50 border-t border-slate-100">
-                        {isPaid ? (
+                        {isPaid || crSuccess ? (
                             <div className="bg-emerald-500 text-white rounded-2xl p-4 flex items-center justify-center gap-3 font-bold shadow-lg shadow-emerald-200 animate-in zoom-in-95 duration-300">
                                 <CheckCircle className="w-6 h-6" />
-                                Payment Already Confirmed
+                                {crSuccess ? 'Crypto Payment Submitted — Confirming on Chain...' : 'Payment Already Confirmed'}
                             </div>
                         ) : (
                             <button
@@ -284,6 +296,8 @@ export default function PaymentPage() {
                     </div>
                 </div>
             </main>
+
+            <PaymentModal {...cr} />
 
             {/* Payment Methods Modal */}
             {showMethods && (
