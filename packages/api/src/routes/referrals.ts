@@ -11,6 +11,8 @@ dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 const router = Router();
 const supabase = createClient(process.env.SUPABASE_URL || '', process.env.SUPABASE_SERVICE_ROLE_KEY || '');
 
+const referralCardCache = new Map<string, Buffer>();
+
 // Browser instance manager
 // Browser instance manager removed - handled by service
 
@@ -166,18 +168,37 @@ router.get('/:safetag/card', async (req, res) => {
     try {
         const { safetag } = req.params;
         const cleanSafetag = safetag.replace(/^@/, '');
+
+        // Layer 1: in-memory cache
+        if (referralCardCache.has(cleanSafetag)) {
+            res.setHeader('Content-Type', 'image/png');
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            return res.send(referralCardCache.get(cleanSafetag));
+        }
+
+        // Layer 2: Supabase Storage (persists across restarts)
+        const sKey = `referral_${cleanSafetag}.png`;
+        const { data: stored } = await supabase.storage.from('receipts').download(sKey);
+        if (stored) {
+            const buf = Buffer.from(await stored.arrayBuffer());
+            referralCardCache.set(cleanSafetag, buf);
+            res.setHeader('Content-Type', 'image/png');
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            return res.send(buf);
+        }
+
+        // Layer 3: Puppeteer (first render only)
         const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
         const referralLink = `${reviewsUrl}/@${cleanSafetag}`;
 
-        const htmlContent = generateReferralTemplate({ 
-            safetag: cleanSafetag, 
-            referralLink 
+        const htmlContent = generateReferralTemplate({
+            safetag: cleanSafetag,
+            referralLink
         });
 
-        // Render HTML to PNG using Puppeteer
         const browser = await getBrowser();
         const page = await browser.newPage();
-        
+
         try {
             await page.setViewport({ width: 1000, height: 1150 });
             await page.setContent(htmlContent, { waitUntil: 'networkidle2', timeout: 50000 });
@@ -190,12 +211,16 @@ router.get('/:safetag/card', async (req, res) => {
                 throw new Error("Failed to find canvas element in the template");
             }
 
-            const screenshot = await element.screenshot({ type: 'png' });
+            const screenshot = await element.screenshot({ type: 'png' }) as Buffer;
             await page.close();
 
-            // Serve image
+            // Populate both cache layers (fire-and-forget the storage upload)
+            referralCardCache.set(cleanSafetag, screenshot);
+            supabase.storage.from('receipts').upload(sKey, screenshot, { contentType: 'image/png', upsert: true })
+                .catch(e => console.error('[Referral Card] Storage upload error:', e));
+
             res.setHeader('Content-Type', 'image/png');
-            res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+            res.setHeader('Cache-Control', 'public, max-age=86400');
             res.send(screenshot);
         } catch (err) {
             await page.close().catch(() => {});
