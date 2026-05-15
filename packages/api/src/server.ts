@@ -33,6 +33,7 @@ import { runTransactionReminders } from './cron/transactionReminders';
 import { runOnboardingDrip } from './cron/onboardingDrip';
 import { runReEngagement } from './cron/reEngagement';
 import { runMonthlyReferralSummary } from './cron/referralSummary';
+import { runDisputeEnforcement } from './cron/disputeEnforcement';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -135,6 +136,11 @@ cron.schedule('0 11 * * *', () => {
 // Monthly referral summary — 1st of month at 9:00 AM UTC
 cron.schedule('0 9 1 * *', () => {
     runMonthlyReferralSummary().catch((err) => console.error('Monthly referral summary cron failed:', err));
+});
+
+// Dispute evidence deadline enforcement — every 10 minutes
+cron.schedule('*/10 * * * *', () => {
+    runDisputeEnforcement().catch((err) => console.error('Dispute enforcement cron failed:', err));
 });
 
 app.listen(PORT, () => {

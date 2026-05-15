@@ -102,6 +102,24 @@ async function runAIForDispute(disputeId: string, txn?: any) {
             } else if (aiResult.type === 'ESCALATE') {
                 // Reviewer rejected the verdict — flag for human admin
                 await supabase.from('disputes').update({ is_ai_paused: true }).eq('id', disputeId);
+                await supabase.from('dispute_messages').insert({
+                    dispute_id: disputeId,
+                    sender_type: 'AI',
+                    content: '🛡️ **Case Forwarded to Human Support**\n\nThis case needs a closer look from our support team. A Safeeely agent will review all the details and reach out to both parties shortly.\n\nYou don\'t need to do anything right now — just keep an eye on this chat.'
+                });
+                if (txn?.buyer && txn?.seller) {
+                    const REVIEWS_URL_ESC = process.env.REVIEWS_URL || 'https://safeeely.com';
+                    await Promise.allSettled([txn.buyer, txn.seller].map(async (user: any) => {
+                        try {
+                            const disputeUrl = `${REVIEWS_URL_ESC}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txn.id}`;
+                            await routeNotification(
+                                user.id,
+                                `🛡️ <b>Human Support Taking Over</b>\n\nOur AI mediator has flagged your case for human review. A Safeeely support agent will look into this shortly.\n\nYou don't need to do anything right now — just check back on your case.`,
+                                [{ label: '👁️ View Case', url: disputeUrl }]
+                            );
+                        } catch { /* non-critical */ }
+                    }));
+                }
 
             } else if (aiResult.type === 'QUESTION' && aiResult.restrict) {
                 const { data: current } = await supabase
@@ -116,6 +134,32 @@ async function runAIForDispute(disputeId: string, txn?: any) {
                     restricted_to: aiResult.restrict,
                     ai_rounds: newRounds
                 }).eq('id', disputeId);
+
+                // Set 2-hour evidence deadline and reset reminder flags
+                const deadline = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+                await supabase.from('disputes').update({
+                    evidence_deadline: deadline,
+                    reminder_1_sent: false,
+                    reminder_2_sent: false
+                }).eq('id', disputeId);
+
+                // Immediately notify the restricted party
+                if (txn) {
+                    try {
+                        const REVIEWS_URL_Q = process.env.REVIEWS_URL || 'https://safeeely.com';
+                        const targets: any[] = aiResult.restrict === 'BUYER' ? [txn.buyer]
+                            : aiResult.restrict === 'SELLER' ? [txn.seller]
+                            : [txn.buyer, txn.seller];
+                        await Promise.allSettled(targets.filter(Boolean).map(async (user: any) => {
+                            const disputeUrl = `${REVIEWS_URL_Q}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txn.id}`;
+                            await routeNotification(
+                                user.id,
+                                `⏱️ <b>Your response is needed</b>\n\nThe mediator has asked for your input on this case. Please check the dispute and share what you can — you have <b>2 hours</b> to respond.`,
+                                [{ label: '📤 Reply Now', url: disputeUrl }]
+                            );
+                        }));
+                    } catch { /* non-critical */ }
+                }
 
                 if (newRounds >= 5) {
                     await supabase.from('disputes').update({ is_ai_paused: true }).eq('id', disputeId);
