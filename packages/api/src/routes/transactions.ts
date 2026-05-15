@@ -1621,4 +1621,46 @@ router.post('/:id/initialize-payment', async (req, res) => {
     }
 });
 
+// Dedicated session endpoint called directly by the ChainRails SDK (usePaymentSession)
+router.get('/:id/chainrails-session', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const { data: txn, error } = await supabase
+            .from('transactions')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        if (error || !txn) return res.status(404).json({ error: 'Transaction not found' }) as any;
+
+        const apiKey = process.env.CHAINRAILS_API_KEY;
+        const recipientAddress = process.env.CHAINRAILS_RECIPIENT_ADDRESS;
+        const destinationChain = process.env.CHAINRAILS_DESTINATION_CHAIN || 'BASE_MAINNET';
+        const tokenOut = process.env.CHAINRAILS_TOKEN_OUT || '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+
+        if (!apiKey) return res.status(500).json({ error: 'Payment configuration error' }) as any;
+        if (!recipientAddress) return res.status(500).json({ error: 'Escrow wallet address not configured' }) as any;
+
+        console.log(`🚀 ChainRails session requested for ${txn.txn_code}`);
+        const sessionRes = await axios.post(
+            'https://api.chainrails.io/api/v1/modal/sessions',
+            { recipient: recipientAddress, tokenOut, destinationChain, amount: String(txn.total_amount) },
+            { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 15000 }
+        );
+
+        const { sessionId } = sessionRes.data;
+        console.log(`✅ ChainRails session created: ${sessionId}`);
+
+        await supabase.from('transactions').update({
+            metadata: { ...(txn.metadata || {}), chainrails_session_id: sessionId }
+        }).eq('id', id);
+
+        res.json(sessionRes.data);
+    } catch (err: any) {
+        console.error('❌ ChainRails Session Error:', JSON.stringify(err.response?.data || err.message));
+        res.status(500).json({ error: 'Failed to initialize ChainRails session' });
+    }
+});
+
 export default router;

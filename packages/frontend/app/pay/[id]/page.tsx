@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Shield, CreditCard, Lock, CheckCircle, ArrowRight, ShoppingBag, X, Zap, Layers } from 'lucide-react';
 import axios from 'axios';
-import { usePaymentModal, PaymentModal } from '@chainrails/react';
+import { usePaymentSession, PaymentModal } from '@chainrails/react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 
@@ -18,8 +18,8 @@ export default function PaymentPage() {
     const [showMethods, setShowMethods] = useState(false);
     const [crSuccess, setCrSuccess] = useState(false);
 
-    const cr = usePaymentModal({
-        sessionToken: null,
+    const cr = usePaymentSession({
+        session_url: `${API_URL}/transactions/${id}/chainrails-session`,
         onSuccess: () => {
             setShowMethods(false);
             setCrSuccess(true);
@@ -118,33 +118,9 @@ export default function PaymentPage() {
         }
     };
 
-    const handleChainRailsPayment = async () => {
-        setInitializing(true);
+    const handleChainRailsPayment = () => {
         setShowMethods(false);
-        try {
-            console.log('🚀 Initializing ChainRails payment for:', id);
-            const res = await axios.post(`${API_URL}/transactions/${id}/initialize-payment`,
-                { platform: 'chainrails' },
-                {
-                    headers: {
-                        'ngrok-skip-browser-warning': 'true'
-                    }
-                }
-            );
-
-            if (res.data.sessionToken) {
-                cr.updateSession(res.data.sessionToken);
-                cr.open();
-            } else {
-                throw new Error('Could not initialize crypto payment');
-            }
-        } catch (err: any) {
-            console.error('❌ ChainRails Payment error:', err);
-            const errorMsg = err.response?.data?.error || err.message || 'Failed to initialize crypto payment. Please try again.';
-            alert(`Payment Error: ${errorMsg}`);
-        } finally {
-            setInitializing(false);
-        }
+        cr.open();
     };
 
     if (loading) {
