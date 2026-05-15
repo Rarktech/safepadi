@@ -7,16 +7,34 @@ const router = Router();
 
 const receiptCache = new Map<string, Buffer>();
 
+function storageKey(txnCode: string, type: string, role: string) {
+    return `${txnCode}_${type || 'default'}_${role || 'none'}.png`;
+}
+
 router.get('/:txnCode.png', async (req, res) => {
     try {
         const { txnCode } = req.params;
+        const type = (req.query.type as string) || '';
+        const role = (req.query.role as string) || '';
         console.log(`[Receipt Service] Request for: ${txnCode}.png`);
 
-        const cacheKey = `${txnCode}:${req.query.type || ''}:${req.query.role || ''}`;
+        // Layer 1: in-memory cache
+        const cacheKey = `${txnCode}:${type}:${role}`;
         if (receiptCache.has(cacheKey)) {
             res.setHeader('Content-Type', 'image/png');
             res.setHeader('Cache-Control', 'public, max-age=31536000');
             return res.send(receiptCache.get(cacheKey));
+        }
+
+        // Layer 2: Supabase Storage (persists across restarts)
+        const sKey = storageKey(txnCode, type, role);
+        const { data: stored } = await supabase.storage.from('receipts').download(sKey);
+        if (stored) {
+            const buf = Buffer.from(await stored.arrayBuffer());
+            receiptCache.set(cacheKey, buf);
+            res.setHeader('Content-Type', 'image/png');
+            res.setHeader('Cache-Control', 'public, max-age=31536000');
+            return res.send(buf);
         }
 
         // Fetch transaction details
@@ -49,8 +67,8 @@ router.get('/:txnCode.png', async (req, res) => {
             ? sellerLinked.platform.charAt(0).toUpperCase() + sellerLinked.platform.slice(1)
             : 'Escrow';
 
-        const isCompleted = req.query.type === 'completed';
-        const isMarketing = req.query.role === 'buyer' || req.query.isMarketing === 'true' || isCompleted;
+        const isCompleted = type === 'completed';
+        const isMarketing = role === 'buyer' || req.query.isMarketing === 'true' || isCompleted;
         const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
         let referralLink = reviewsUrl;
 
@@ -74,7 +92,7 @@ router.get('/:txnCode.png', async (req, res) => {
             currency: txn.currency || 'USD',
             isCompleted,
             isMarketing,
-            isBuyer: req.query.role === 'buyer',
+            isBuyer: role === 'buyer',
             referralLink
         };
 
@@ -96,7 +114,10 @@ router.get('/:txnCode.png', async (req, res) => {
             const screenshot = await element.screenshot({ type: 'png' }) as Buffer;
             await page.close();
 
+            // Populate both cache layers (fire-and-forget the storage upload)
             receiptCache.set(cacheKey, screenshot);
+            supabase.storage.from('receipts').upload(sKey, screenshot, { contentType: 'image/png', upsert: true })
+                .catch(e => console.error('[Receipt Service] Storage upload error:', e));
 
             res.setHeader('Content-Type', 'image/png');
             res.setHeader('Cache-Control', 'public, max-age=31536000');
