@@ -20,22 +20,21 @@ export async function sendNotification(platform: string, platformId: string, mes
     if (platform === 'telegram' && TELEGRAM_BOT_TOKEN) {
         // ... (Telegram logic unchanged)
         try {
-            // Escape HTML entities but preserve the ones we actually want
-            const escapedMsg = message
-                .replace(/&/g, '&amp;')
-                .replace(/</g, (match, offset, fullText) => {
-                    // Don't escape if it looks like a tag we support
-                    const rest = fullText.slice(offset);
-                    if (rest.match(/^<\/?(b|code|i|em|strong)>/)) return match;
-                    return '&lt;';
-                })
-                .replace(/>/g, (match, offset, fullText) => {
-                    // Don't escape if it's the end of a tag we support
-                    const prev = fullText.slice(0, offset + 1);
-                    if (prev.match(/<\/?(b|code|i|em|strong)>$/)) return match;
-                    return '&gt;';
-                });
-            
+            // Escape HTML entities, preserving all valid Telegram HTML tags (including <a href>)
+            const tagRe = /(<\/?(b|i|em|strong|code|s|strike|del|u|a)(?:\s[^>]*)?>)/gi;
+            const parts: string[] = [];
+            let last = 0;
+            let m: RegExpExecArray | null;
+            tagRe.lastIndex = 0;
+            while ((m = tagRe.exec(message)) !== null) {
+                const raw = message.slice(last, m.index)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                parts.push(raw, m[0]);
+                last = m.index + m[0].length;
+            }
+            parts.push(message.slice(last).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+            const escapedMsg = parts.join('');
+
             // Convert any remaining Markdown to HTML
             const formattedMsg = escapedMsg
                 .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
@@ -43,23 +42,27 @@ export async function sendNotification(platform: string, platformId: string, mes
                 .replace(/`(.*?)`/g, '<code>$1</code>');
 
             log(`[Telegram] Final Payload Msg:\n${formattedMsg}`);
-            const payload: any = { chat_id: platformId, parse_mode: 'HTML' };
-            if (options && options.length > 0) {
-                payload.reply_markup = {
-                    inline_keyboard: options.map(opt => [
-                        opt.url
-                            ? { text: opt.label, url: opt.url }
-                            : { text: opt.label, callback_data: opt.customId }
-                    ])
-                };
-            }
+            const replyMarkup = options && options.length > 0
+                ? { inline_keyboard: options.map(opt => [opt.url ? { text: opt.label, url: opt.url } : { text: opt.label, callback_data: opt.customId }]) }
+                : undefined;
+
             if (imageUrl) {
-                payload[imageUrl.match(/\.(mp4|mov|webm)(\?|$)/i) ? 'video' : 'photo'] = imageUrl;
-                payload.caption = formattedMsg;
-                const endpoint = imageUrl.match(/\.(mp4|mov|webm)(\?|$)/i) ? 'sendVideo' : 'sendPhoto';
-                await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/${endpoint}`, payload);
+                // Pre-fetch the image as a buffer so Telegram doesn't need to hit our Puppeteer endpoint
+                const FormData = require('form-data');
+                const imgResp = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 30000 });
+                const imgBuffer = Buffer.from(imgResp.data);
+                const isVideo = imageUrl.match(/\.(mp4|mov|webm)(\?|$)/i);
+                const form = new FormData();
+                form.append('chat_id', platformId);
+                form.append('parse_mode', 'HTML');
+                form.append('caption', formattedMsg);
+                form.append(isVideo ? 'video' : 'photo', imgBuffer, { filename: isVideo ? 'receipt.mp4' : 'receipt.png', contentType: isVideo ? 'video/mp4' : 'image/png' });
+                if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
+                const endpoint = isVideo ? 'sendVideo' : 'sendPhoto';
+                await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/${endpoint}`, form, { headers: form.getHeaders() });
             } else {
-                payload.text = formattedMsg;
+                const payload: any = { chat_id: platformId, parse_mode: 'HTML', text: formattedMsg };
+                if (replyMarkup) payload.reply_markup = replyMarkup;
                 await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, payload);
             }
             log(`✅ [Telegram Notification] Sent to ${platformId}`);
