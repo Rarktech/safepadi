@@ -6,9 +6,22 @@ import { safeParseJSON } from './utils/json-parse';
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 const ALL_TYPES = [
+    // Social accounts
     'INSTAGRAM_ACCOUNT', 'DISCORD_ACCOUNT', 'TELEGRAM_ACCOUNT', 'GMAIL_ACCOUNT',
+    'TWITTER_ACCOUNT', 'TIKTOK_ACCOUNT', 'YOUTUBE_CHANNEL', 'FACEBOOK_ACCOUNT',
+    // Freelance
     'FREELANCE_CODE', 'FREELANCE_DESIGN', 'FREELANCE_WRITING',
-    'CRYPTO_TO_GOODS', 'PHYSICAL_GOODS', 'SOCIAL_SERVICE', 'GENERIC'
+    'FREELANCE_VIDEO', 'FREELANCE_MUSIC', 'FREELANCE_CONSULTING',
+    // Digital goods
+    'DIGITAL_DOWNLOAD', 'GAMING_ACCOUNT', 'DOMAIN_WEBSITE',
+    // Physical goods
+    'ELECTRONICS_GADGET', 'VEHICLE_SALE', 'LUXURY_GOODS', 'FASHION_GOODS', 'PHYSICAL_GOODS',
+    // Services
+    'INFLUENCER_DEAL', 'EVENT_BOOKING', 'TICKET_RESERVATION',
+    'DISPATCH_DELIVERY', 'EDUCATION_SERVICE',
+    'CONSTRUCTION_SERVICE', 'REAL_ESTATE',
+    // Other
+    'CRYPTO_TO_GOODS', 'SOCIAL_SERVICE', 'GENERIC'
 ];
 
 // NGN to USD approximate — used only for CONSTITUTIONAL tier threshold
@@ -26,7 +39,10 @@ function determineTier(
     // CONSTITUTIONAL triggers
     const amountUSD = currency === 'NGN' ? amount * NGN_TO_USD : amount;
     const isHighValue = amountUSD > 2000;
-    const isDigitalAccount = disputeType.endsWith('_ACCOUNT') || disputeType.startsWith('CRYPTO_');
+    const isDigitalAccount = disputeType.endsWith('_ACCOUNT')
+        || disputeType.startsWith('CRYPTO_')
+        || ['YOUTUBE_CHANNEL', 'GAMING_ACCOUNT', 'DOMAIN_WEBSITE',
+            'VEHICLE_SALE', 'REAL_ESTATE', 'TICKET_RESERVATION'].includes(disputeType);
     const hasLowTrust = buyerTrustScore < 30 || sellerTrustScore < 30;
     const hasFraudFlags = buyerFraudFlags.length > 0 || sellerFraudFlags.length > 0;
 
@@ -35,7 +51,8 @@ function determineTier(
     }
 
     // LITE triggers: low value + simple type
-    if (['PHYSICAL_GOODS', 'GENERIC'].includes(disputeType)) {
+    if (['PHYSICAL_GOODS', 'FASHION_GOODS', 'DIGITAL_DOWNLOAD',
+        'DISPATCH_DELIVERY', 'EDUCATION_SERVICE', 'GENERIC'].includes(disputeType)) {
         const isLowValue = currency === 'NGN' ? amount < 80_000 : amountUSD < 50;
         if (isLowValue) return 'LITE';
     }
