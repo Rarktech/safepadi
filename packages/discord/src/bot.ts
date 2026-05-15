@@ -560,7 +560,8 @@ client.on('interactionCreate', async (interaction) => {
                         }
                     }
 
-                    await interaction.editReply(payload);
+                    await interaction.editReply({ components: [] });
+                    await interaction.followUp(payload);
                     return; // ⚡ Correct: Handled
                 } catch (err: any) {
                     console.error('Action processing failed:', err.message);
