@@ -62,11 +62,11 @@ export async function classifyDisputeType(
     productName: string,
     amount: number,
     currency: string,
-    buyerPlatform = '',
-    sellerPlatform = ''
+    _buyerPlatform = '',
+    _sellerPlatform = ''
 ): Promise<ClassifierOutput> {
     // Try heuristic first — free, instant
-    const heuristic = platformHeuristicGuess(productName, buyerPlatform, sellerPlatform);
+    const heuristic = platformHeuristicGuess(productName);
     if (heuristic.confidence >= 0.8) {
         const tier = determineTier(heuristic.type, amount, currency, 50, 50, [], []);
         return { dispute_type: heuristic.type, pipeline_tier: tier };

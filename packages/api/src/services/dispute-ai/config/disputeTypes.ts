@@ -168,16 +168,16 @@ export function quickTierHint(content: string, attachments: any[]): TierHintResu
     return { tier, tags };
 }
 
-// Heuristic pre-classifier — free, used before calling Gemini
+// Heuristic pre-classifier — free, used before calling Gemini.
+// Only product name is used — platform (e.g. 'discord') tells us how the user registered,
+// not what they're selling. Never infer dispute type from registration platform.
 export function platformHeuristicGuess(
-    productName: string,
-    buyerPlatform: string,
-    sellerPlatform: string
+    productName: string
 ): { type: DisputeTypeCode; confidence: number } {
     const p = productName.toLowerCase();
 
     if (/instagram|ig account|ig handle|ig page/.test(p)) return { type: 'INSTAGRAM_ACCOUNT', confidence: 0.9 };
-    if (/discord/.test(p) || buyerPlatform === 'discord' || sellerPlatform === 'discord') return { type: 'DISCORD_ACCOUNT', confidence: 0.85 };
+    if (/discord\s*(account|server|channel|handle|tag|nitro|boost)/i.test(p)) return { type: 'DISCORD_ACCOUNT', confidence: 0.9 };
     if (/telegram|tg channel|tg group|tg bot/.test(p)) return { type: 'TELEGRAM_ACCOUNT', confidence: 0.9 };
     if (/gmail|google account/.test(p)) return { type: 'GMAIL_ACCOUNT', confidence: 0.9 };
     if (/0x[a-f0-9]{10,}|crypto|bitcoin|btc|ethereum|eth|usdt|binance/.test(p)) return { type: 'CRYPTO_TO_GOODS', confidence: 0.9 };

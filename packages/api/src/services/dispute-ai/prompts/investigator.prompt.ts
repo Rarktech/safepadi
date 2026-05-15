@@ -115,6 +115,8 @@ ${ctx.history.map(m => {
     return `${who}: ${m.content}${tier} [Attachments: ${m.attachments?.length || 0}]`;
 }).join('\n')}
 
+BREVITY RULE: The user_facing_message is posted directly in a chat app. Write it like a sharp legal clerk — no greetings, no "I hope to", no closing lines, no paragraph intros. Lead with the action, follow with navigation steps. Max 80 words.
+
 TASK:
 1. Summarize the dispute facts in 2-3 neutral sentences.
 2. Assess any evidence already provided: what tier is it? What does it prove?
@@ -146,6 +148,6 @@ OUTPUT FORMAT — respond with ONLY this JSON object, no prose:
   "self_score": 95,
   "facts_complete": false,
   "restrict_to": "BUYER|SELLER|ALL",
-  "user_facing_message": "<the actual message to post in the chat — professional, specific, formatted with **bold** headers and bullet points>"
+  "user_facing_message": "<message posted directly in chat — max 80 words, no preamble or sign-off. One sentence stating what is needed, then a bullet list (max 3 items) of exactly what to upload and where to find it. Use **bold** only for the action label.>"
 }`;
 }
