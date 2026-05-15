@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
-import { sendNotification, recordNotification } from '../services/notifications';
+import { sendNotification, routeNotification, recordNotification } from '../services/notifications';
+import { sendReviewReceivedEmail } from '../services/email';
 
 const router = Router();
 
@@ -18,13 +19,23 @@ router.post('/create', async (req, res) => {
     try {
         const data = CreateReviewSchema.parse(req.body);
 
-        // Get IDs
+        // Get IDs and reviewee email (for fallback)
         const { data: reviewer } = await supabase.from('profiles').select('id').eq('safetag', data.reviewer_safetag).single();
-        const { data: reviewee } = await supabase.from('profiles').select('id').eq('safetag', data.reviewee_safetag).single();
+        const { data: reviewee } = await supabase.from('profiles').select('id, email, safetag').eq('safetag', data.reviewee_safetag).single();
 
         if (!reviewer || !reviewee) {
             return res.status(400).json({ error: 'Reviewer or Reviewee not found' });
         }
+
+        // Capture existing ratings before insert to detect milestone crossings
+        const { data: existingRatings } = await supabase
+            .from('reviews')
+            .select('rating')
+            .eq('reviewee_id', reviewee.id);
+        const prevCount = existingRatings?.length ?? 0;
+        const prevAvg = prevCount > 0
+            ? (existingRatings!.reduce((s, r) => s + r.rating, 0) / prevCount)
+            : 0;
 
         const { data: review, error } = await supabase
             .from('reviews')
@@ -43,11 +54,28 @@ router.post('/create', async (req, res) => {
 
         // Notify the reviewee they received a new review
         const stars = '⭐'.repeat(data.rating);
-        const { data: linkedReviewee } = await supabase.from('linked_accounts').select('platform, platform_id').eq('profile_id', reviewee.id).eq('is_primary', true).maybeSingle();
-        if (linkedReviewee) {
-            sendNotification(linkedReviewee.platform, linkedReviewee.platform_id, `${stars} <b>New Review!</b>\n\n<b>${data.reviewer_safetag}</b> left you a <b>${data.rating}/5</b> review.\n\n"${data.comment || '(no comment)'}"`).catch(() => {});
-        }
+        const reviewMsg = `${stars} <b>New Review!</b>\n\n<b>${data.reviewer_safetag}</b> left you a <b>${data.rating}/5</b> review.\n\n"${data.comment || '(no comment)'}"`;
+        routeNotification(
+            reviewee.id,
+            reviewMsg,
+            [],
+            undefined,
+            reviewee.email ? () => sendReviewReceivedEmail(reviewee.email, { safetag: reviewee.safetag, reviewerTag: data.reviewer_safetag, rating: data.rating, comment: data.comment }) : undefined
+        ).catch(() => {});
         recordNotification(reviewee.id, 'review', `${stars} New Review`, `${data.reviewer_safetag} left you a ${data.rating}/5 review`, { reviewer_safetag: data.reviewer_safetag, rating: data.rating, comment: data.comment, link_url: `/reviews/${data.reviewee_safetag}` }).catch(() => {});
+
+        // Trust score milestone check
+        const newAvg = (existingRatings?.reduce((s, r) => s + r.rating, 0) ?? 0 + data.rating) / (prevCount + 1);
+        const TRUST_MILESTONES = [3.0, 4.0, 4.5, 5.0];
+        const crossed = TRUST_MILESTONES.find(m => prevAvg < m && newAvg >= m);
+        if (crossed) {
+            const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
+            routeNotification(
+                reviewee.id,
+                `🏅 <b>Trust Milestone!</b>\n\nYour trust score just reached <b>${crossed}/5</b>! High-trust users attract more buyers. Share your profile to show it off.`,
+                [{ label: '🔗 Share My Profile', url: `${reviewsUrl}/reviews/${encodeURIComponent(reviewee.safetag)}` }]
+            ).catch(() => {});
+        }
 
         res.status(201).json(review);
     } catch (err: any) {
@@ -171,10 +199,7 @@ router.post('/reply', async (req, res) => {
         // Notify the original reviewer that their review received a reply
         const { data: originalReview } = await supabase.from('reviews').select('reviewer_id').eq('id', review_id).single();
         if (originalReview && originalReview.reviewer_id !== profile.id) {
-            const { data: linkedReviewer } = await supabase.from('linked_accounts').select('platform, platform_id').eq('profile_id', originalReview.reviewer_id).eq('is_primary', true).maybeSingle();
-            if (linkedReviewer) {
-                sendNotification(linkedReviewer.platform, linkedReviewer.platform_id, `💬 <b>${responder_safetag}</b> replied to your review:\n\n"${comment}"`).catch(() => {});
-            }
+            routeNotification(originalReview.reviewer_id, `💬 <b>${responder_safetag}</b> replied to your review:\n\n"${comment}"`).catch(() => {});
             recordNotification(originalReview.reviewer_id, 'review', '💬 Reply to Your Review', `${responder_safetag} replied: "${comment?.substring(0, 80)}"`, { review_id, responder_safetag, link_url: '/dashboard' }).catch(() => {});
         }
 

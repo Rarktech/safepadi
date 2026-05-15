@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
-import { sendNotification, recordNotification } from '../services/notifications';
+import { sendNotification, routeNotification, recordNotification } from '../services/notifications';
+import { sendDisputeRaisedEmail, sendDisputeResolvedEmail } from '../services/email';
 import multer from 'multer';
 import { classifyDisputeType } from '../services/dispute-ai/classifier';
 import { quickTierHint } from '../services/dispute-ai/config/disputeTypes';
@@ -35,23 +36,15 @@ async function sendVerdictNotifications(disputeId: string, action: string, txn: 
 
         await Promise.all([txn.buyer, txn.seller].map(async (user: any) => {
             try {
-                const { data: linked } = await supabase
-                    .from('linked_accounts')
-                    .select('platform, platform_id')
-                    .eq('profile_id', user.id)
-                    .eq('is_primary', true)
-                    .single();
-
-                if (linked) {
-                    const disputeUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txn.id}`;
-                    await sendNotification(
-                        linked.platform,
-                        linked.platform_id,
-                        `⚖️ <b>Dispute Resolved</b>\n\nCase for <b>"${txn.product_name}"</b> (#${txn.txn_code}) has been resolved by AI Mediation.\n\n<b>Outcome:</b> ${label}\n\nView your case details for next steps.`,
-                        [{ label: '👁️ View Case', url: disputeUrl }]
-                    );
-                    recordNotification(user.id, 'dispute', '⚖️ Dispute Resolved', `Case for "${txn.product_name}" resolved — ${label}`, { transaction_id: txn.id, transaction_code: txn.txn_code, dispute_id: disputeId, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
-                }
+                const disputeUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txn.id}`;
+                await routeNotification(
+                    user.id,
+                    `⚖️ <b>Dispute Resolved</b>\n\nCase for <b>"${txn.product_name}"</b> (#${txn.txn_code}) has been resolved by AI Mediation.\n\n<b>Outcome:</b> ${label}\n\nView your case details for next steps.`,
+                    [{ label: '👁️ View Case', url: disputeUrl }],
+                    undefined,
+                    user.email ? () => sendDisputeResolvedEmail(user.email, { safetag: user.safetag, product: txn.product_name, txnCode: txn.txn_code, outcome: label, txnId: txn.id }) : undefined
+                );
+                recordNotification(user.id, 'dispute', '⚖️ Dispute Resolved', `Case for "${txn.product_name}" resolved — ${label}`, { transaction_id: txn.id, transaction_code: txn.txn_code, dispute_id: disputeId, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
             } catch { /* non-critical */ }
         }));
     } catch (err) {
@@ -223,24 +216,15 @@ router.post('/raise', async (req: Request, res: Response) => {
             const REVIEWS_URL = process.env.REVIEWS_URL || 'https://Safeeely.com';
             const otherParty = txn.buyer.id === data.raised_by ? txn.seller : txn.buyer;
             const raiser = txn.buyer.id === data.raised_by ? txn.buyer : txn.seller;
-
-            const { data: linkedAccount } = await supabase
-                .from('linked_accounts')
-                .select('platform, platform_id')
-                .eq('profile_id', otherParty.id)
-                .eq('is_primary', true)
-                .single();
-
-            if (linkedAccount) {
-                const disputeDetailsUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(otherParty.safetag)}?view=dispute_details&txnId=${txn.id}`;
-                await sendNotification(
-                    linkedAccount.platform,
-                    linkedAccount.platform_id,
-                    `⚠️ <b>Transaction Disputed</b>\n\nTransaction <b>${txn.txn_code}</b> for "${txn.product_name}" has been disputed by @${raiser.safetag}.\n\n<b>Reason:</b> ${data.reason}\n\nFunds have been locked. Please visit your Web Dashboard to review the evidence and resolve the dispute.`,
-                    [{ label: '👁️ View Dispute Details', url: disputeDetailsUrl }]
-                );
-                recordNotification(otherParty.id, 'dispute', '⚠️ Dispute Raised Against You', `@${raiser.safetag} disputed "${txn.product_name}" — funds locked`, { transaction_id: txn.id, transaction_code: txn.txn_code, reason: data.reason, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
-            }
+            const disputeDetailsUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(otherParty.safetag)}?view=dispute_details&txnId=${txn.id}`;
+            await routeNotification(
+                otherParty.id,
+                `⚠️ <b>Transaction Disputed</b>\n\nTransaction <b>${txn.txn_code}</b> for "${txn.product_name}" has been disputed by @${raiser.safetag}.\n\n<b>Reason:</b> ${data.reason}\n\nFunds have been locked. Please visit your Web Dashboard to review the evidence and resolve the dispute.`,
+                [{ label: '👁️ View Dispute Details', url: disputeDetailsUrl }],
+                undefined,
+                otherParty.email ? () => sendDisputeRaisedEmail(otherParty.email, { safetag: otherParty.safetag, raisingParty: raiser.safetag, product: txn.product_name, txnCode: txn.txn_code, reason: data.reason, txnId: txn.id }) : undefined
+            );
+            recordNotification(otherParty.id, 'dispute', '⚠️ Dispute Raised Against You', `@${raiser.safetag} disputed "${txn.product_name}" — funds locked`, { transaction_id: txn.id, transaction_code: txn.txn_code, reason: data.reason, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
         } catch (notifErr) {
             console.error('Failed to send dispute notification:', notifErr);
         }

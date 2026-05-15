@@ -30,6 +30,7 @@ export interface LinkedAccount {
   platform: Platform;
   platform_id: string;
   is_primary: boolean;
+  last_message_at?: string;
 }
 
 export interface Transaction {

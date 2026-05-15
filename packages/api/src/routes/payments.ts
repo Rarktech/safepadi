@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
-import { sendNotification, recordNotification, sendReferralNotification } from '../services/notifications';
+import { sendNotification, routeNotification, recordNotification, sendReferralNotification } from '../services/notifications';
+import { sendPaymentConfirmedEmail } from '../services/email';
 import crypto from 'crypto';
 import axios from 'axios';
 
@@ -47,44 +48,22 @@ router.post('/opay/webhook', async (req, res) => {
                 const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
 
                 // Notify Buyer
-                const { data: buyerLinked } = await supabase
-                    .from('linked_accounts')
-                    .select('platform, platform_id')
-                    .eq('profile_id', txn.buyer_id)
-                    .eq('is_primary', true)
-                    .maybeSingle();
-
-                if (buyerLinked) {
-                    console.log(`[OPay] Notifying Buyer ${txn.buyer_id} on ${buyerLinked.platform}`);
-                    const buyerMsg = `✅ <b>Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
-
-                    await sendNotification(buyerLinked.platform, buyerLinked.platform_id, buyerMsg, [
-                        { label: '👁️ View Transaction', customId: `view_txn_${txn.id}` },
-                        { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
-                        { label: '🔙 Main Menu', customId: 'main_menu' }
-                    ], receiptUrl).catch(e => console.error('Buyer Notif Error:', e));
-                    recordNotification(txn.buyer_id, 'payment', '✅ Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow via OPay`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
-                }
+                const buyerMsg = `✅ <b>Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
+                routeNotification(txn.buyer_id, buyerMsg, [
+                    { label: '👁️ View Transaction', customId: `view_txn_${txn.id}` },
+                    { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
+                    { label: '🔙 Main Menu', customId: 'main_menu' }
+                ], receiptUrl, txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Buyer Notif Error:', e));
+                recordNotification(txn.buyer_id, 'payment', '✅ Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow via OPay`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
 
                 // Notify Seller
-                const { data: sellerLinked } = await supabase
-                    .from('linked_accounts')
-                    .select('platform, platform_id')
-                    .eq('profile_id', txn.seller_id)
-                    .eq('is_primary', true)
-                    .maybeSingle();
-
-                if (sellerLinked) {
-                    console.log(`[OPay] Notifying Seller ${txn.seller_id} on ${sellerLinked.platform}`);
-                    const sellerMsg = `🔐 <b>Payment Received and Held Securely!</b>\n\nThe buyer has made payment and funds are now secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Secured: <b>${txn.amount} ${txn.currency}</b>\n👤 Buyer: <code>${txn.buyer?.safetag}</code>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller, you can now proceed to fulfill the order.\n\n❓ Have you completed your part of the agreement?\n   (Shipped the product or delivered the service)\n\n⚠️ Important: Please be sure the buyer has received satisfactory delivery — any disputes raised after confirmation won't be considered.`;
-
-                    await sendNotification(sellerLinked.platform, sellerLinked.platform_id, sellerMsg, [
-                        { label: '✅ Mark as Completed', customId: `txn_action_complete_prompt|${txn.id}` },
-                        { label: '🔄 New Transaction', customId: 'create_txn' },
-                        { label: '👁️ View Details', customId: `view_txn_${txn.id}` }
-                    ], receiptUrl).catch(e => console.error('Seller Notif Error:', e));
-                    recordNotification(txn.seller_id, 'payment', '🔐 Payment Received in Escrow', `${txn.amount} ${txn.currency} secured for ${txn.product_name} via OPay`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
-                }
+                const sellerMsg = `🔐 <b>Payment Received and Held Securely!</b>\n\nThe buyer has made payment and funds are now secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Secured: <b>${txn.amount} ${txn.currency}</b>\n👤 Buyer: <code>${txn.buyer?.safetag}</code>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller, you can now proceed to fulfill the order.\n\n❓ Have you completed your part of the agreement?\n   (Shipped the product or delivered the service)\n\n⚠️ Important: Please be sure the buyer has received satisfactory delivery — any disputes raised after confirmation won't be considered.`;
+                routeNotification(txn.seller_id, sellerMsg, [
+                    { label: '✅ Mark as Completed', customId: `txn_action_complete_prompt|${txn.id}` },
+                    { label: '🔄 New Transaction', customId: 'create_txn' },
+                    { label: '👁️ View Details', customId: `view_txn_${txn.id}` }
+                ], receiptUrl, txn.seller?.email ? () => sendPaymentConfirmedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Seller Notif Error:', e));
+                recordNotification(txn.seller_id, 'payment', '🔐 Payment Received in Escrow', `${txn.amount} ${txn.currency} secured for ${txn.product_name} via OPay`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
             }
         }
 
@@ -125,44 +104,22 @@ router.post('/airwallex/webhook', async (req, res) => {
                 const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
 
                 // Notify Buyer
-                const { data: buyerLinked } = await supabase
-                    .from('linked_accounts')
-                    .select('platform, platform_id')
-                    .eq('profile_id', txn.buyer_id)
-                    .eq('is_primary', true)
-                    .maybeSingle();
-
-                if (buyerLinked) {
-                    console.log(`[Airwallex] Notifying Buyer ${txn.buyer_id} on ${buyerLinked.platform}`);
-                    const msg = `✅ <b>Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
-
-                    await sendNotification(buyerLinked.platform, buyerLinked.platform_id, msg, [
-                        { label: '👁️ View Transaction', customId: `view_txn_${txn.id}` },
-                        { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
-                        { label: '🔙 Main Menu', customId: 'main_menu' }
-                    ], receiptUrl).catch(e => console.error('Buyer Notif Error:', e));
-                    recordNotification(txn.buyer_id, 'payment', '✅ Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow via Airwallex`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
-                }
+                const buyerMsg = `✅ <b>Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
+                routeNotification(txn.buyer_id, buyerMsg, [
+                    { label: '👁️ View Transaction', customId: `view_txn_${txn.id}` },
+                    { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
+                    { label: '🔙 Main Menu', customId: 'main_menu' }
+                ], receiptUrl, txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Buyer Notif Error:', e));
+                recordNotification(txn.buyer_id, 'payment', '✅ Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow via Airwallex`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
 
                 // Notify Seller
-                const { data: sellerLinked } = await supabase
-                    .from('linked_accounts')
-                    .select('platform, platform_id')
-                    .eq('profile_id', txn.seller_id)
-                    .eq('is_primary', true)
-                    .maybeSingle();
-
-                if (sellerLinked) {
-                    console.log(`[Airwallex] Notifying Seller ${txn.seller_id} on ${sellerLinked.platform}`);
-                    const msg = `🔐 <b>Payment Received and Held Securely!</b>\n\nThe buyer has made payment and funds are now secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Secured: <b>${txn.amount} ${txn.currency}</b>\n👤 Buyer: <code>${txn.buyer?.safetag}</code>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller, you can now proceed to fulfill the order.\n\n❓ Have you completed your part of the agreement?\n   (Shipped the product or delivered the service)\n\n⚠️ Important: Please be sure the buyer has received satisfactory delivery — any disputes raised after confirmation won't be considered.`;
-
-                    await sendNotification(sellerLinked.platform, sellerLinked.platform_id, msg, [
-                        { label: '✅ Mark as Completed', customId: `txn_action_complete_prompt|${txn.id}` },
-                        { label: '🔄 New Transaction', customId: 'create_txn' },
-                        { label: '👁️ View Details', customId: `view_txn_${txn.id}` }
-                    ], receiptUrl).catch(e => console.error('Seller Notif Error:', e));
-                    recordNotification(txn.seller_id, 'payment', '🔐 Payment Received in Escrow', `${txn.amount} ${txn.currency} secured for ${txn.product_name} via Airwallex`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
-                }
+                const sellerMsg = `🔐 <b>Payment Received and Held Securely!</b>\n\nThe buyer has made payment and funds are now secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Secured: <b>${txn.amount} ${txn.currency}</b>\n👤 Buyer: <code>${txn.buyer?.safetag}</code>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller, you can now proceed to fulfill the order.\n\n❓ Have you completed your part of the agreement?\n   (Shipped the product or delivered the service)\n\n⚠️ Important: Please be sure the buyer has received satisfactory delivery — any disputes raised after confirmation won't be considered.`;
+                routeNotification(txn.seller_id, sellerMsg, [
+                    { label: '✅ Mark as Completed', customId: `txn_action_complete_prompt|${txn.id}` },
+                    { label: '🔄 New Transaction', customId: 'create_txn' },
+                    { label: '👁️ View Details', customId: `view_txn_${txn.id}` }
+                ], receiptUrl, txn.seller?.email ? () => sendPaymentConfirmedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Seller Notif Error:', e));
+                recordNotification(txn.seller_id, 'payment', '🔐 Payment Received in Escrow', `${txn.amount} ${txn.currency} secured for ${txn.product_name} via Airwallex`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
             }
         }
 
@@ -233,42 +190,22 @@ router.post('/chainrails/webhook', async (req, res) => {
                 const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
 
                 // Notify buyer
-                const { data: buyerLinked } = await supabase
-                    .from('linked_accounts')
-                    .select('platform, platform_id')
-                    .eq('profile_id', txn.buyer_id)
-                    .eq('is_primary', true)
-                    .maybeSingle();
-
-                if (buyerLinked) {
-                    const buyerMsg = `✅ <b>Crypto Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔗 Gateway: <b>ChainRails (Crypto)</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
-
-                    await sendNotification(buyerLinked.platform, buyerLinked.platform_id, buyerMsg, [
-                        { label: '👁️ View Transaction', customId: `view_txn_${txn.id}` },
-                        { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
-                        { label: '🔙 Main Menu', customId: 'main_menu' }
-                    ], receiptUrl).catch(e => console.error('Buyer Notif Error:', e));
-                    recordNotification(txn.buyer_id, 'payment', '✅ Crypto Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow via ChainRails`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
-                }
+                const buyerMsg = `✅ <b>Crypto Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔗 Gateway: <b>ChainRails (Crypto)</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
+                routeNotification(txn.buyer_id, buyerMsg, [
+                    { label: '👁️ View Transaction', customId: `view_txn_${txn.id}` },
+                    { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
+                    { label: '🔙 Main Menu', customId: 'main_menu' }
+                ], receiptUrl, txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Buyer Notif Error:', e));
+                recordNotification(txn.buyer_id, 'payment', '✅ Crypto Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow via ChainRails`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
 
                 // Notify seller
-                const { data: sellerLinked } = await supabase
-                    .from('linked_accounts')
-                    .select('platform, platform_id')
-                    .eq('profile_id', txn.seller_id)
-                    .eq('is_primary', true)
-                    .maybeSingle();
-
-                if (sellerLinked) {
-                    const sellerMsg = `🔐 <b>Crypto Payment Received!</b>\n\nThe buyer has made a crypto payment — funds are secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Secured: <b>${txn.amount} ${txn.currency}</b>\n👤 Buyer: <code>${txn.buyer?.safetag}</code>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ You can now proceed to fulfill the order.\n\n⚠️ Important: Please be sure the buyer has received satisfactory delivery before requesting release.`;
-
-                    await sendNotification(sellerLinked.platform, sellerLinked.platform_id, sellerMsg, [
-                        { label: '✅ Mark as Completed', customId: `txn_action_complete_prompt|${txn.id}` },
-                        { label: '🔄 New Transaction', customId: 'create_txn' },
-                        { label: '👁️ View Details', customId: `view_txn_${txn.id}` }
-                    ], receiptUrl).catch(e => console.error('Seller Notif Error:', e));
-                    recordNotification(txn.seller_id, 'payment', '🔐 Crypto Payment Received', `${txn.amount} ${txn.currency} secured for ${txn.product_name} via ChainRails`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
-                }
+                const sellerMsg = `🔐 <b>Crypto Payment Received!</b>\n\nThe buyer has made a crypto payment — funds are secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Secured: <b>${txn.amount} ${txn.currency}</b>\n👤 Buyer: <code>${txn.buyer?.safetag}</code>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ You can now proceed to fulfill the order.\n\n⚠️ Important: Please be sure the buyer has received satisfactory delivery before requesting release.`;
+                routeNotification(txn.seller_id, sellerMsg, [
+                    { label: '✅ Mark as Completed', customId: `txn_action_complete_prompt|${txn.id}` },
+                    { label: '🔄 New Transaction', customId: 'create_txn' },
+                    { label: '👁️ View Details', customId: `view_txn_${txn.id}` }
+                ], receiptUrl, txn.seller?.email ? () => sendPaymentConfirmedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Seller Notif Error:', e));
+                recordNotification(txn.seller_id, 'payment', '🔐 Crypto Payment Received', `${txn.amount} ${txn.currency} secured for ${txn.product_name} via ChainRails`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
             } else {
                 console.log(`ℹ️ [ChainRails] ${txn.txn_code} already ${txn.status}, skipping.`);
             }
@@ -453,48 +390,22 @@ router.post('/flutterwave/webhook', async (req, res) => {
                 const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
 
                 // Notify Buyer
-                const { data: buyerLinked } = await supabase
-                    .from('linked_accounts')
-                    .select('platform, platform_id')
-                    .eq('profile_id', txn.buyer_id)
-                    .eq('is_primary', true)
-                    .maybeSingle();
-
-                if (buyerLinked) {
-                    console.log(`[Flutterwave] Notifying Buyer ${txn.buyer_id} on ${buyerLinked.platform}`);
-                    const msg = `✅ <b>Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
-
-                    await sendNotification(buyerLinked.platform, buyerLinked.platform_id, msg, [
-                        { label: '👁️ View Transaction', customId: `view_txn_${txn.id}` },
-                        { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
-                        { label: '🔙 Main Menu', customId: 'main_menu' }
-                    ], receiptUrl).catch(e => console.error('Buyer Notif Error:', e));
-                    recordNotification(txn.buyer_id, 'payment', '✅ Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow via Flutterwave`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
-                } else {
-                    console.warn(`[Flutterwave] No linked account found for buyer ${txn.buyer_id}`);
-                }
+                const buyerMsg = `✅ <b>Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
+                routeNotification(txn.buyer_id, buyerMsg, [
+                    { label: '👁️ View Transaction', customId: `view_txn_${txn.id}` },
+                    { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
+                    { label: '🔙 Main Menu', customId: 'main_menu' }
+                ], receiptUrl, txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Buyer Notif Error:', e));
+                recordNotification(txn.buyer_id, 'payment', '✅ Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow via Flutterwave`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
 
                 // Notify Seller
-                const { data: sellerLinked } = await supabase
-                    .from('linked_accounts')
-                    .select('platform, platform_id')
-                    .eq('profile_id', txn.seller_id)
-                    .eq('is_primary', true)
-                    .maybeSingle();
-
-                if (sellerLinked) {
-                    console.log(`[Flutterwave] Notifying Seller ${txn.seller_id} on ${sellerLinked.platform}`);
-                    const msg = `🔐 <b>Payment Received and Held Securely!</b>\n\nThe buyer has made payment and funds are now secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Secured: <b>${txn.amount} ${txn.currency}</b>\n👤 Buyer: <code>${txn.buyer?.safetag}</code>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller, you can now proceed to fulfill the order.\n\n❓ Have you completed your part of the agreement?\n   (Shipped the product or delivered the service)\n\n⚠️ Important: Please be sure the buyer has received satisfactory delivery — any disputes raised after confirmation won't be considered.`;
-
-                    await sendNotification(sellerLinked.platform, sellerLinked.platform_id, msg, [
-                        { label: '✅ Mark as Completed', customId: `txn_action_complete_prompt|${txn.id}` },
-                        { label: '🔄 New Transaction', customId: 'create_txn' },
-                        { label: '👁️ View Details', customId: `view_txn_${txn.id}` }
-                    ], receiptUrl).catch(e => console.error('Seller Notif Error:', e));
-                    recordNotification(txn.seller_id, 'payment', '🔐 Payment Received in Escrow', `${txn.amount} ${txn.currency} secured for ${txn.product_name} via Flutterwave`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
-                } else {
-                    console.warn(`[Flutterwave] No linked account found for seller ${txn.seller_id}`);
-                }
+                const sellerMsg = `🔐 <b>Payment Received and Held Securely!</b>\n\nThe buyer has made payment and funds are now secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Secured: <b>${txn.amount} ${txn.currency}</b>\n👤 Buyer: <code>${txn.buyer?.safetag}</code>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller, you can now proceed to fulfill the order.\n\n❓ Have you completed your part of the agreement?\n   (Shipped the product or delivered the service)\n\n⚠️ Important: Please be sure the buyer has received satisfactory delivery — any disputes raised after confirmation won't be considered.`;
+                routeNotification(txn.seller_id, sellerMsg, [
+                    { label: '✅ Mark as Completed', customId: `txn_action_complete_prompt|${txn.id}` },
+                    { label: '🔄 New Transaction', customId: 'create_txn' },
+                    { label: '👁️ View Details', customId: `view_txn_${txn.id}` }
+                ], receiptUrl, txn.seller?.email ? () => sendPaymentConfirmedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Seller Notif Error:', e));
+                recordNotification(txn.seller_id, 'payment', '🔐 Payment Received in Escrow', `${txn.amount} ${txn.currency} secured for ${txn.product_name} via Flutterwave`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
             } else {
                 console.log(`ℹ️ Transaction ${txnCode} is already marked as ${txn.status}. Skipping notification.`);
             }

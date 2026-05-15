@@ -243,3 +243,129 @@ export function sendMilestoneReleasedEmail(to: string, opts: { safetag: string; 
         html: wrap('Milestone Released 💰', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(opts.role === 'seller' ? `Milestone funds have been released to your balance.` : `You have released the funds for milestone <b>${opts.milestoneTitle}</b>.`)}${kv('Milestone', `${opts.milestoneTitle} (${opts.milestoneIndex}/${opts.milestoneTotal})`)}${kv('Amount', `${opts.amount} ${opts.currency}`)}${kv('Transaction', opts.txnCode)}`, `${reviewsUrl()}/dashboard/transactions/${opts.txnId}`, '👁️ View Project')
     }).catch(() => {});
 }
+
+// 15. New transaction request received (recipient needs to accept/decline)
+export function sendNewTransactionRequestEmail(to: string, opts: { safetag: string; counterpartyTag: string; product: string; amount: number; currency: string; txnCode: string; txnId: string }) {
+    sendEmail({
+        to, subject: `New transaction request — ${opts.product} from ${opts.counterpartyTag}`,
+        html: wrap('New Transaction Request 🔔', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(`<b>${opts.counterpartyTag}</b> has sent you a secure transaction request on Safeeely.`)}${kv('Product / Service', opts.product)}${kv('Amount', `${opts.amount.toLocaleString()} ${opts.currency}`)}${kv('Transaction ID', opts.txnCode)}${p('Open Safeeely to accept or decline the request.')}`, `${reviewsUrl()}/withdraw/${encodeURIComponent(opts.safetag)}?continue=${opts.txnId}`, '✅ View & Respond')
+    }).catch(() => {});
+}
+
+// 16. Transaction declined — notify the initiator
+export function sendTransactionDeclinedEmail(to: string, opts: { safetag: string; declinerTag: string; product: string; amount: number; currency: string; txnCode: string }) {
+    sendEmail({
+        to, subject: `Your transaction request was declined`,
+        html: wrap('Transaction Declined ❌', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(`<b>${opts.declinerTag}</b> has declined your transaction request for <b>${opts.product}</b>.`)}${kv('Product / Service', opts.product)}${kv('Amount', `${opts.amount.toLocaleString()} ${opts.currency}`)}${kv('Transaction ID', opts.txnCode)}${p('You can reach out to them directly or create a new transaction with updated terms.')}`, `${reviewsUrl()}/trade`, '🛒 Create New Transaction')
+    }).catch(() => {});
+}
+
+// 17. Payment reminder — buyer hasn't paid after acceptance
+export function sendPaymentReminderEmail(to: string, opts: { safetag: string; sellerTag: string; product: string; amount: number; currency: string; txnId: string; txnCode: string; nudge: 'first' | 'final' }) {
+    const isFinal = opts.nudge === 'final';
+    sendEmail({
+        to, subject: `${isFinal ? '⚠️ Final reminder' : 'Action needed'} — your payment for ${opts.product} is pending`,
+        html: wrap(`Payment ${isFinal ? 'Overdue ⚠️' : 'Reminder 💳'}`, `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(isFinal ? `Your payment for <b>${opts.product}</b> has been pending for over 24 hours. Please pay now to keep the deal alive — <b>@${opts.sellerTag}</b> is waiting.` : `Your deal for <b>${opts.product}</b> with <b>@${opts.sellerTag}</b> was accepted but payment hasn't been made yet. Pay now to lock in your escrow.`)}${kv('Product / Service', opts.product)}${kv('Amount Due', `${opts.amount.toLocaleString()} ${opts.currency}`)}${kv('Transaction', opts.txnCode)}`, `${reviewsUrl()}/pay/${opts.txnId}`, '💳 Pay Now')
+    }).catch(() => {});
+}
+
+// 18. Seller acceptance reminder — seller hasn't responded to a transaction request
+export function sendSellerAcceptanceReminderEmail(to: string, opts: { safetag: string; buyerTag: string; product: string; amount: number; currency: string; txnId: string; txnCode: string }) {
+    sendEmail({
+        to, subject: `Pending transaction request — ${opts.product} from ${opts.buyerTag}`,
+        html: wrap('Transaction Request Pending ⏳', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(`You have a pending transaction request from <b>${opts.buyerTag}</b> for <b>${opts.product}</b> that needs your response.`)}${kv('Product / Service', opts.product)}${kv('Amount', `${opts.amount.toLocaleString()} ${opts.currency}`)}${kv('Transaction', opts.txnCode)}${p('Please accept or decline so the buyer knows where things stand.')}`, `${reviewsUrl()}/withdraw/${encodeURIComponent(opts.safetag)}?continue=${opts.txnId}`, '✅ View Request')
+    }).catch(() => {});
+}
+
+// 19. Receipt confirmation reminder — buyer hasn't confirmed after delivery
+export function sendReceiptConfirmationReminderEmail(to: string, opts: { safetag: string; sellerTag: string; product: string; txnId: string; txnCode: string; nudge: 'first' | 'final' }) {
+    const isFinal = opts.nudge === 'final';
+    sendEmail({
+        to, subject: `${isFinal ? 'Urgent: ' : ''}Please confirm you received ${opts.product}`,
+        html: wrap(`Confirm Receipt ${isFinal ? '⚠️' : '📬'}`, `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(isFinal ? `<b>@${opts.sellerTag}</b> has been waiting ${isFinal ? '5 days' : '48 hours'} for you to confirm receipt of <b>${opts.product}</b>. Funds are held in escrow until you respond.` : `<b>@${opts.sellerTag}</b> marked <b>${opts.product}</b> as delivered. Have you received it? Please confirm so funds can be released.`)}${kv('Transaction', opts.txnCode)}`, `${reviewsUrl()}/dashboard/transactions/${opts.txnId}`, '✅ Confirm Receipt')
+    }).catch(() => {});
+}
+
+// 20. Seller delivery reminder — seller hasn't marked delivery complete
+export function sendSellerDeliveryReminderEmail(to: string, opts: { safetag: string; buyerTag: string; product: string; txnId: string; txnCode: string; nudge: 'first' | 'final' }) {
+    const isFinal = opts.nudge === 'final';
+    sendEmail({
+        to, subject: `${isFinal ? 'Urgent: ' : 'Reminder — '}your buyer is waiting for ${opts.product}`,
+        html: wrap(`Delivery Reminder ${isFinal ? '⚠️' : '📦'}`, `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(isFinal ? `It's been 7 days since <b>${opts.buyerTag}</b> paid for <b>${opts.product}</b>. Please deliver and mark the order complete — delayed delivery risks a dispute.` : `<b>${opts.buyerTag}</b> has paid for <b>${opts.product}</b> and is waiting for delivery. Please fulfil the order and mark it complete.`)}${kv('Transaction', opts.txnCode)}`, `${reviewsUrl()}/dashboard/transactions/${opts.txnId}`, '✅ Mark as Delivered')
+    }).catch(() => {});
+}
+
+// 21. Onboarding day 1 — no transactions yet
+export function sendOnboardingDay1Email(to: string, opts: { safetag: string; firstName: string }) {
+    sendEmail({
+        to, subject: `Your Safeeely account is live — make your first trade`,
+        html: wrap('Your account is ready 🎉', `${p(`Hi <b>${opts.firstName}</b>,`)}${p(`Your Safetag <b>${opts.safetag}</b> is live and ready to use. Here's how to make your first secure trade in 60 seconds:`)}${p('<b>1.</b> Open Safeeely and tap "Create Transaction"<br><b>2.</b> Choose buyer or seller<br><b>3.</b> Enter the product and amount<br><b>4.</b> Share your Safetag with your trading partner')}${p('Thousands of traders use Safeeely to protect their money every day — join them!')}`, `${reviewsUrl()}/trade`, '🛒 Create My First Trade')
+    }).catch(() => {});
+}
+
+// 22. Onboarding day 3 — share safetag prompt
+export function sendOnboardingDay3Email(to: string, opts: { safetag: string; firstName: string }) {
+    sendEmail({
+        to, subject: `Share your Safetag and start trading securely`,
+        html: wrap('Share Your Safetag 📢', `${p(`Hi <b>${opts.firstName}</b>,`)}${p(`Your Safetag <b>${opts.safetag}</b> is your identity on Safeeely. When buyers or sellers see it, they know the deal is protected.`)}${p('Drop your Safetag in your bio, WhatsApp status, or DMs to start getting secure trade requests.')}${kv('Your Profile Link', `${reviewsUrl()}/reviews/${encodeURIComponent(opts.safetag)}`)}`, `${reviewsUrl()}/trade`, '🛒 Start a Trade')
+    }).catch(() => {});
+}
+
+// 23. Onboarding day 7 — urgency / social proof
+export function sendOnboardingDay7Email(to: string, opts: { safetag: string; firstName: string }) {
+    sendEmail({
+        to, subject: `Don't get scammed — protect your next deal with Safeeely`,
+        html: wrap("Don't lose money on your next deal 🛡️", `${p(`Hi <b>${opts.firstName}</b>,`)}${p('Every day, people lose money to scams on social media. Safeeely exists so that doesn\'t happen to you.')}${p('<b>Here\'s how it works:</b> The buyer pays into escrow. You deliver. The buyer confirms. Funds are released. Zero risk for both sides.')}${p('Your account is ready. Start your first protected trade today.')}`, `${reviewsUrl()}/trade`, '🛒 Create Your First Trade')
+    }).catch(() => {});
+}
+
+// 24. KYC nudge — 7 days after registration
+export function sendKycNudgeEmail(to: string, opts: { safetag: string; firstName: string }) {
+    sendEmail({
+        to, subject: `Verify your identity to unlock full access`,
+        html: wrap('Unlock Full Access 🛡️', `${p(`Hi <b>${opts.firstName}</b>,`)}${p('Verifying your identity on Safeeely unlocks:')}${p('✅ Higher transaction limits<br>✅ The Verified badge — buyers trust verified sellers more<br>✅ Priority dispute resolution')}${p('It takes less than 2 minutes.')}`, `${reviewsUrl()}/kyc?viewer=${opts.safetag}`, '🛡️ Verify My Identity')
+    }).catch(() => {});
+}
+
+// 25. Referral signup alert — someone joined via your link
+export function sendReferralSignupEmail(to: string, opts: { referrerSafetag: string; newUserFirstName: string; totalReferrals: number }) {
+    sendEmail({
+        to, subject: `${opts.newUserFirstName} just joined Safeeely using your invite link!`,
+        html: wrap('New Referral! 🎉', `${p(`Hi <b>@${opts.referrerSafetag}</b>,`)}${p(`<b>${opts.newUserFirstName}</b> just joined Safeeely using your invite link!`)}${kv('Total Referrals', String(opts.totalReferrals))}${p("You'll earn commission every time they complete a secure transaction. Keep sharing your link to grow your passive income!")}`, `${reviewsUrl()}/dashboard`, '👥 View My Referrals')
+    }).catch(() => {});
+}
+
+// 26. Referral milestone celebration
+export function sendReferralMilestoneEmail(to: string, opts: { safetag: string; milestone: number; earningsSummary: string }) {
+    sendEmail({
+        to, subject: `You just hit ${opts.milestone} referrals on Safeeely!`,
+        html: wrap(`${opts.milestone} Referrals! 🏆`, `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(`You just hit <b>${opts.milestone} referral${opts.milestone > 1 ? 's' : ''}</b> on Safeeely! You're in the top tier of our referrers.`)}${p(`<b>Earnings so far:</b> ${opts.earningsSummary}`)}${p('Keep sharing your link — the more people you bring in, the more you earn for life.')}`, `${reviewsUrl()}/dashboard`, '💰 View Earnings')
+    }).catch(() => {});
+}
+
+// 27. Monthly referral summary
+export function sendMonthlyReferralSummaryEmail(to: string, opts: { safetag: string; month: string; referralCount: number; earningsSummary: string; referralLink: string }) {
+    sendEmail({
+        to, subject: `Your Safeeely referral report — ${opts.month}`,
+        html: wrap(`Referral Report — ${opts.month} 📊`, `${p(`Hi <b>@${opts.safetag}</b>,`)}${kv('Referrals this month', String(opts.referralCount))}${kv('Commission earned', opts.earningsSummary)}${p('Keep sharing your link to grow your passive income every month.')}${kv('Your referral link', opts.referralLink)}`, `${reviewsUrl()}/dashboard`, '💸 Withdraw Earnings')
+    }).catch(() => {});
+}
+
+// 28. 30-day re-engagement
+export function sendReEngagementEmail(to: string, opts: { safetag: string; firstName: string; hasTraded: boolean; daysSinceActive: number }) {
+    const body = opts.hasTraded
+        ? `${p(`Hi <b>${opts.firstName}</b>,`)}${p(`You haven't been active on Safeeely in <b>${opts.daysSinceActive} days</b>. Are you looking to buy or sell something?`)}${p(`Your Safetag <b>${opts.safetag}</b> is still live and secure. Your reputation and balance are waiting for you.`)}`
+        : `${p(`Hi <b>${opts.firstName}</b>,`)}${p('You signed up for Safeeely but haven\'t made your first trade yet.')}${p('Safeeely protects your money on every online deal. No registration fee. No hidden charges. Just secure escrow for social media trades.')}`;
+    sendEmail({
+        to, subject: `We miss you — ${opts.safetag} is ready when you are`,
+        html: wrap(opts.hasTraded ? 'Welcome Back 👋' : 'Still thinking about it? 💡', body, `${reviewsUrl()}/trade`, '🛒 Start a Trade')
+    }).catch(() => {});
+}
+
+// 29. Balance withdrawal nudge
+export function sendBalanceNudgeEmail(to: string, opts: { safetag: string; firstName: string; balanceSummary: string }) {
+    sendEmail({
+        to, subject: `You have money waiting in your Safeeely balance`,
+        html: wrap('Withdraw Your Earnings 💰', `${p(`Hi <b>${opts.firstName}</b>,`)}${p(`You have funds sitting in your Safeeely balance — ready to withdraw to your bank or wallet.`)}${kv('Available Balance', opts.balanceSummary)}${p('Withdrawals are processed within 24 hours.')}`, `${reviewsUrl()}/dashboard`, '💸 Withdraw Now')
+    }).catch(() => {});
+}

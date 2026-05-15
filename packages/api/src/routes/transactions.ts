@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
-import { sendNotification, sendReferralNotification, recordNotification, sendTelegramGroupMessage, sendDiscordChannelMessage } from '../services/notifications';
-import { sendTransactionInvoiceEmail } from '../services/email';
+import { sendNotification, routeNotification, sendReferralNotification, recordNotification, sendTelegramGroupMessage, sendDiscordChannelMessage } from '../services/notifications';
+import { sendTransactionInvoiceEmail, sendNewTransactionRequestEmail, sendTransactionAcceptedEmail, sendTransactionDeclinedEmail, sendDeliverySubmittedEmail, sendTransactionCompletedEmail, sendReferralMilestoneEmail, sendMilestoneReleasedEmail, sendPaymentConfirmedEmail } from '../services/email';
 import crypto from 'crypto';
 import axios from 'axios';
 import multer from 'multer';
@@ -187,17 +187,11 @@ router.post('/create', async (req, res) => {
 
         console.log(`🔔 Preparing notification for ${isBuyerInitiated ? 'seller' : 'buyer'} (${recipientTag})...`);
 
-        const { data: linkedAccounts, error: accountError } = await supabase
-            .from('linked_accounts')
-            .select('platform, platform_id')
-            .eq('profile_id', recipientId)
-            .eq('is_primary', true)
-            .single();
-
-        if (linkedAccounts) {
+        {
             const who = isBuyerInitiated ? 'Buyer' : 'Seller';
-            const otherWho = isBuyerInitiated ? 'Seller' : 'Buyer';
             const otherTag = isBuyerInitiated ? data.buyer_safetag : data.seller_safetag;
+            const recipientEmail = isBuyerInitiated ? seller.email : buyer.email;
+            const recipientSafetag = isBuyerInitiated ? seller.safetag : buyer.safetag;
 
             const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
 
@@ -213,7 +207,7 @@ router.post('/create', async (req, res) => {
 
             const isMilestone = data.transaction_type === 'MILESTONE';
             const projectType = isMilestone ? '🪜 Milestone Project' : (isBuyerInitiated ? '🛒 Product' : '💼 Service');
-            
+
             let milestoneText = '';
             if (isMilestone && data.milestones) {
                 milestoneText = `\n📍 **Phases:**\n` + data.milestones.map((m, i) => `   ${i+1}. ${m.title} (${m.amount} ${data.currency})`).join('\n');
@@ -221,13 +215,27 @@ router.post('/create', async (req, res) => {
 
             const msg = `🔔 <b>New Transaction Request!</b>\n\nYou've received a transaction request from <b>${otherTag} (${verifiedLabel})</b>\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txnCode}</b>\n${projectType}: <b>${data.product_name}</b>\n📝 Description: ${data.description || 'N/A'}${milestoneText}\n💰 Total Amount: <b>${data.amount} ${data.currency}</b>\n💵 Fee: <b>${feeAmount.toFixed(2)} ${data.currency}</b> (${data.fee_allocation})\n💳 Escrow Total: <b>${totalAmount.toFixed(2)} ${data.currency}</b>\n👤 ${who}: <code>${otherTag}</code> (${verifiedLabel})\n⭐ ${who} Rating: ${avgR} ${avgR === 'No' ? 'reviews yet' : `/ 5 (${rCount} reviews)`}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
-            sendNotification(linkedAccounts.platform, linkedAccounts.platform_id, msg, [
-                { label: '✅ Accept', customId: `txn_action_accept|${txn.id}` },
-                { label: '❌ Decline', customId: `txn_action_decline|${txn.id}` },
-                { label: '⭐ View Reviews', url: `${reviewsUrl}/reviews/${encodeURIComponent(otherTag)}?viewer=${encodeURIComponent(recipientTag)}` }
-            ]).catch(e => console.error('Background Notification Error:', e));
+            routeNotification(
+                recipientId,
+                msg,
+                [
+                    { label: '✅ Accept', customId: `txn_action_accept|${txn.id}` },
+                    { label: '❌ Decline', customId: `txn_action_decline|${txn.id}` },
+                    { label: '⭐ View Reviews', url: `${reviewsUrl}/reviews/${encodeURIComponent(otherTag)}?viewer=${encodeURIComponent(recipientTag)}` }
+                ],
+                undefined,
+                recipientEmail ? () => sendNewTransactionRequestEmail(recipientEmail, {
+                    safetag: recipientSafetag,
+                    counterpartyTag: otherTag,
+                    product: data.product_name,
+                    amount: data.amount,
+                    currency: data.currency,
+                    txnCode,
+                    txnId: txn.id
+                }) : undefined
+            ).catch(e => console.error('Background Notification Error:', e));
             recordNotification(recipientId, 'transaction', '🔔 New Transaction Request', `${otherTag} sent you a ${data.transaction_type === 'MILESTONE' ? 'milestone project' : 'trade'} request for ${data.product_name}`, { transaction_id: txn.id, transaction_code: txnCode, amount: data.amount, currency: data.currency, counterparty_name: otherTag, link_url: `/withdraw/${encodeURIComponent(isBuyerInitiated ? seller.safetag : buyer.safetag)}?continue=${txn.id}&txnCode=${txnCode}&txnTitle=${encodeURIComponent(data.product_name || '')}` }).catch(() => {});
-            console.log(`[Notification Engine] Dispatched to ${linkedAccounts.platform} user ${linkedAccounts.platform_id}`);
+            console.log(`[Notification Engine] Dispatched routeNotification to recipient ${recipientId}`);
         }
 
         res.status(201).json(txn);
@@ -538,6 +546,26 @@ router.patch('/:id/status', async (req, res) => {
                             `<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:20px;border:1px solid #eee;border-radius:8px;"><h2 style="color:#0f172a;">Commission Earned! 💰</h2><p style="color:#475569;">You just earned a <b>Tier 1</b> referral commission of <b>${tier1Amount.toFixed(2)} ${txn.currency}</b>.</p></div>`
                         ).catch(e => console.error('Tier 1 commission notification failed:', e.message));
 
+                        // Referral milestone celebration
+                        try {
+                            const { count: tier1Count } = await supabase
+                                .from('profiles')
+                                .select('*', { count: 'exact', head: true })
+                                .eq('referred_by_id', tier1ReferrerId);
+                            const REFERRAL_MILESTONES = [1, 5, 10, 25, 50, 100];
+                            if (tier1Count && REFERRAL_MILESTONES.includes(tier1Count)) {
+                                const { data: referrerProfile } = await supabase.from('profiles').select('safetag, email').eq('id', tier1ReferrerId).single();
+                                const earningsSummary = `${tier1Amount.toFixed(2)} ${txn.currency} (latest)`;
+                                routeNotification(
+                                    tier1ReferrerId,
+                                    `🏆 <b>Referral Milestone!</b>\n\nYou just hit <b>${tier1Count} referral${tier1Count > 1 ? 's' : ''}</b> on Safeeely! Keep sharing to earn more for life.`,
+                                    undefined,
+                                    undefined,
+                                    referrerProfile?.email ? () => sendReferralMilestoneEmail(referrerProfile.email, { safetag: referrerProfile.safetag, milestone: tier1Count, earningsSummary }) : undefined
+                                ).catch(() => {});
+                            }
+                        } catch { /* non-critical */ }
+
                         // Fetch the fee payer's Tier 2 Referrer (the person who referred Tier 1)
                         const { data: tier1Profile } = await supabase
                             .from('profiles')
@@ -688,6 +716,29 @@ router.patch('/:id/status', async (req, res) => {
         }
         // --- END GAMIFIED BADGES ENGINE ---
 
+        // --- TRANSACTION COUNT MILESTONES ---
+        if (newStatus === 'FINALIZED') {
+            const TRADE_MILESTONES = [1, 5, 10, 25, 50, 100];
+            try {
+                for (const [userId, role] of [[txn.buyer_id, 'buyer'], [txn.seller_id, 'seller']] as const) {
+                    const column = role === 'buyer' ? 'buyer_id' : 'seller_id';
+                    const { count } = await supabase
+                        .from('transactions')
+                        .select('*', { count: 'exact', head: true })
+                        .eq(column, userId)
+                        .eq('status', 'FINALIZED');
+                    if (count && TRADE_MILESTONES.includes(count)) {
+                        routeNotification(
+                            userId,
+                            `🎉 <b>${count} Trade${count > 1 ? 's' : ''} Completed!</b>\n\nYou've now completed <b>${count}</b> secure transaction${count > 1 ? 's' : ''} on Safeeely. You're one of our most active traders. Keep it up!`,
+                            [{ label: '🛒 Start Another Trade', customId: 'create_txn' }]
+                        ).catch(() => {});
+                    }
+                }
+            } catch { /* non-critical */ }
+        }
+        // --- END TRANSACTION COUNT MILESTONES ---
+
         // Notify the OTHER party
         let effectiveUpdaterTag = updater_safetag;
         if (!effectiveUpdaterTag) {
@@ -701,16 +752,7 @@ router.patch('/:id/status', async (req, res) => {
 
 
 
-        const { data: linked, error: linkError } = await supabase
-            .from('linked_accounts')
-            .select('platform, platform_id')
-            .eq('profile_id', recipient.id)
-            .eq('is_primary', true)
-            .single();
-
-
-
-        if (linked) {
+        {
             let msg = '';
             let options: any[] = [];
 
@@ -760,13 +802,23 @@ router.patch('/:id/status', async (req, res) => {
                 const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
                 const receiptUrl = isFinalReceipt ? `${apiBaseUrl}/receipts/${(txn as any).txn_code}.png?type=completed` : undefined;
 
-                if (isFinalReceipt) {
-                    console.log(`[Transactions] Finalized Receipt URL: ${receiptUrl}`);
-                } else {
-                    console.log(`[Transactions] Dispatching status update (${status}) to: ${linked.platform} (${linked.platform_id})`);
+                console.log(`[Transactions] Dispatching status update (${status}) via routeNotification to recipient ${recipient.id}`);
+
+                const recipientEmail: string | undefined = recipient.email;
+                let emailFn: (() => void) | undefined;
+                if (recipientEmail) {
+                    if (status === 'accept' && !buyerIsUpdater) {
+                        emailFn = () => sendTransactionAcceptedEmail(recipientEmail, { safetag: recipient.safetag, product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnId: txn.id, txnCode: txn.txn_code });
+                    } else if (status === 'decline') {
+                        emailFn = () => sendTransactionDeclinedEmail(recipientEmail, { safetag: recipient.safetag, declinerTag: initiatorTag, product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code });
+                    } else if (status === 'complete_confirmed' || status === 'complete_skip') {
+                        emailFn = () => sendDeliverySubmittedEmail(recipientEmail, { safetag: recipient.safetag, sellerTag: initiatorTag, product: txn.product_name, txnCode: txn.txn_code, txnId: txn.id });
+                    } else if (status === 'confirm_receipt') {
+                        emailFn = () => sendTransactionCompletedEmail(recipientEmail, { safetag: recipient.safetag, product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code });
+                    }
                 }
 
-                sendNotification(linked.platform, linked.platform_id, msg, options, receiptUrl).catch(e => console.error('Background Notification Error:', e));
+                routeNotification(recipient.id, msg, options, receiptUrl, emailFn).catch(e => console.error('Background Notification Error:', e));
 
                 const notifTitles: Record<string, string> = {
                     accept: '✅ Transaction Accepted',
@@ -782,14 +834,11 @@ router.patch('/:id/status', async (req, res) => {
                 };
                 const notifTitle = notifTitles[status] || '🔔 Transaction Update';
                 const notifType = notifTypes[status] || 'transaction';
-                // For 'accept': buyer is the recipient — link opens the ContinueTransaction modal
                 const notifLinkUrl = status === 'accept'
                     ? `/withdraw/${recipient.safetag}?continue=${txn.id}&txnCode=${txn.txn_code}&txnTitle=${encodeURIComponent(txn.product_name)}`
                     : `/dashboard/transactions/${txn.id}`;
                 recordNotification(recipient.id, notifType, notifTitle, `${txn.product_name} · ${txn.amount} ${txn.currency}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: initiatorTag, link_url: notifLinkUrl }).catch(() => {});
             }
-        } else {
-            console.warn(`[Transactions] No primary linked account found for recipient: ${recipient.id}`);
         }
         // --- END NOTIFICATION TO OTHER PARTY ---
 
@@ -933,12 +982,6 @@ router.patch('/:id/milestones/:mId/status', async (req, res) => {
                 ? `✅ <b>Milestone Submitted</b>\n\nYou've marked "<b>${milestone.title}</b>" as completed. Awaiting buyer's release.`
                 : `💰 <b>Funds Received!</b>\n\nThe buyer has released the funds for "<b>${milestone.title}</b>". They are now available in your balance.`;
 
-            const buyerAcc = await supabase.from('linked_accounts').select('*').eq('profile_id', txn.buyer_id).eq('is_primary', true).maybeSingle();
-            const sellerAcc = await supabase.from('linked_accounts').select('*').eq('profile_id', txn.seller_id).eq('is_primary', true).maybeSingle();
-
-            if (buyerAcc.data) await sendNotification(buyerAcc.data.platform, buyerAcc.data.platform_id, buyerMsg);
-            if (sellerAcc.data) await sendNotification(sellerAcc.data.platform, sellerAcc.data.platform_id, sellerMsg);
-
             // Build milestone tracker data for dashboard progress card
             const milestoneLabels = (txn.milestones || []).map((m: any) => m.title);
             const milestoneIndex = (txn.milestones || []).findIndex((m: any) => m.id === mId);
@@ -953,26 +996,41 @@ router.patch('/:id/milestones/:mId/status', async (req, res) => {
                 link_url: `/dashboard/transactions/${txn.id}`,
             };
 
+            routeNotification(txn.buyer_id, buyerMsg, [], undefined,
+                (status === 'RELEASED' && txn.buyer?.email)
+                    ? () => sendMilestoneReleasedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', milestoneTitle: milestone.title, milestoneIndex, milestoneTotal, amount: milestone.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id })
+                    : undefined
+            ).catch(() => {});
+            routeNotification(txn.seller_id, sellerMsg, [{ label: '✅ View Transaction', customId: `view_txn_${txn.id}` }], undefined,
+                (status === 'RELEASED' && txn.seller?.email)
+                    ? () => sendMilestoneReleasedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', milestoneTitle: milestone.title, milestoneIndex, milestoneTotal, amount: milestone.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id })
+                    : undefined
+            ).catch(() => {});
+
             if (status === 'RELEASED') {
                 const releaseTitle = `💰 Milestone Released — ${milestone.title}`;
                 const releaseMsg = `Stage ${milestoneIndex + 1} of ${milestoneTotal} · ${milestone.amount} ${txn.currency}`;
-                if (buyerAcc.data) recordNotification(txn.buyer_id, 'milestone', releaseTitle, releaseMsg, milestoneNotifData).catch(() => {});
-                if (sellerAcc.data) recordNotification(txn.seller_id, 'milestone', releaseTitle, releaseMsg, milestoneNotifData).catch(() => {});
+                recordNotification(txn.buyer_id, 'milestone', releaseTitle, releaseMsg, milestoneNotifData).catch(() => {});
+                recordNotification(txn.seller_id, 'milestone', releaseTitle, releaseMsg, milestoneNotifData).catch(() => {});
             } else if (status === 'COMPLETED') {
                 const completedTitle = `📦 Milestone Submitted — ${milestone.title}`;
                 const completedMsg = `Stage ${milestoneIndex + 1} of ${milestoneTotal} awaiting release`;
-                if (buyerAcc.data) recordNotification(txn.buyer_id, 'milestone', completedTitle, completedMsg, milestoneNotifData).catch(() => {});
-                if (sellerAcc.data) recordNotification(txn.seller_id, 'milestone', completedTitle, completedMsg, milestoneNotifData).catch(() => {});
+                recordNotification(txn.buyer_id, 'milestone', completedTitle, completedMsg, milestoneNotifData).catch(() => {});
+                recordNotification(txn.seller_id, 'milestone', completedTitle, completedMsg, milestoneNotifData).catch(() => {});
             }
 
             if (allReleased) {
-                 const finalMsg = `🎉 <b>Project Finalized!</b>\n\nAll milestones for "<b>${txn.product_name}</b>" have been completed and released. The transaction is now officially finalized.`;
-                 if (buyerAcc.data) await sendNotification(buyerAcc.data.platform, buyerAcc.data.platform_id, finalMsg);
-                 if (sellerAcc.data) await sendNotification(sellerAcc.data.platform, sellerAcc.data.platform_id, finalMsg);
-                 const finalTitle = '🎉 Project Finalized!';
-                 const finalNotifMsg = `All milestones for "${txn.product_name}" completed and released`;
-                 if (buyerAcc.data) recordNotification(txn.buyer_id, 'milestone', finalTitle, finalNotifMsg, { ...milestoneNotifData, milestone_index: milestoneTotal - 1 }).catch(() => {});
-                 if (sellerAcc.data) recordNotification(txn.seller_id, 'milestone', finalTitle, finalNotifMsg, { ...milestoneNotifData, milestone_index: milestoneTotal - 1 }).catch(() => {});
+                const finalMsg = `🎉 <b>Project Finalized!</b>\n\nAll milestones for "<b>${txn.product_name}</b>" have been completed and released. The transaction is now officially finalized.`;
+                routeNotification(txn.buyer_id, finalMsg, [], undefined,
+                    txn.buyer?.email ? () => sendTransactionCompletedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code }) : undefined
+                ).catch(() => {});
+                routeNotification(txn.seller_id, finalMsg, [], undefined,
+                    txn.seller?.email ? () => sendTransactionCompletedEmail(txn.seller.email, { safetag: txn.seller.safetag, product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code }) : undefined
+                ).catch(() => {});
+                const finalTitle = '🎉 Project Finalized!';
+                const finalNotifMsg = `All milestones for "${txn.product_name}" completed and released`;
+                recordNotification(txn.buyer_id, 'milestone', finalTitle, finalNotifMsg, { ...milestoneNotifData, milestone_index: milestoneTotal - 1 }).catch(() => {});
+                recordNotification(txn.seller_id, 'milestone', finalTitle, finalNotifMsg, { ...milestoneNotifData, milestone_index: milestoneTotal - 1 }).catch(() => {});
             }
         } catch (e: any) {
             console.error('Milestone notification error:', e.message);
@@ -1024,25 +1082,19 @@ router.post('/:id/upload-proof-files', upload.array('files', 10), async (req, re
         await supabase.from('transactions').update({ status: 'COMPLETED_BY_SELLER', updated_at: new Date().toISOString() }).eq('id', txn.id);
 
         // Notify buyer
-        const { data: linked } = await supabase.from('linked_accounts').select('platform, platform_id').eq('profile_id', txn.buyer_id).eq('is_primary', true).single();
-        if (linked) {
-            const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
-            const msg = `📦 <b>Delivery Update!</b>\n\n<code>${txn.seller.safetag}</code> has uploaded <b>${files.length} proof file(s)</b> for your order.\n\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n\n🔗 <a href="${reviewsUrl}/delivery/${txn.id}">View Documents Portal</a>`;
-            sendNotification(linked.platform, linked.platform_id, msg, [
-                { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
-                { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
-                { label: '🔗 View Proofs', url: `${reviewsUrl}/delivery/${txn.id}` },
-            ]).catch(e => console.error('Background Notification Error:', e));
-            recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted ${files.length} proof file(s) for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/delivery/${txn.id}` }).catch(() => {});
-        }
+        const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
+        const buyerProofMsg = `📦 <b>Delivery Update!</b>\n\n<code>${txn.seller.safetag}</code> has uploaded <b>${files.length} proof file(s)</b> for your order.\n\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n\n🔗 <a href="${reviewsUrl}/delivery/${txn.id}">View Documents Portal</a>`;
+        routeNotification(txn.buyer_id, buyerProofMsg, [
+            { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
+            { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
+            { label: '🔗 View Proofs', url: `${reviewsUrl}/delivery/${txn.id}` },
+        ]).catch(e => console.error('Background Notification Error:', e));
+        recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted ${files.length} proof file(s) for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/delivery/${txn.id}` }).catch(() => {});
 
         // Notify seller
-        const { data: sellerLinked } = await supabase.from('linked_accounts').select('platform, platform_id').eq('profile_id', txn.seller_id).eq('is_primary', true).single();
-        if (sellerLinked) {
-            const sellerMsg = `✅ <b>Proof Uploaded!</b>\n\nBuyer notified for <b>${txn.product_name}</b> — awaiting confirmation.\n📋 ID: <b>${txn.txn_code}</b>`;
-            sendNotification(sellerLinked.platform, sellerLinked.platform_id, sellerMsg, []).catch(e => console.error('Background Notification Error:', e));
-            recordNotification(txn.seller_id, 'transaction', '✅ Proof Upload Confirmed', `Buyer notified for ${txn.product_name} — awaiting confirmation`, { transaction_id: txn.id, transaction_code: txn.txn_code, link_url: `/delivery/${txn.id}` }).catch(() => {});
-        }
+        const sellerProofMsg = `✅ <b>Proof Uploaded!</b>\n\nBuyer notified for <b>${txn.product_name}</b> — awaiting confirmation.\n📋 ID: <b>${txn.txn_code}</b>`;
+        routeNotification(txn.seller_id, sellerProofMsg, []).catch(e => console.error('Background Notification Error:', e));
+        recordNotification(txn.seller_id, 'transaction', '✅ Proof Upload Confirmed', `Buyer notified for ${txn.product_name} — awaiting confirmation`, { transaction_id: txn.id, transaction_code: txn.txn_code, link_url: `/delivery/${txn.id}` }).catch(() => {});
 
         res.json({ success: true, count: proofRecords.length });
     } catch (err: any) {
@@ -1116,40 +1168,21 @@ router.post('/:id/upload-proofs', async (req, res) => {
         }
 
         // Notify Buyer
-        const { data: linked } = await supabase
-            .from('linked_accounts')
-            .select('platform, platform_id')
-            .eq('profile_id', txn.buyer_id)
-            .eq('is_primary', true)
-            .single();
-
-        if (linked) {
-            const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
-            let msg = `📦 <b>Delivery Update!</b>\n\n<code>${txn.seller.safetag}</code> has marked your order as completed and uploaded <b>${proofs?.length || 0} proof document(s)</b>.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📁 <b>Uploaded Files:</b>\n${proofs?.map((p: any) => `• <a href="${p.url}">${p.name || 'View File'}</a>`).join('\n') || '<i>No specific files attached</i>'}\n\n🔗 Full Documents Portal: <a href="${reviewsUrl}/delivery/${txn.id}">VIEW_PORTAL</a>\n\nPlease review the delivery carefully before confirming receipt.`;
-
-            sendNotification(linked.platform, linked.platform_id, msg, [
-                { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
-                { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
-                { label: '🔗 View Proofs', url: `${reviewsUrl}/delivery/${txn.id}` },
-            ]).catch(e => console.error('Background Notification Error:', e));
-            recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted ${proofs?.length || 0} proof file(s) for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/delivery/${txn.id}` }).catch(() => {});
-        }
+        const reviewsUrlUp = process.env.REVIEWS_URL || 'http://localhost:3001';
+        const buyerUploadMsg = `📦 <b>Delivery Update!</b>\n\n<code>${txn.seller.safetag}</code> has marked your order as completed and uploaded <b>${proofs?.length || 0} proof document(s)</b>.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📁 <b>Uploaded Files:</b>\n${proofs?.map((p: any) => `• <a href="${p.url}">${p.name || 'View File'}</a>`).join('\n') || '<i>No specific files attached</i>'}\n\n🔗 Full Documents Portal: <a href="${reviewsUrlUp}/delivery/${txn.id}">VIEW_PORTAL</a>\n\nPlease review the delivery carefully before confirming receipt.`;
+        routeNotification(txn.buyer_id, buyerUploadMsg, [
+            { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
+            { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
+            { label: '🔗 View Proofs', url: `${reviewsUrlUp}/delivery/${txn.id}` },
+        ]).catch(e => console.error('Background Notification Error:', e));
+        recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted ${proofs?.length || 0} proof file(s) for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/delivery/${txn.id}` }).catch(() => {});
 
         // Notify Seller (External Upload Case)
-        const { data: sellerLinked } = await supabase
-            .from('linked_accounts')
-            .select('platform, platform_id')
-            .eq('profile_id', txn.seller_id)
-            .eq('is_primary', true)
-            .single();
-
-        if (sellerLinked) {
-            const sellerMsg = `✅ <b>Proof Uploaded Successfully!</b>\n\nThe buyer has been notified and can now review the delivery.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
-            sendNotification(sellerLinked.platform, sellerLinked.platform_id, sellerMsg, [
-                { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` }
-            ]).catch(e => console.error('Background Notification Error:', e));
-            recordNotification(txn.seller_id, 'transaction', '✅ Proof Upload Confirmed', `Buyer notified for ${txn.product_name} — awaiting confirmation`, { transaction_id: txn.id, transaction_code: txn.txn_code, link_url: `/delivery/${txn.id}` }).catch(() => {});
-        }
+        const sellerUploadMsg = `✅ <b>Proof Uploaded Successfully!</b>\n\nThe buyer has been notified and can now review the delivery.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+        routeNotification(txn.seller_id, sellerUploadMsg, [
+            { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` }
+        ]).catch(e => console.error('Background Notification Error:', e));
+        recordNotification(txn.seller_id, 'transaction', '✅ Proof Upload Confirmed', `Buyer notified for ${txn.product_name} — awaiting confirmation`, { transaction_id: txn.id, transaction_code: txn.txn_code, link_url: `/delivery/${txn.id}` }).catch(() => {});
 
         res.json({ success: true });
     } catch (err: any) {
@@ -1214,41 +1247,21 @@ router.post('/:id/upload-proof', async (req, res) => {
         }
 
         // Notify Buyer
-        const { data: linked } = await supabase
-            .from('linked_accounts')
-            .select('platform, platform_id')
-            .eq('profile_id', txn.buyer_id)
-            .eq('is_primary', true)
-            .single();
-
-        if (linked) {
-            const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
-            const msg = `📦 <b>Delivery Update with Proof!</b>\n\n<code>${txn.seller.safetag}</code> has delivered your order and uploaded proof.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n📎 Proof Attached Below\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nPlease review the delivery and confirm receipt.`;
-            const fullMsg = `${msg}\n\n🖼️ <b>Proof Image:</b> ${proof_url}\n\n🔗 View All Documents: <a href="${reviewsUrl}/delivery/${txn.id}">DOCS_LINK</a>`;
-
-            sendNotification(linked.platform, linked.platform_id, fullMsg, [
-                { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
-                { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
-                { label: '🔗 View Proofs', url: `${reviewsUrl}/delivery/${txn.id}` },
-            ]).catch(e => console.error('Background Notification Error:', e));
-            recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted proof for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/delivery/${txn.id}` }).catch(() => {});
-        }
+        const reviewsUrlSingle = process.env.REVIEWS_URL || 'http://localhost:3001';
+        const singleProofMsg = `📦 <b>Delivery Update with Proof!</b>\n\n<code>${txn.seller.safetag}</code> has delivered your order and uploaded proof.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n📎 Proof Attached Below\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nPlease review the delivery and confirm receipt.\n\n🖼️ <b>Proof Image:</b> ${proof_url}\n\n🔗 View All Documents: <a href="${reviewsUrlSingle}/delivery/${txn.id}">DOCS_LINK</a>`;
+        routeNotification(txn.buyer_id, singleProofMsg, [
+            { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
+            { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
+            { label: '🔗 View Proofs', url: `${reviewsUrlSingle}/delivery/${txn.id}` },
+        ]).catch(e => console.error('Background Notification Error:', e));
+        recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted proof for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/delivery/${txn.id}` }).catch(() => {});
 
         // Notify Seller
-        const { data: sellerLinked } = await supabase
-            .from('linked_accounts')
-            .select('platform, platform_id')
-            .eq('profile_id', txn.seller_id)
-            .eq('is_primary', true)
-            .single();
-
-        if (sellerLinked) {
-            const sellerMsg = `✅ <b>Proof Uploaded Successfully!</b>\n\nThe buyer has been notified and can now review the delivery.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
-            sendNotification(sellerLinked.platform, sellerLinked.platform_id, sellerMsg, [
-                { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` }
-            ]).catch(e => console.error('Background Notification Error:', e));
-            recordNotification(txn.seller_id, 'transaction', '✅ Proof Upload Confirmed', `Buyer notified for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, link_url: `/delivery/${txn.id}` }).catch(() => {});
-        }
+        const sellerSingleMsg = `✅ <b>Proof Uploaded Successfully!</b>\n\nThe buyer has been notified and can now review the delivery.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+        routeNotification(txn.seller_id, sellerSingleMsg, [
+            { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` }
+        ]).catch(e => console.error('Background Notification Error:', e));
+        recordNotification(txn.seller_id, 'transaction', '✅ Proof Upload Confirmed', `Buyer notified for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, link_url: `/delivery/${txn.id}` }).catch(() => {});
         res.json({ success: true });
     } catch (err: any) {
         res.status(400).json({ error: err.message });
@@ -1295,53 +1308,30 @@ router.post('/:id/pay', async (req, res) => {
 
         if (updateError) throw updateError;
 
+        const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
+        const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
+
         // Notify Buyer
-        const { data: buyerLinked } = await supabase
-            .from('linked_accounts')
-            .select('platform, platform_id')
-            .eq('profile_id', txn.buyer_id)
-            .eq('is_primary', true)
-            .maybeSingle();
-
-        if (buyerLinked) {
-            const msg = `✅ <b>Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
-
-            const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
-            const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
-
-            sendNotification((buyerLinked as any).platform, (buyerLinked as any).platform_id, msg, [
-                { label: '👁️ View Transaction', customId: `view_txn_${txn.id}` },
-                { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
-                { label: '🔙 Main Menu', customId: 'main_menu' }
-            ], receiptUrl).catch(e => console.error('Background Notification Error:', e));
-            recordNotification(txn.buyer_id, 'payment', '✅ Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
-        }
+        const buyerPayMsg = `✅ <b>Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
+        routeNotification(txn.buyer_id, buyerPayMsg, [
+            { label: '👁️ View Transaction', customId: `view_txn_${txn.id}` },
+            { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
+            { label: '🔙 Main Menu', customId: 'main_menu' }
+        ], receiptUrl,
+            txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined
+        ).catch(e => console.error('Background Notification Error:', e));
+        recordNotification(txn.buyer_id, 'payment', '✅ Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
 
         // Notify Seller
-        const { data: sellerLinked, error: sellerAccErr } = await supabase
-            .from('linked_accounts')
-            .select('platform, platform_id')
-            .eq('profile_id', txn.seller_id)
-            .eq('is_primary', true)
-            .maybeSingle();
-
-        if (sellerAccErr) console.error('❌ Seller account lookup error:', sellerAccErr.message);
-
-        if (sellerLinked) {
-            const msg = `🔐 <b>Payment Received and Held Securely!</b>\n\nThe buyer has made payment and funds are now secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Secured: <b>${txn.amount} ${txn.currency}</b>\n👤 Buyer: <code>${txn.buyer.safetag}</code>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller, you can now proceed to fulfill the order.\n\n❓ Have you completed your part of the agreement?\n   (Shipped the product or delivered the service)\n\n⚠️ Important: Please be sure the buyer has received satisfactory delivery — any disputes raised after confirmation won't be considered.`;
-
-            const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
-            const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
-
-            sendNotification((sellerLinked as any).platform, (sellerLinked as any).platform_id, msg, [
-                { label: '✅ Mark as Completed', customId: `txn_action_complete_prompt|${txn.id}` },
-                { label: '🔄 New Transaction', customId: 'create_txn' },
-                { label: '👁️ View Details', customId: `view_txn_${txn.id}` }
-            ], receiptUrl).catch(e => console.error('Background Notification Error:', e));
-            recordNotification(txn.seller_id, 'payment', '🔐 Payment Received in Escrow', `${txn.amount} ${txn.currency} secured for ${txn.product_name} — proceed to fulfill`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
-        } else {
-            console.warn('⚠️ No primary linked account found for seller:', txn.seller_id);
-        }
+        const sellerPayMsg = `🔐 <b>Payment Received and Held Securely!</b>\n\nThe buyer has made payment and funds are now secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Secured: <b>${txn.amount} ${txn.currency}</b>\n👤 Buyer: <code>${txn.buyer.safetag}</code>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller, you can now proceed to fulfill the order.\n\n❓ Have you completed your part of the agreement?\n   (Shipped the product or delivered the service)\n\n⚠️ Important: Please be sure the buyer has received satisfactory delivery — any disputes raised after confirmation won't be considered.`;
+        routeNotification(txn.seller_id, sellerPayMsg, [
+            { label: '✅ Mark as Completed', customId: `txn_action_complete_prompt|${txn.id}` },
+            { label: '🔄 New Transaction', customId: 'create_txn' },
+            { label: '👁️ View Details', customId: `view_txn_${txn.id}` }
+        ], receiptUrl,
+            txn.seller?.email ? () => sendPaymentConfirmedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined
+        ).catch(e => console.error('Background Notification Error:', e));
+        recordNotification(txn.seller_id, 'payment', '🔐 Payment Received in Escrow', `${txn.amount} ${txn.currency} secured for ${txn.product_name} — proceed to fulfill`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
 
         res.json({ success: true });
     } catch (err: any) {

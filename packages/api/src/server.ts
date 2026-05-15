@@ -29,6 +29,10 @@ import communityRoutes from './routes/communities';
 import cron from 'node-cron';
 import { runWeeklyDigest } from './cron/weeklyDigest';
 import { runLicenseExpiryCheck } from './cron/licenseExpiry';
+import { runTransactionReminders } from './cron/transactionReminders';
+import { runOnboardingDrip } from './cron/onboardingDrip';
+import { runReEngagement } from './cron/reEngagement';
+import { runMonthlyReferralSummary } from './cron/referralSummary';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -111,6 +115,26 @@ cron.schedule('0 9 * * 1', () => {
 // Daily license expiry check — 8:00 AM UTC
 cron.schedule('0 8 * * *', () => {
     runLicenseExpiryCheck().catch((err) => console.error('License expiry cron failed:', err));
+});
+
+// Transaction lifecycle reminders — every 2 hours
+cron.schedule('0 */2 * * *', () => {
+    runTransactionReminders().catch((err) => console.error('Transaction reminders cron failed:', err));
+});
+
+// Onboarding drip — daily at 10:00 AM UTC
+cron.schedule('0 10 * * *', () => {
+    runOnboardingDrip().catch((err) => console.error('Onboarding drip cron failed:', err));
+});
+
+// Re-engagement + balance nudge — daily at 11:00 AM UTC
+cron.schedule('0 11 * * *', () => {
+    runReEngagement().catch((err) => console.error('Re-engagement cron failed:', err));
+});
+
+// Monthly referral summary — 1st of month at 9:00 AM UTC
+cron.schedule('0 9 1 * *', () => {
+    runMonthlyReferralSummary().catch((err) => console.error('Monthly referral summary cron failed:', err));
 });
 
 app.listen(PORT, () => {

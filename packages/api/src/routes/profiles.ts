@@ -142,13 +142,26 @@ router.post('/register', async (req, res) => {
 
         // Notify referrer about their new referral (fire-and-forget)
         if (referredById) {
-            const newUserName = data.first_name || data.safetag;
-            sendReferralNotification(
-                referredById,
-                `🎉 <b>New Referral!</b>\n\n<b>${newUserName}</b> just joined Safeeely using your referral link. Keep sharing to earn commissions on every trade they make!`,
-                'You have a new referral on Safeeely!',
-                `<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:20px;border:1px solid #eee;border-radius:8px;"><h2 style="color:#0f172a;">New Referral! 🎉</h2><p style="color:#475569;"><b>${newUserName}</b> just joined Safeeely using your referral link.</p><p style="color:#475569;">You'll earn commissions on every trade they make. Keep sharing!</p></div>`
-            ).catch(e => console.error('Referral join notification failed:', e.message));
+            (async () => {
+                try {
+                    const { count: totalReferrals } = await supabase
+                        .from('profiles')
+                        .select('*', { count: 'exact', head: true })
+                        .eq('referred_by_id', referredById);
+                    const count = totalReferrals || 1;
+                    const newUserName = data.first_name || data.safetag;
+                    const platformMsg = `🎉 <b>New Referral!</b>\n\n<b>${newUserName}</b> just joined Safeeely using your invite link!\n\n👥 Total Referrals: <b>${count}</b>\n\nYou'll earn commission every time they complete a secure transaction. Keep sharing!`;
+                    const emailHtml = `<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:20px;border:1px solid #eee;border-radius:8px;"><h2 style="color:#0f172a;">New Referral! 🎉</h2><p><b>${newUserName}</b> just joined Safeeely using your invite link!</p><p>👥 Total Referrals: <b>${count}</b></p><p style="color:#475569;">You'll earn commission every time they complete a secure transaction. Keep sharing!</p></div>`;
+                    await sendReferralNotification(
+                        referredById,
+                        platformMsg,
+                        `${newUserName} just joined Safeeely using your invite link!`,
+                        emailHtml
+                    );
+                } catch (e: any) {
+                    console.error('Referral join notification failed:', e.message);
+                }
+            })();
         }
 
         console.log('✅ Registration complete for:', data.safetag);

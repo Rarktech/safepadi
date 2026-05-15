@@ -184,7 +184,9 @@ export async function sendNotification(platform: string, platformId: string, mes
                 log(`🖼️ [Instagram] Sending receipt image to ${platformId}: ${imageUrl}`);
                 await axios.post(`${IG_BASE}/me/messages?access_token=${IG_TOKEN}`, {
                     recipient: { id: platformId },
-                    message: { attachment: { type: 'image', payload: { url: imageUrl, is_reusable: true } } }
+                    message: { attachment: { type: 'image', payload: { url: imageUrl, is_reusable: true } } },
+                    messaging_type: 'MESSAGE_TAG',
+                    tag: 'POST_PURCHASE_UPDATE'
                 });
             }
 
@@ -223,7 +225,9 @@ export async function sendNotification(platform: string, platformId: string, mes
 
             await axios.post(`${IG_BASE}/me/messages?access_token=${IG_TOKEN}`, {
                 recipient: { id: platformId },
-                message: msgPayload
+                message: msgPayload,
+                messaging_type: 'MESSAGE_TAG',
+                tag: 'POST_PURCHASE_UPDATE'
             });
             log(`✅ [Instagram Notification] Sent to ${platformId}`);
         } catch (err: any) {
@@ -412,6 +416,48 @@ export async function sendReferralNotification(
         }
     } catch (err: any) {
         log(`❌ sendReferralNotification error for referrer ${referrerId}: ${err.message}`);
+    }
+}
+
+export async function routeNotification(
+    profileId: string,
+    message: string,
+    options?: { label: string; customId?: string; url?: string }[],
+    imageUrl?: string | null,
+    emailFallback?: () => void | Promise<void>
+): Promise<void> {
+    try {
+        const { data: linked } = await supabase
+            .from('linked_accounts')
+            .select('platform, platform_id, last_message_at')
+            .eq('profile_id', profileId)
+            .eq('is_primary', true)
+            .single();
+
+        if (!linked) {
+            if (emailFallback) emailFallback();
+            return;
+        }
+
+        if (!META_PLATFORMS.includes(linked.platform)) {
+            await sendNotification(linked.platform, linked.platform_id, message, options ?? [], imageUrl ?? undefined);
+            return;
+        }
+
+        const windowOpen = linked.last_message_at
+            ? (Date.now() - new Date(linked.last_message_at).getTime()) < WINDOW_24H_MS
+            : false;
+
+        if (windowOpen) {
+            await sendNotification(linked.platform, linked.platform_id, message, options ?? [], imageUrl ?? undefined);
+        } else if (emailFallback) {
+            emailFallback();
+        } else {
+            log(`⚠️ [routeNotification] Meta window closed for ${profileId}, no email fallback provided — notification skipped`);
+        }
+    } catch (err: any) {
+        log(`❌ routeNotification error for profile ${profileId}: ${err.message}`);
+        if (emailFallback) { try { emailFallback(); } catch {} }
     }
 }
 
