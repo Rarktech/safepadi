@@ -1,17 +1,23 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
-import { Browser } from 'puppeteer';
 import { getBrowser } from '../services/puppeteer';
 import { generateReceiptTemplate } from '../templates/receiptTemplate';
 
 const router = Router();
 
-// getBrowser removed and replaced by shared service
+const receiptCache = new Map<string, Buffer>();
 
 router.get('/:txnCode.png', async (req, res) => {
     try {
         const { txnCode } = req.params;
         console.log(`[Receipt Service] Request for: ${txnCode}.png`);
+
+        const cacheKey = `${txnCode}:${req.query.type || ''}:${req.query.role || ''}`;
+        if (receiptCache.has(cacheKey)) {
+            res.setHeader('Content-Type', 'image/png');
+            res.setHeader('Cache-Control', 'public, max-age=31536000');
+            return res.send(receiptCache.get(cacheKey));
+        }
 
         // Fetch transaction details
         const { data: txn, error } = await supabase
@@ -80,23 +86,20 @@ router.get('/:txnCode.png', async (req, res) => {
         
         try {
             await page.setViewport({ width: 600, height: 800 });
-            await page.setContent(htmlContent, { waitUntil: 'networkidle2', timeout: 45000 });
+            await page.setContent(htmlContent, { waitUntil: 'load', timeout: 20000 });
 
-            // Small wait for any remaining font/image rendering
-            await new Promise(r => setTimeout(r, 2000));
-
-            // Take screenshot of the exact content size (body)
             const element = await page.$('body');
             if (!element) {
                 throw new Error("Failed to find body element in the template");
             }
 
-            const screenshot = await element.screenshot({ type: 'png' });
+            const screenshot = await element.screenshot({ type: 'png' }) as Buffer;
             await page.close();
 
-            // Serve image
+            receiptCache.set(cacheKey, screenshot);
+
             res.setHeader('Content-Type', 'image/png');
-            res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+            res.setHeader('Cache-Control', 'public, max-age=31536000');
             res.send(screenshot);
         } catch (err) {
             await page.close().catch(() => {});
