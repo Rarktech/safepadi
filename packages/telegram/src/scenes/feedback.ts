@@ -1,6 +1,6 @@
 import { Scenes, Markup } from 'telegraf';
 import axios from 'axios';
-import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '@safepal/shared';
+import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../../shared/src/feedbackPrompts';
 
 const API_URL = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
 
