@@ -3,6 +3,7 @@ import axios from 'axios';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
+import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../shared/src/feedbackPrompts';
 
 if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
@@ -189,7 +190,7 @@ async function showSettings(psid: string) {
             [
                 { type: 'postback', payload: 'START_DELETION',   title: '❌ Delete Account' },
                 { type: 'postback', payload: 'OTHER_SETTINGS',   title: '⚙️ Other Settings' },
-                { type: 'postback', payload: 'MAIN_MENU',        title: '🏠 Main Menu'      }
+                { type: 'postback', payload: 'SEND_FEEDBACK',    title: '💭 Send Feedback'  }
             ]
         ));
     } catch (err: any) {
@@ -755,6 +756,28 @@ async function submitReview(psid: string, proofUrl?: string) {
     }
 }
 
+async function submitFeedback(psid: string, comment?: string) {
+    const state = userStates[psid];
+    const fd    = state?.formData;
+    try {
+        await axios.post(`${API_URL}/feedback`, {
+            reviewer_safetag: fd.safetag,
+            rating:           fd.rating,
+            comment:          comment || '',
+            source:           fd.source || 'menu',
+            source_ref_id:    fd.refId || undefined,
+            platform:         'instagram',
+        });
+        delete userStates[psid];
+        const successMsg = pickRandom(FEEDBACK_SUCCESS_MESSAGES);
+        await sendMsg(psid, { text: `✅ feedback received!\n\n${successMsg}` });
+        await sendNextOptions(psid);
+    } catch (err: any) {
+        delete userStates[psid];
+        await sendMsg(psid, { text: `❌ Failed to submit: ${err.response?.data?.error || err.message}` });
+    }
+}
+
 async function handleSmartTxnEdit(psid: string, rawText: string) {
     const state = userStates[psid];
     if (state.step === 'AWAITING_EDIT') {
@@ -847,6 +870,10 @@ async function handleMessage(psid: string, message: any) {
     }
     if (state?.mode === 'REVIEW') {
         await handleReviewText(psid, rawText, message);
+        return;
+    }
+    if (state?.mode === 'FEEDBACK' && state?.step === 'ASK_COMMENT') {
+        await submitFeedback(psid, rawText.trim());
         return;
     }
     if (state?.mode === 'SMART_TXN' && state?.step === 'AWAITING_EDIT') {
@@ -1248,6 +1275,39 @@ async function handlePostback(psid: string, payload: string) {
 
     } else if (payload === 'SKIP_PROOF') {
         await submitReview(psid);
+
+    } else if (payload === 'SEND_FEEDBACK' || payload.startsWith('pf_rate_menu|')) {
+        try {
+            const p = await getProfile(psid);
+            let source = 'menu';
+            let refId: string | undefined;
+            if (payload.startsWith('pf_rate_menu|')) {
+                const parts = payload.split('|');
+                source = parts[1];
+                refId  = parts[2];
+            }
+            userStates[psid] = { mode: 'FEEDBACK', step: 'ASK_RATING', formData: { safetag: p.safetag, source, refId, rating: 0 } };
+            await sendMsg(psid, qr('💭 Rate Safeeely\n\nhow many stars would you give us? 👇', [
+                { title: '⭐ 1',       payload: 'FB_RATING_1' },
+                { title: '⭐⭐ 2',     payload: 'FB_RATING_2' },
+                { title: '⭐⭐⭐ 3',   payload: 'FB_RATING_3' },
+                { title: '⭐⭐⭐⭐ 4', payload: 'FB_RATING_4' },
+                { title: '⭐x5',       payload: 'FB_RATING_5' },
+            ]));
+        } catch (_) { await sendMsg(psid, { text: '❌ Could not start feedback.' }); }
+
+    } else if (payload.startsWith('FB_RATING_')) {
+        const state = userStates[psid];
+        if (state?.mode === 'FEEDBACK' && state?.step === 'ASK_RATING') {
+            const rating = parseInt(payload.replace('FB_RATING_', ''), 10);
+            state.formData.rating = rating;
+            state.step = 'ASK_COMMENT';
+            const commentPrompt = getCommentPrompt(rating);
+            await sendMsg(psid, qr(commentPrompt, [{ title: '⏭️ Skip', payload: 'SKIP_FB_COMMENT' }]));
+        }
+
+    } else if (payload === 'SKIP_FB_COMMENT') {
+        await submitFeedback(psid);
 
     // ── Create transaction ────────────────────────────────────────────────────
     } else if (payload === 'CREATE_TXN') {

@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import { FlowCrypto } from './utils/crypto';
 import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
+import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../shared/src/feedbackPrompts';
 
 if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
@@ -41,8 +42,9 @@ console.log(`🚀 Safeeely WhatsApp Bot Starting...`);
 const loginSessions:   Map<string, { step: string; safetag?: string }> = new Map();
 const smartTxnSessions: Map<string, SmartTransactionDraft>              = new Map();
 const txnSessions:     Map<string, { step: string; formData: any }>    = new Map();
-const reviewSessions:  Map<string, { step: string; formData: any }>    = new Map();
-const disputeSessions: Map<string, { txnId: string; raisedBy: string }> = new Map();
+const reviewSessions:    Map<string, { step: string; formData: any }>    = new Map();
+const feedbackSessions:  Map<string, { step: string; formData: any }>    = new Map();
+const disputeSessions:   Map<string, { txnId: string; raisedBy: string }> = new Map();
 const refSessions:     Map<string, string>                               = new Map();
 
 // ─── Message helpers ──────────────────────────────────────────────────────────
@@ -116,10 +118,11 @@ function sendMainMenu(to: string, headerText = '🏠 Main Menu') {
         {
             title: 'Account',
             rows: [
-                { id: 'BALANCE',  title: '💰 Balance & Withdrawals', description: 'Check your earnings' },
-                { id: 'REFERRAL', title: '🎁 Referral',              description: 'Invite friends, earn commission' },
-                { id: 'REVIEWS',  title: '⭐ Reviews & Ratings',     description: 'Your trust score' },
-                { id: 'SETTINGS', title: '⚙️ Settings & Account',   description: 'Manage your account' }
+                { id: 'BALANCE',       title: '💰 Balance & Withdrawals', description: 'Check your earnings' },
+                { id: 'REFERRAL',      title: '🎁 Referral',              description: 'Invite friends, earn commission' },
+                { id: 'REVIEWS',       title: '⭐ Reviews & Ratings',     description: 'Your trust score' },
+                { id: 'SEND_FEEDBACK', title: '💭 Send Feedback',         description: 'Rate your Safeeely experience' },
+                { id: 'SETTINGS',      title: '⚙️ Settings & Account',   description: 'Manage your account' }
             ]
         }
     ], undefined, 'Open Menu');
@@ -590,6 +593,40 @@ async function submitReview(from: string, proofUrl?: string) {
     }
 }
 
+function sendFeedbackRatingList(to: string) {
+    return sendList(to, '💭 Rate Safeeely', 'how many stars would you give us? 👇', [{
+        title: 'Rating',
+        rows: [
+            { id: 'FB_RATING_5', title: '⭐⭐⭐⭐⭐ 5 Stars', description: 'absolutely loved it' },
+            { id: 'FB_RATING_4', title: '⭐⭐⭐⭐ 4 Stars',  description: 'pretty good' },
+            { id: 'FB_RATING_3', title: '⭐⭐⭐ 3 Stars',    description: 'it was okay' },
+            { id: 'FB_RATING_2', title: '⭐⭐ 2 Stars',      description: 'needs work' },
+            { id: 'FB_RATING_1', title: '⭐ 1 Star',         description: 'disappointed' },
+        ]
+    }], undefined, 'Rate');
+}
+
+async function submitFeedback(from: string, comment?: string) {
+    const session = feedbackSessions.get(from)!;
+    const fd = session.formData;
+    try {
+        await axios.post(`${API_URL}/feedback`, {
+            reviewer_safetag: fd.safetag,
+            rating:           fd.rating,
+            comment:          comment || '',
+            source:           fd.source || 'menu',
+            source_ref_id:    fd.refId || undefined,
+            platform:         'whatsapp',
+        });
+        feedbackSessions.delete(from);
+        const successMsg = pickRandom(FEEDBACK_SUCCESS_MESSAGES);
+        await sendButtons(from, `✅ *feedback received!*\n\n${successMsg}`, [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]);
+    } catch (err: any) {
+        feedbackSessions.delete(from);
+        await sendText(from, `❌ Failed to submit: ${err.response?.data?.error || err.message}`);
+    }
+}
+
 // ─── Main incoming handler ────────────────────────────────────────────────────
 
 async function handleIncoming(from: string, msgType: string, rawText: string, textBody: string, interactiveId: string, message: any) {
@@ -661,6 +698,12 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
     }
     if (msgType === 'image' && reviewSessions.has(from) && reviewSessions.get(from)!.step === 'ASK_PROOF') {
         await handleReviewText(from, '', message);
+        return;
+    }
+
+    // ── Feedback comment step ─────────────────────────────────────────────────
+    if (msgType === 'text' && feedbackSessions.has(from) && feedbackSessions.get(from)!.step === 'ASK_COMMENT') {
+        await submitFeedback(from, rawText.trim());
         return;
     }
 
@@ -981,6 +1024,33 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
     } else if (interactiveId.startsWith('view_docs_')) {
         const txnId = interactiveId.replace('view_docs_', '');
         await sendCTAUrl(from, 'Tap below to review the delivery documents:', '📎 View Documents', `${REVIEWS_URL}/delivery/${txnId}`);
+
+    } else if (interactiveId === 'SEND_FEEDBACK' || interactiveId.startsWith('pf_rate_menu|')) {
+        try {
+            const p = await getProfile(from);
+            let source = 'menu';
+            let refId: string | undefined;
+            if (interactiveId.startsWith('pf_rate_menu|')) {
+                const parts = interactiveId.split('|');
+                source = parts[1];
+                refId = parts[2];
+            }
+            feedbackSessions.set(from, { step: 'ASK_RATING', formData: { safetag: p.safetag, source, refId, rating: 0 } });
+            await sendFeedbackRatingList(from);
+        } catch (_) { await sendText(from, '❌ Could not start feedback. Please try again.'); }
+
+    } else if (interactiveId.startsWith('FB_RATING_')) {
+        const session = feedbackSessions.get(from);
+        if (session?.step === 'ASK_RATING') {
+            const rating = parseInt(interactiveId.replace('FB_RATING_', ''), 10);
+            session.formData.rating = rating;
+            session.step = 'ASK_COMMENT';
+            const commentPrompt = getCommentPrompt(rating);
+            await sendButtons(from, commentPrompt, [{ id: 'SKIP_FB_COMMENT', title: '⏭️ Skip' }]);
+        }
+
+    } else if (interactiveId === 'SKIP_FB_COMMENT') {
+        await submitFeedback(from);
 
     } else if (interactiveId.startsWith('leave_review_')) {
         const txnId = interactiveId.replace('leave_review_', '');

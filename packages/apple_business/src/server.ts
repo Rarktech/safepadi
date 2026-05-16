@@ -3,6 +3,7 @@ import axios from 'axios';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import crypto from 'crypto';
+import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../shared/src/feedbackPrompts';
 
 // Handle Environment Variables relative to the root .env
 if (process.env.NODE_ENV !== 'production') {
@@ -26,7 +27,7 @@ app.get('/health', (req, res) => {
 
 // --- SESSION MANAGEMENT ---
 interface UserState {
-    state: 'IDLE' | 'ROLE_SELECTION' | 'PRODUCT_NAME' | 'PRODUCT_DESCRIPTION' | 'ATTACHMENTS' | 'CURRENCY_SELECTION' | 'PRICE_INPUT' | 'FEE_ALLOCATION' | 'COUNTERPARTY_SAFETAG' | 'CONFIRMATION' | 'DISPUTE_REASON' | 'REVIEW_RATING' | 'REVIEW_COMMENT';
+    state: 'IDLE' | 'ROLE_SELECTION' | 'PRODUCT_NAME' | 'PRODUCT_DESCRIPTION' | 'ATTACHMENTS' | 'CURRENCY_SELECTION' | 'PRICE_INPUT' | 'FEE_ALLOCATION' | 'COUNTERPARTY_SAFETAG' | 'CONFIRMATION' | 'DISPUTE_REASON' | 'REVIEW_RATING' | 'REVIEW_COMMENT' | 'FEEDBACK_RATING' | 'FEEDBACK_COMMENT';
     formData: {
         role?: 'buyer' | 'seller';
         product_name?: string;
@@ -41,6 +42,9 @@ interface UserState {
         review_txn_id?: string;
         review_other?: string;
         review_rating?: number;
+        feedback_source?: string;
+        feedback_ref_id?: string;
+        feedback_rating?: number;
     };
 }
 
@@ -500,6 +504,40 @@ app.post('/webhook/:token', (req, res) => {
                     return;
                 }
 
+                // --- FEEDBACK_RATING state — expects button id like 'fb_rate_5' ---
+                if (session.state === 'FEEDBACK_RATING') {
+                    const match = messageText.match(/^fb_rate_(\d)$/);
+                    if (match) {
+                        const rating = parseInt(match[1], 10);
+                        session.formData.feedback_rating = rating;
+                        session.state = 'FEEDBACK_COMMENT';
+                        const commentPrompt = getCommentPrompt(rating);
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `${commentPrompt}\n\n(or type "skip" to skip)` });
+                    }
+                    return;
+                }
+
+                // --- FEEDBACK_COMMENT state ---
+                if (session.state === 'FEEDBACK_COMMENT') {
+                    const comment = messageText === 'skip' ? '' : messageText;
+                    try {
+                        await axios.post(`${API_URL}/feedback`, {
+                            reviewer_safetag: safetag,
+                            rating:           session.formData.feedback_rating || 5,
+                            comment,
+                            source:           session.formData.feedback_source || 'menu',
+                            source_ref_id:    session.formData.feedback_ref_id || undefined,
+                            platform:         'apple',
+                        });
+                        const successMsg = pickRandom(FEEDBACK_SUCCESS_MESSAGES);
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `✅ feedback received!\n\n${successMsg}` });
+                    } catch (err: any) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to submit feedback.'}` });
+                    }
+                    resetSession(clientId);
+                    return;
+                }
+
                 // --- NOTIFICATION ACTION BUTTONS ---
                 if (messageText.startsWith('txn_action_accept|')) {
                     const txnId = messageText.replace('txn_action_accept|', '');
@@ -619,6 +657,31 @@ app.post('/webhook/:token', (req, res) => {
                 if (messageText.startsWith('view_docs_')) {
                     const txnId = messageText.replace('view_docs_', '');
                     await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `📎 View delivery documents here:\n${FRONTEND_URL}/delivery/${txnId}` });
+                    return;
+                }
+
+                if (messageText.toLowerCase() === 'feedback' || messageText.startsWith('pf_rate_menu|')) {
+                    let feedbackSource = 'menu';
+                    let feedbackRefId: string | undefined;
+                    if (messageText.startsWith('pf_rate_menu|')) {
+                        const parts = messageText.split('|');
+                        feedbackSource = parts[1];
+                        feedbackRefId  = parts[2];
+                    }
+                    session.state = 'FEEDBACK_RATING';
+                    session.formData.feedback_source = feedbackSource;
+                    session.formData.feedback_ref_id = feedbackRefId;
+                    await sendJivoChatMessage(clientId, chatId, {
+                        type: 'BUTTONS',
+                        title: '💭 Rate Safeeely',
+                        text: 'how many stars would you give us? 👇',
+                        force_reply: true,
+                        buttons: [
+                            { text: '⭐⭐⭐⭐⭐ 5 Stars', id: 'fb_rate_5', description: 'absolutely loved it' },
+                            { text: '⭐⭐⭐⭐ 4 Stars',  id: 'fb_rate_4', description: 'pretty good'         },
+                            { text: '⭐⭐⭐ 3 Stars',    id: 'fb_rate_3', description: 'it was okay'         }
+                        ]
+                    });
                     return;
                 }
 

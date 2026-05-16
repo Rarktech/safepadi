@@ -6,6 +6,7 @@ import { sendTransactionInvoiceEmail, sendNewTransactionRequestEmail, sendTransa
 import crypto from 'crypto';
 import axios from 'axios';
 import multer from 'multer';
+import { maybeSendFeedbackPrompt } from './feedback';
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -841,6 +842,12 @@ router.patch('/:id/status', async (req, res) => {
             }
         }
         // --- END NOTIFICATION TO OTHER PARTY ---
+
+        // Prompt both parties for feedback after transaction completes (7-day cooldown enforced inside)
+        if (status === 'confirm_receipt') {
+            maybeSendFeedbackPrompt(txn.buyer.id, 'post_txn_complete', txn.id).catch(() => {});
+            maybeSendFeedbackPrompt(txn.seller.id, 'post_txn_complete', txn.id).catch(() => {});
+        }
 
         // Return follow-up info for the person who clicked (the updater)
         let followUpMsg = '';

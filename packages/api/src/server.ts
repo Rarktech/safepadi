@@ -26,6 +26,7 @@ import authRoutes from './routes/auth';
 import marketplaceRoutes from './routes/marketplace';
 import notificationRoutes from './routes/notifications';
 import communityRoutes from './routes/communities';
+import feedbackRoutes from './routes/feedback';
 import cron from 'node-cron';
 import { runWeeklyDigest } from './cron/weeklyDigest';
 import { runLicenseExpiryCheck } from './cron/licenseExpiry';
@@ -89,6 +90,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/marketplace', marketplaceRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/communities', communityRoutes);
+app.use('/api/feedback', feedbackRoutes);
 
 // 🔍 Health Check & Diagnostics
 app.get('/api/ping', (req, res) => {

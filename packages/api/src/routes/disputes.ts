@@ -3,6 +3,7 @@ import { supabase } from '@safepal/shared';
 import { z } from 'zod';
 import { sendNotification, routeNotification, recordNotification } from '../services/notifications';
 import { sendDisputeRaisedEmail, sendDisputeResolvedEmail } from '../services/email';
+import { maybeSendFeedbackPrompt } from './feedback';
 import multer from 'multer';
 import { classifyDisputeType } from '../services/dispute-ai/classifier';
 import { quickTierHint } from '../services/dispute-ai/config/disputeTypes';
@@ -47,6 +48,10 @@ async function sendVerdictNotifications(disputeId: string, action: string, txn: 
                 recordNotification(user.id, 'dispute', '⚖️ Dispute Resolved', `Case for "${txn.product_name}" resolved — ${label}`, { transaction_id: txn.id, transaction_code: txn.txn_code, dispute_id: disputeId, link_url: `/dashboard/transactions/${txn.id}` }).catch(() => {});
             } catch { /* non-critical */ }
         }));
+
+        // Prompt both parties for feedback after dispute resolves (7-day cooldown enforced inside)
+        maybeSendFeedbackPrompt(txn.buyer.id, 'post_dispute_resolved', disputeId).catch(() => {});
+        maybeSendFeedbackPrompt(txn.seller.id, 'post_dispute_resolved', disputeId).catch(() => {});
     } catch (err) {
         console.error('Failed to send verdict notifications:', err);
     }

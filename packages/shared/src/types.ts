@@ -60,3 +60,17 @@ export interface Dispute {
   created_at: string;
   resolved_at?: string;
 }
+
+export interface PlatformFeedback {
+  id: string;
+  profile_id: string;
+  rating: number;
+  comment?: string;
+  source: 'post_txn_complete' | 'post_dispute_resolved' | 'menu';
+  source_ref_id?: string;
+  platform: string;
+  status: 'NEW' | 'TRIAGED' | 'RESOLVED' | 'DISMISSED';
+  admin_notes?: string;
+  created_at: string;
+  updated_at: string;
+}

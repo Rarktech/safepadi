@@ -4,6 +4,7 @@ import axios from 'axios';
 import path from 'path';
 import http from 'http';
 import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
+import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../shared/src/feedbackPrompts';
 
 if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
@@ -99,6 +100,8 @@ process.on('uncaughtException', (error) => {
 
 const reviewStates = new Collection<string, { txnId: string, stars?: number, proofUrl?: string, role?: string }>();
 const AWAITING_REVIEW_REMARK = new Collection<string, boolean>();
+const feedbackStates = new Collection<string, { source: string; refId?: string; rating?: number; safetag?: string }>();
+const AWAITING_FEEDBACK_COMMENT = new Collection<string, boolean>();
 const smartTxnSessions = new Collection<string, SmartTransactionDraft>();
 const regDrafts = new Collection<string, { firstName: string, lastName: string, email: string, safetag: string, referralCode: string }>();
 const txnDrafts = new Collection<string, {
@@ -470,6 +473,33 @@ client.on('messageCreate', async (message) => {
                 console.error('Review Save Error:', err.message);
                 await message.reply('❌ Error saving review. Please try again later.');
             }
+        }
+    }
+
+    // Handle Feedback Comments
+    if (AWAITING_FEEDBACK_COMMENT.has(message.author.id)) {
+        const fbState = feedbackStates.get(message.author.id);
+        if (fbState && fbState.rating) {
+            try {
+                await axios.post(`${API_URL}/feedback`, {
+                    reviewer_safetag: fbState.safetag,
+                    rating: fbState.rating,
+                    comment: message.content,
+                    source: fbState.source || 'menu',
+                    source_ref_id: fbState.refId || undefined,
+                    platform: 'discord',
+                });
+                const successMsg = pickRandom(FEEDBACK_SUCCESS_MESSAGES);
+                await message.reply({
+                    content: `✅ **feedback received!**\n\n${successMsg}`,
+                    components: [{ type: 1, components: [{ type: 2, label: '🏠 Main Menu', style: 2, custom_id: 'main_menu' }] }]
+                });
+            } catch (err: any) {
+                await message.reply('something went wrong on our end 😅 try again later?');
+            }
+            feedbackStates.delete(message.author.id);
+            AWAITING_FEEDBACK_COMMENT.delete(message.author.id);
+            return;
         }
     }
 
@@ -1410,6 +1440,69 @@ client.on('interactionCreate', async (interaction) => {
                     content: `✅ **${stars} star${stars > 1 ? 's' : ''} selected!**\n\nOptionally, send a screenshot/image as proof, then type your review comment in this chat.`,
                     components: []
                 });
+            } else if (customId === 'send_feedback' || customId.startsWith('pf_rate_menu|')) {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                try {
+                    const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
+                    const safetag = profileRes.data.safetag;
+                    let source = 'menu';
+                    let refId: string | undefined;
+                    if (customId.startsWith('pf_rate_menu|')) {
+                        const parts = customId.split('|');
+                        source = parts[1];
+                        refId = parts[2];
+                    }
+                    feedbackStates.set(interaction.user.id, { source, refId, safetag });
+                    await interaction.editReply({
+                        content: '✨ **Rate Safeeely**\n\nhow many stars would you give us? tap below 👇',
+                        components: [{
+                            type: 1,
+                            components: [
+                                { type: 2, label: '⭐ 1', style: 2, custom_id: 'fb_star_1' },
+                                { type: 2, label: '⭐ 2', style: 2, custom_id: 'fb_star_2' },
+                                { type: 2, label: '⭐ 3', style: 2, custom_id: 'fb_star_3' },
+                                { type: 2, label: '⭐ 4', style: 2, custom_id: 'fb_star_4' },
+                                { type: 2, label: '⭐ 5', style: 1, custom_id: 'fb_star_5' },
+                            ]
+                        }]
+                    });
+                } catch (err: any) { await interaction.editReply(`❌ Error: ${err.message}`); }
+            } else if (customId.startsWith('fb_star_')) {
+                const rating = parseInt(customId.split('_')[2]);
+                const fbState = feedbackStates.get(interaction.user.id);
+                if (fbState) {
+                    fbState.rating = rating;
+                    feedbackStates.set(interaction.user.id, fbState);
+                    AWAITING_FEEDBACK_COMMENT.set(interaction.user.id, true);
+                }
+                const commentPrompt = getCommentPrompt(rating);
+                await interaction.update({
+                    content: `${'⭐'.repeat(rating)} **${rating}/5**\n\n${commentPrompt}\n\n_type your comment in chat, or tap Skip_`,
+                    components: [{
+                        type: 1,
+                        components: [{ type: 2, label: '⏭️ Skip', style: 2, custom_id: 'fb_skip_comment' }]
+                    }]
+                });
+            } else if (customId === 'fb_skip_comment') {
+                const fbState = feedbackStates.get(interaction.user.id);
+                if (fbState && fbState.rating) {
+                    try {
+                        await axios.post(`${API_URL}/feedback`, {
+                            reviewer_safetag: fbState.safetag,
+                            rating: fbState.rating,
+                            source: fbState.source || 'menu',
+                            source_ref_id: fbState.refId || undefined,
+                            platform: 'discord',
+                        });
+                        const successMsg = pickRandom(FEEDBACK_SUCCESS_MESSAGES);
+                        await interaction.update({
+                            content: `✅ **feedback received!**\n\n${successMsg}`,
+                            components: [{ type: 1, components: [{ type: 2, label: '🏠 Main Menu', style: 2, custom_id: 'main_menu' }] }]
+                        });
+                    } catch { await interaction.update({ content: 'something went wrong 😅 try again later?', components: [] }); }
+                    feedbackStates.delete(interaction.user.id);
+                    AWAITING_FEEDBACK_COMMENT.delete(interaction.user.id);
+                }
             } else if (customId === 'settings') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
@@ -1422,14 +1515,22 @@ client.on('interactionCreate', async (interaction) => {
                         `Manage your account and privacy preferences below:`;
                     await interaction.editReply({
                         content: msg,
-                        components: [{
-                            type: 1,
-                            components: [
-                                { type: 2, label: '❌ Delete Account', style: 4, custom_id: 'start_deletion' },
-                                { type: 2, label: '⚙️ Other Settings', style: 2, custom_id: 'other_settings' },
-                                { type: 2, label: '🏠 Main Menu', style: 2, custom_id: 'main_menu' }
-                            ]
-                        }]
+                        components: [
+                            {
+                                type: 1,
+                                components: [
+                                    { type: 2, label: '❌ Delete Account', style: 4, custom_id: 'start_deletion' },
+                                    { type: 2, label: '⚙️ Other Settings', style: 2, custom_id: 'other_settings' },
+                                ]
+                            },
+                            {
+                                type: 1,
+                                components: [
+                                    { type: 2, label: '💭 Send Feedback', style: 2, custom_id: 'send_feedback' },
+                                    { type: 2, label: '🏠 Main Menu', style: 2, custom_id: 'main_menu' }
+                                ]
+                            }
+                        ]
                     });
                 } catch (err: any) { await interaction.editReply(`❌ Error: ${err.message}`); }
             } else if (customId === 'other_settings') {

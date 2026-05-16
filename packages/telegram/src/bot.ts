@@ -9,6 +9,7 @@ import { Telegraf, Scenes, session, Context } from 'telegraf';
 import { registrationScene } from './scenes/registration';
 import { transactionScene } from './scenes/transaction';
 import { reviewScene } from './scenes/review';
+import { feedbackScene } from './scenes/feedback';
 import { disputeScene } from './scenes/dispute';
 import { accountDeletionScene } from './scenes/account_deletion';
 import { communityLicensingScene } from './scenes/community_licensing';
@@ -30,7 +31,7 @@ interface SafeeelyContext extends Scenes.WizardContext<SafeeelyWizardSession> {
 
 const bot = new Telegraf<SafeeelyContext>(process.env.TELEGRAM_BOT_TOKEN || '');
 
-const stage = new Scenes.Stage<SafeeelyContext>([registrationScene, transactionScene, reviewScene, disputeScene, accountDeletionScene, communityLicensingScene, communityWithdrawScene] as any);
+const stage = new Scenes.Stage<SafeeelyContext>([registrationScene, transactionScene, reviewScene, feedbackScene, disputeScene, accountDeletionScene, communityLicensingScene, communityWithdrawScene] as any);
 
 bot.use(session());
 bot.use(stage.middleware());
@@ -452,6 +453,9 @@ bot.action('settings', async (ctx) => {
                         { text: '⚙️ Other Settings', callback_data: 'other_settings' }
                     ],
                     [
+                        { text: '💭 Send Feedback', callback_data: 'send_feedback' }
+                    ],
+                    [
                         { text: '🏠 Main Menu', callback_data: 'main_menu' }
                     ]
                 ]
@@ -761,6 +765,20 @@ bot.action(/^leave_review_(.+)$/, async (ctx) => {
     const txnId = ctx.match[1];
     try { await ctx.answerCbQuery(); } catch (e) { console.error('Answer CB Error:', e); }
     await ctx.scene.enter('review_wizard', { txnId });
+});
+
+// Feedback entry: from settings menu
+bot.action('send_feedback', async (ctx) => {
+    try { await ctx.answerCbQuery(); } catch (e) {}
+    await ctx.scene.enter('feedback_wizard', { source: 'menu' });
+});
+
+// Feedback entry: from notification button (pf_rate_menu|source|refId)
+bot.action(/^pf_rate_menu|(.+?)|(.+)$/, async (ctx) => {
+    const source = ctx.match[1] as any;
+    const refId = ctx.match[2];
+    try { await ctx.answerCbQuery(); } catch (e) {}
+    await ctx.scene.enter('feedback_wizard', { source, refId });
 });
 
 bot.action(/^txn_dispute_(.+)$/, async (ctx) => {
