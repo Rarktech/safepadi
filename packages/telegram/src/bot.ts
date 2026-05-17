@@ -774,7 +774,7 @@ bot.action('send_feedback', async (ctx) => {
 });
 
 // Feedback entry: from notification button (pf_rate_menu|source|refId)
-bot.action(/^pf_rate_menu|(.+?)|(.+)$/, async (ctx) => {
+bot.action(/^pf_rate_menu\|(.+?)\|(.+)$/, async (ctx) => {
     const source = ctx.match[1] as any;
     const refId = ctx.match[2];
     try { await ctx.answerCbQuery(); } catch (e) {}

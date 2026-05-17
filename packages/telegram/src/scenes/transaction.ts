@@ -79,6 +79,8 @@ export const transactionScene = new Scenes.WizardScene(
     // Step 2: Product Name
     async (ctx: any) => {
         if (!ctx.callbackQuery) return;
+        const validTypes = ['ONE_TIME', 'MILESTONE'];
+        if (!validTypes.includes(ctx.callbackQuery.data)) return;
         ctx.wizard.state.formData.transaction_type = ctx.callbackQuery.data;
         await ctx.answerCbQuery();
 
@@ -139,7 +141,10 @@ export const transactionScene = new Scenes.WizardScene(
     // Step 6: Price OR Milestone Setup
     async (ctx: any) => {
         if (!ctx.callbackQuery) return;
-        ctx.wizard.state.formData.currency = ctx.callbackQuery.data;
+        const VALID_CURRENCIES = ['NGN', 'USD', 'USDT'];
+        if (VALID_CURRENCIES.includes(ctx.callbackQuery.data)) {
+            ctx.wizard.state.formData.currency = ctx.callbackQuery.data;
+        }
         await ctx.answerCbQuery();
 
         const type = ctx.wizard.state.formData.transaction_type;
@@ -398,8 +403,8 @@ export const transactionScene = new Scenes.WizardScene(
         const isSeller = role === 'seller';
 
         const invoiceMsg = isSeller
-            ? `📄 <b>Smart Invoice</b>\n\nWant to send your buyer a professional invoice?\n\nA branded invoice PDF will be emailed to your buyer with the full transaction details:\n  📦 <b>Item:</b> ${product_name}\n  💰 <b>Amount:</b> ${amount} ${currency}\n  👤 <b>Buyer: @${other_safetag}</b>\n\n<i>It includes a Pay with Safeeely button so they can settle directly from their inbox.</i>`
-            : `📄 <b>Smart Invoice</b>\n\nWould you like an invoice for this transaction?\n\nA professional invoice from your seller will be emailed straight to you with full details:\n  📦 <b>Item:</b> ${product_name}\n  💰 <b>Amount:</b> ${amount} ${currency}\n  🏪 <b>Seller: @${other_safetag}</b>\n\n<i>Perfect for your records or expense tracking.</i>`;
+            ? `📄 <b>Smart Invoice</b>\n\nWant to send your buyer a professional invoice?\n\nA branded invoice PDF will be emailed to your buyer with the full transaction details:\n  📦 <b>Item:</b> ${product_name}\n  💰 <b>Amount:</b> ${amount} ${currency}\n  👤 <b>Buyer: ${other_safetag}</b>\n\n<i>It includes a Pay with Safeeely button so they can settle directly from their inbox.</i>`
+            : `📄 <b>Smart Invoice</b>\n\nWould you like an invoice for this transaction?\n\nA professional invoice from your seller will be emailed straight to you with full details:\n  📦 <b>Item:</b> ${product_name}\n  💰 <b>Amount:</b> ${amount} ${currency}\n  🏪 <b>Seller: ${other_safetag}</b>\n\n<i>Perfect for your records or expense tracking.</i>`;
 
         const yesLabel = isSeller ? '📧 Yes, Send Invoice' : '📧 Yes, Email Me an Invoice';
 
