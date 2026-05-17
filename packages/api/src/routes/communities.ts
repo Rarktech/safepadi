@@ -460,7 +460,7 @@ router.post('/:id/withdraw', async (req, res) => {
             .select('amount')
             .eq('group_id', id)
             .eq('currency', currency)
-            .in('status', ['PENDING', 'PROCESSING', 'PAID']);
+            .in('status', ['PENDING', 'PROCESSING', 'PAID', 'COMPLETED']);
         const totalWithdrawn = (priorW || []).reduce((s: number, w: any) => s + Number(w.amount), 0);
 
         const available = totalEarned - totalWithdrawn;

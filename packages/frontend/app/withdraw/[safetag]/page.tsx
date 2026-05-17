@@ -35,6 +35,7 @@ export default function WithdrawDashboard() {
     const [unreadNotifCount, setUnreadNotifCount] = useState(0);
     const [continueModal, setContinueModal] = useState<{ txnId: string; txnCode: string; txnTitle: string } | null>(null);
     const [balances, setBalances] = useState<any[]>([]);
+    const [pendingRefunds, setPendingRefunds] = useState<any[]>([]);
     const [allTransactions, setAllTransactions] = useState<any[]>([]);
     const [filteredTxns, setFilteredTxns] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -128,6 +129,7 @@ export default function WithdrawDashboard() {
                 fetchedBalances.push({ currency: 'USD', amount: 0 });
             }
             setBalances(fetchedBalances);
+            setPendingRefunds(balRes.data?.pending_refunds || []);
             setProfile(profRes.data);
             setAllTransactions(txnsRes.data || []);
             setFilteredTxns(txnsRes.data || []);
@@ -284,6 +286,22 @@ export default function WithdrawDashboard() {
                                     onToggleBalance={() => setShowBalance(v => !v)}
                                     decodedSafetag={decodedSafetag}
                                 />
+                                {pendingRefunds.length > 0 && (
+                                    <div className="mx-4 mt-4 p-5 bg-amber-50 rounded-[28px] border border-amber-200">
+                                        <p className="text-[11px] font-black text-amber-800 uppercase tracking-widest mb-1">⏳ Pending Refunds</p>
+                                        <p className="text-[10px] text-amber-600 font-medium mb-3">
+                                            Refunds owed from resolved disputes — our team will process these.
+                                        </p>
+                                        {pendingRefunds.map((r: any, i: number) => (
+                                            <div key={i} className="flex justify-between items-center py-2 border-t border-amber-100">
+                                                <span className="text-xs font-bold text-amber-700">{r.currency}</span>
+                                                <span className="text-sm font-black text-amber-900">
+                                                    {r.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                             {/* Desktop: sidebar grid layout */}
                             <div className="hidden md:flex flex-col gap-8">
@@ -293,6 +311,22 @@ export default function WithdrawDashboard() {
                                     onWithdraw={() => setCurrentView('withdraw')}
                                     onCreate={() => setCurrentView('marketplace')}
                                 />
+                                {pendingRefunds.length > 0 && (
+                                    <div className="p-5 bg-amber-50 rounded-[28px] border border-amber-200">
+                                        <p className="text-[11px] font-black text-amber-800 uppercase tracking-widest mb-1">⏳ Pending Refunds</p>
+                                        <p className="text-[10px] text-amber-600 font-medium mb-3">
+                                            These refunds are owed to you from resolved disputes and will be processed by our team.
+                                        </p>
+                                        {pendingRefunds.map((r: any, i: number) => (
+                                            <div key={i} className="flex justify-between items-center py-2 border-t border-amber-100">
+                                                <span className="text-xs font-bold text-amber-700">{r.currency}</span>
+                                                <span className="text-sm font-black text-amber-900">
+                                                    {r.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                                 <PortfolioSection
                                     balances={balances}
                                     showBalance={showBalance}

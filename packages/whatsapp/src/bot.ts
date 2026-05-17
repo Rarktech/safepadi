@@ -742,7 +742,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
             await axios.post(`${API_URL}/disputes/raise`, { transaction_id: ds.txnId, reason: rawText.trim(), raised_by: ds.raisedBy });
             disputeSessions.delete(from);
             await sendButtons(from,
-                '⚠️ Dispute raised. Transaction frozen. Our team will review within 24h.',
+                '⚖️ Dispute raised. Transaction frozen. An AI mediator will review shortly and may ask for evidence.',
                 [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]
             );
         } catch (err: any) {
@@ -1072,11 +1072,25 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
             }]);
         } catch (_) { await sendText(from, '❌ Could not start review.'); }
 
+    } else if (interactiveId.startsWith('DISPUTE_RETURN_BUYER_') || interactiveId.startsWith('DISPUTE_RETURN_SELLER_')) {
+        const role = interactiveId.startsWith('DISPUTE_RETURN_BUYER_') ? 'BUYER' : 'SELLER';
+        const disputeId = interactiveId.replace('DISPUTE_RETURN_BUYER_', '').replace('DISPUTE_RETURN_SELLER_', '');
+        try {
+            const p = await getProfile(from);
+            await axios.post(`${API_URL}/disputes/${disputeId}/confirm-return`, { confirmer_id: p.id, role });
+            const msg = role === 'BUYER'
+                ? '📦 Shipping confirmed — seller has been notified. Refund will be issued once they confirm receipt.'
+                : '✅ Receipt confirmed — buyer refund credit has been issued.';
+            await sendText(from, msg);
+        } catch (err: any) {
+            await sendText(from, `❌ ${err.response?.data?.error || 'Could not process confirmation.'}`);
+        }
+
     } else if (interactiveId.startsWith('txn_dispute_') || interactiveId.startsWith('DISPUTE_TXN_')) {
         const txnId = interactiveId.startsWith('txn_dispute_') ? interactiveId.replace('txn_dispute_', '') : interactiveId.replace('DISPUTE_TXN_', '');
         try {
             const p = await getProfile(from);
-            disputeSessions.set(from, { txnId, raisedBy: p.safetag });
+            disputeSessions.set(from, { txnId, raisedBy: p.id });
             await sendText(from, '⚠️ *Raise Dispute*\n\nPlease describe the issue with this transaction:');
         } catch (_) { await sendText(from, '❌ Could not start dispute.'); }
 

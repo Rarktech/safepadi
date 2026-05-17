@@ -104,7 +104,7 @@ Respond with ONLY a JSON object:
 
     try {
         const model = genAI.getGenerativeModel({
-            model: 'gemini-2.0-flash-lite',
+            model: 'gemini-flash-latest',
             generationConfig: { responseMimeType: 'application/json' }
         });
         const result = await model.generateContent(prompt);

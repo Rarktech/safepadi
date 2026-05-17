@@ -1,15 +1,20 @@
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import crypto from 'crypto';
 import { supabase } from '@safepal/shared';
 import { sendEmail } from './email';
 
-const LOG_FILE = 'c:\\Users\\user\\Desktop\\safepadi\\debug_notification.log';
+const LOG_FILE = process.env.NODE_ENV === 'production'
+    ? null
+    : path.join(os.tmpdir(), 'safeeely_notifications.log');
 
 function log(msg: string) {
     const timestamp = new Date().toISOString();
-    fs.appendFileSync(LOG_FILE, `[${timestamp}] ${msg}\n`);
+    if (LOG_FILE) {
+        try { fs.appendFileSync(LOG_FILE, `[${timestamp}] ${msg}\n`); } catch { /* ignore log errors */ }
+    }
     console.log(`[Notification Engine] ${msg}`);
 }
 

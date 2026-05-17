@@ -1,6 +1,7 @@
 import { supabase } from '@safepal/shared';
 import { routeNotification, recordNotification } from '../services/notifications';
 import { sendDisputeResolvedEmail } from '../services/email';
+import { issueReferralCommissions } from '../services/commissions';
 
 const REVIEWS_URL = process.env.REVIEWS_URL || 'https://safeeely.com';
 
@@ -51,7 +52,7 @@ async function processEvidenceDeadlines(now: Date): Promise<void> {
     const { data: disputes, error } = await supabase
         .from('disputes')
         .select(`
-            id, restricted_to, evidence_deadline,
+            id, restricted_to, evidence_deadline, verdict_action, metadata,
             reminder_1_sent, reminder_2_sent,
             transaction:transactions(
                 id, txn_code, product_name, amount, currency,
@@ -84,6 +85,12 @@ async function handleDeadline(dispute: any, now: Date): Promise<void> {
     if (!txn) return;
 
     if (msLeft <= 0) {
+        // Check if this is a RETURN_PENDING dispute awaiting goods return
+        if (dispute.verdict_action === 'REFUND_AFTER_RETURN') {
+            console.log(`⏰ [enforcement] Return deadline passed for dispute ${dispute.id}`);
+            await applyReturnDeadlineInference(dispute, txn);
+            return;
+        }
         // Deadline passed — apply adverse inference
         console.log(`⏰ [enforcement] Deadline passed for dispute ${dispute.id}, applying adverse inference`);
         await applyAdverseInference(dispute, txn);
@@ -104,6 +111,84 @@ async function handleDeadline(dispute: any, now: Date): Promise<void> {
         );
         await supabase.from('disputes').update({ reminder_1_sent: true }).eq('id', dispute.id);
     }
+}
+
+// ── Return-after-refund deadline inference ────────────────────────────────────
+
+async function applyReturnDeadlineInference(dispute: any, txn: any): Promise<void> {
+    const meta = dispute.metadata || {};
+    const buyerShipped = !!meta.buyer_shipped_at;
+
+    // Buyer didn't ship within the deadline → adverse inference: PAY_SELLER
+    // Buyer shipped but seller hasn't confirmed within 48 h → PAY_SELLER (seller ghosting after return)
+    let action = 'PAY_SELLER';
+    let reason: string;
+
+    if (!buyerShipped) {
+        reason = 'The buyer did not return the goods within the required timeframe. Payment has been released to the seller.';
+    } else {
+        reason = 'The seller did not confirm receipt of the returned goods within the allowed time. As the buyer has provided shipping confirmation, the refund has been issued.';
+        action = 'REFUND_BUYER';
+    }
+
+    const now = new Date().toISOString();
+
+    await supabase.from('dispute_messages').insert({
+        dispute_id: dispute.id,
+        sender_type: 'AI',
+        content: `✅ **Case Closed**\n\n${reason}\n\nFunds will be processed according to Safeeely's standard settlement terms.`
+    });
+
+    await supabase.from('disputes').update({
+        status: 'RESOLVED',
+        resolution: `SLA_ENFORCEMENT: ${action}`,
+        resolved_at: now,
+        evidence_deadline: null
+    }).eq('id', dispute.id);
+
+    const txnStatus = action === 'REFUND_BUYER' ? 'CANCELLED' : 'FINALIZED';
+    await supabase.from('transactions').update({ status: txnStatus }).eq('id', txn.id);
+
+    if (action === 'REFUND_BUYER') {
+        try {
+            await supabase.from('buyer_refund_credits').insert({
+                transaction_id: txn.id,
+                dispute_id: dispute.id,
+                buyer_id: txn.buyer.id,
+                amount: Number(txn.amount),
+                currency: txn.currency,
+                refund_type: 'RETURN_CONFIRMED',
+                status: 'PENDING',
+                resolution_source: 'SLA'
+            });
+        } catch (err) {
+            console.warn('⚠️ [enforcement] Could not insert return refund credit:', (err as Error).message);
+        }
+    } else {
+        issueReferralCommissions(txn).catch(() => {});
+    }
+
+    const label = action === 'REFUND_BUYER' ? '✅ Refund issued to buyer' : '✅ Payment released to seller';
+    await Promise.allSettled([txn.buyer, txn.seller].map(async (user: any) => {
+        try {
+            const disputeUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txn.id}`;
+            await routeNotification(
+                user.id,
+                `⚖️ <b>Case Closed</b>\n\n${reason}\n\n<b>Outcome:</b> ${label}`,
+                [{ label: '👁️ View Case', url: disputeUrl }],
+                undefined,
+                user.email ? () => sendDisputeResolvedEmail(user.email, {
+                    safetag: user.safetag, product: txn.product_name,
+                    txnCode: txn.txn_code, outcome: label, txnId: txn.id
+                }) : undefined
+            );
+            recordNotification(user.id, 'dispute', '⚖️ Case Closed', `"${txn.product_name}" — ${label}`, {
+                transaction_id: txn.id, dispute_id: dispute.id, link_url: `/dashboard/transactions/${txn.id}`
+            }).catch(() => {});
+        } catch { /* non-critical */ }
+    }));
+
+    console.log(`✅ [enforcement] Return deadline dispute ${dispute.id} closed — ${action}`);
 }
 
 // ── Adverse inference ─────────────────────────────────────────────────────────
@@ -148,6 +233,29 @@ async function applyAdverseInference(dispute: any, txn: any): Promise<void> {
         : action === 'SPLIT' ? 'RESOLVED_SPLIT'
         : 'FINALIZED';
     await supabase.from('transactions').update({ status: txnStatus }).eq('id', txn.id);
+
+    // Insert buyer refund credit so admin knows money is owed back
+    if (action === 'REFUND_BUYER') {
+        try {
+            await supabase.from('buyer_refund_credits').insert({
+                transaction_id: txn.id,
+                dispute_id: dispute.id,
+                buyer_id: txn.buyer.id,
+                amount: Number(txn.amount),
+                currency: txn.currency,
+                refund_type: 'FULL',
+                status: 'PENDING',
+                resolution_source: 'SLA'
+            });
+        } catch (err) {
+            console.warn('⚠️ [enforcement] Could not insert buyer_refund_credit:', (err as Error).message);
+        }
+    }
+
+    // Issue referral commissions when seller wins via SLA
+    if (action === 'PAY_SELLER') {
+        issueReferralCommissions(txn).catch(() => {});
+    }
 
     // Notify both parties
     const actionLabels: Record<string, string> = {

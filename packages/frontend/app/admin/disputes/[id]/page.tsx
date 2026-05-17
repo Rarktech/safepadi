@@ -341,6 +341,9 @@ export default function AdminDisputePage() {
                 payload.buyer_amount = (dispute.transaction.amount * buyerSplit) / 100;
                 payload.seller_amount = (dispute.transaction.amount * (100 - buyerSplit)) / 100;
             }
+            if (type === 'REFUND_AFTER_RETURN') {
+                payload.return_deadline_hours = 72;
+            }
             await api.post(`/disputes/${id}/resolve`, payload);
             toast.success('Dispute resolved');
             router.refresh();
@@ -632,10 +635,11 @@ export default function AdminDisputePage() {
                                                     <p className="text-xl font-black text-slate-900">{100 - buyerSplit}%</p>
                                                 </div>
                                             </div>
-                                            <div className="flex gap-3">
+                                            <div className="flex gap-3 flex-wrap">
                                                 <Button onClick={() => resolveDispute('REFUND_BUYER')} variant="outline" className="flex-1 rounded-2xl h-12 border-rose-200 text-rose-600 hover:bg-rose-50 font-black text-[10px] uppercase">100% Refund Buyer</Button>
                                                 <Button onClick={() => resolveDispute('PAY_SELLER')} variant="outline" className="flex-1 rounded-2xl h-12 border-emerald-200 text-emerald-600 hover:bg-emerald-50 font-black text-[10px] uppercase">100% Pay Seller</Button>
                                                 <Button onClick={() => resolveDispute('SPLIT')} className="flex-[1.5] rounded-2xl h-12 bg-emerald-500 hover:bg-emerald-600 text-white font-black text-[10px] uppercase shadow-lg shadow-emerald-100">Confirm Split Settlement</Button>
+                                                <Button onClick={() => resolveDispute('REFUND_AFTER_RETURN')} variant="outline" className="flex-1 rounded-2xl h-12 border-amber-200 text-amber-600 hover:bg-amber-50 font-black text-[10px] uppercase">🔄 Refund After Return</Button>
                                             </div>
                                         </div>
                                     </div>
@@ -876,6 +880,25 @@ export default function AdminDisputePage() {
                             </div>
                         </div>
                     </div>
+
+                    {(txn.status === 'RETURN_PENDING' || dispute.verdict_action === 'REFUND_AFTER_RETURN') && (
+                        <div className="p-5 bg-amber-50 rounded-[28px] border border-amber-200">
+                            <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-1">Return In Progress</p>
+                            <p className="text-xs text-amber-600 font-medium leading-relaxed">
+                                Buyer must ship goods back to seller before refund is issued.
+                            </p>
+                            {dispute.metadata?.buyer_shipped_at && (
+                                <p className="text-[9px] text-amber-500 font-bold mt-2">
+                                    📦 Buyer shipped: {new Date(dispute.metadata.buyer_shipped_at).toLocaleString()}
+                                </p>
+                            )}
+                            {dispute.metadata?.return_deadline_hours && !dispute.metadata?.buyer_shipped_at && (
+                                <p className="text-[9px] text-amber-500 font-bold mt-2">
+                                    ⏱ Buyer has {dispute.metadata.return_deadline_hours}h to ship goods back
+                                </p>
+                            )}
+                        </div>
+                    )}
 
                     <div className="p-6 bg-[#020617] rounded-[40px] text-white">
                         <div className="flex items-center gap-3 mb-4">

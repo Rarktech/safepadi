@@ -1,16 +1,21 @@
 export type Platform = 'telegram' | 'discord' | 'whatsapp' | 'instagram';
 
-export type TransactionStatus = 
+export type TransactionStatus =
+  // Active lifecycle
   | 'PENDING_SELLER_ACCEPTANCE'
-  | 'PENDING_BUYER_ACCEPTANCE'
-  | 'AWAITING_PAYMENT'
-  | 'PAYMENT_RECEIVED'
-  | 'AWAITING_DELIVERY'
-  | 'AWAITING_CONFIRMATION'
-  | 'COMPLETED'
+  | 'ACCEPTED'
+  | 'DECLINED'
+  | 'PAID'
+  | 'AWAITING_PROOF'
+  | 'COMPLETED_BY_SELLER'
+  | 'FINALIZED'
+  // Dispute outcomes
   | 'DISPUTED'
   | 'CANCELLED'
-  | 'REFUNDED';
+  | 'RESOLVED_SPLIT'
+  | 'RETURN_PENDING';
+
+export type DisputeVerdictAction = 'REFUND_BUYER' | 'PAY_SELLER' | 'SPLIT' | 'REFUND_AFTER_RETURN';
 
 export type FeeAllocation = 'buyer' | 'seller' | 'split';
 

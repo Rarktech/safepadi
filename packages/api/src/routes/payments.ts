@@ -7,15 +7,33 @@ import axios from 'axios';
 
 const router = Router();
 
+/**
+ * Verify that the webhook-reported amount is within 2% of the expected transaction amount.
+ * Allows for minor FX conversion rounding differences.
+ */
+function amountMatches(reported: number, expected: number): boolean {
+    if (!reported || !expected) return false;
+    const diff = Math.abs(reported - expected) / expected;
+    return diff <= 0.02; // 2% tolerance
+}
+
 router.post('/opay/webhook', async (req, res) => {
     try {
-        const secretKey = process.env.OPAY_SECRET_KEY;
-        const signature = req.headers['opay-signature'] || req.headers['authorization'];
+        const opayPublicKey = process.env.OPAY_PUBLIC_KEY;
+        const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+        const authHeader = (req.headers['authorization'] as string || '').replace(/^Bearer\s+/i, '');
 
-        // Verify signature if possible (OPay sends it in headers)
-        // For now, we'll process it and verify the reference exists
+        // Verify HMAC-SHA512 signature (OPay signs body with merchant public key)
+        if (opayPublicKey) {
+            const expected = crypto.createHmac('sha512', opayPublicKey).update(rawBody).digest('hex');
+            if (!authHeader || authHeader.toLowerCase() !== expected.toLowerCase()) {
+                console.error('❌ [OPay Webhook] Signature mismatch');
+                return res.status(401).send('Unauthorized');
+            }
+        } else {
+            console.warn('⚠️ [OPay Webhook] OPAY_PUBLIC_KEY not set — skipping signature check');
+        }
 
-        const { payload, status } = req.body; // OPay webhook format
         const data = req.body;
 
         console.log('📦 OPay Webhook Received:', JSON.stringify(data));
@@ -35,9 +53,16 @@ router.post('/opay/webhook', async (req, res) => {
                 .eq('txn_code', txnCode)
                 .single();
 
+            // Verify gateway-reported amount matches expected amount
+            const reportedAmount = Number(data.amount || (data.data && data.data.amount) || 0);
+            if (reportedAmount > 0 && !amountMatches(reportedAmount, Number(txn?.total_amount || 0))) {
+                console.error(`❌ [OPay Webhook] Amount mismatch for ${txnCode}: reported=${reportedAmount}, expected=${txn?.total_amount}`);
+                return res.status(400).send('Amount mismatch');
+            }
+
             if (txn && txn.status !== 'PAID' && txn.status !== 'FINALIZED') {
                 // Update status to PAID and record payment gateway
-                await supabase.from('transactions').update({ 
+                await supabase.from('transactions').update({
                     status: 'PAID',
                     metadata: { ...(txn.metadata || {}), payment_gateway: 'OPay' }
                 }).eq('id', txn.id);
@@ -75,25 +100,53 @@ router.post('/opay/webhook', async (req, res) => {
 });
 router.post('/airwallex/webhook', async (req, res) => {
     try {
+        const airwallexWebhookSecret = process.env.AIRWALLEX_WEBHOOK_SECRET;
+        const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+        const timestamp = req.headers['x-timestamp'] as string;
+        const signature = req.headers['x-signature'] as string;
+
+        // Verify HMAC-SHA256 signature (Airwallex signs timestamp + body with webhook secret)
+        if (airwallexWebhookSecret) {
+            if (!timestamp || !signature) {
+                console.error('❌ [Airwallex Webhook] Missing signature headers');
+                return res.status(401).send('Unauthorized');
+            }
+            const expected = crypto
+                .createHmac('sha256', airwallexWebhookSecret)
+                .update(`${timestamp}${rawBody}`)
+                .digest('hex');
+            if (signature !== expected) {
+                console.error('❌ [Airwallex Webhook] Signature mismatch');
+                return res.status(401).send('Unauthorized');
+            }
+        } else {
+            console.warn('⚠️ [Airwallex Webhook] AIRWALLEX_WEBHOOK_SECRET not set — skipping signature check');
+        }
+
         const event = req.body;
         console.log('📦 Airwallex Webhook Received:', event.name);
 
         if (event.name === 'payment_intent.succeeded') {
             const pi = event.data.object;
-            const txnCode = pi.merchant_order_id; // we set this earlier
+            const txnCode = pi.merchant_order_id;
 
             if (!txnCode) return res.status(400).send('No merchant_order_id');
 
-            // Find transaction
             const { data: txn, error } = await supabase
                 .from('transactions')
                 .select('*, buyer:buyer_id(*), seller:seller_id(*)')
                 .eq('txn_code', txnCode)
                 .single();
 
+            // Verify reported amount
+            const reportedAmount = Number(pi.amount || 0);
+            if (txn && reportedAmount > 0 && !amountMatches(reportedAmount, Number(txn.total_amount || 0))) {
+                console.error(`❌ [Airwallex Webhook] Amount mismatch for ${txnCode}: reported=${reportedAmount}, expected=${txn.total_amount}`);
+                return res.status(400).send('Amount mismatch');
+            }
+
             if (txn && txn.status !== 'PAID' && txn.status !== 'FINALIZED') {
-                // Update status to PAID and record payment gateway
-                await supabase.from('transactions').update({ 
+                await supabase.from('transactions').update({
                     status: 'PAID',
                     metadata: { ...(txn.metadata || {}), payment_gateway: 'Airwallex' }
                 }).eq('id', txn.id);
@@ -171,6 +224,13 @@ router.post('/chainrails/webhook', async (req, res) => {
             if (!txn) {
                 console.error(`❌ [ChainRails] Transaction for session ${intentId} not found`);
                 return res.status(200).send('OK');
+            }
+
+            // Verify reported amount (ChainRails amount is in smallest unit / decimal — accept if present)
+            const reportedChainAmount = Number(intent.amount || 0);
+            if (reportedChainAmount > 0 && !amountMatches(reportedChainAmount, Number(txn.total_amount || 0))) {
+                console.error(`❌ [ChainRails] Amount mismatch for ${txn.txn_code}: reported=${reportedChainAmount}, expected=${txn.total_amount}`);
+                return res.status(400).send('Amount mismatch');
             }
 
             if (txn.status !== 'PAID' && txn.status !== 'FINALIZED') {
@@ -377,9 +437,15 @@ router.post('/flutterwave/webhook', async (req, res) => {
                 return res.status(200).send('OK');
             }
 
+            // Verify Flutterwave-reported amount matches expected amount
+            const flwAmount = Number(data.amount || 0);
+            if (flwAmount > 0 && !amountMatches(flwAmount, Number(txn.total_amount || 0))) {
+                console.error(`❌ [Flutterwave Webhook] Amount mismatch for ${txnCode}: reported=${flwAmount}, expected=${txn.total_amount}`);
+                return res.status(400).send('Amount mismatch');
+            }
+
             if (txn.status !== 'PAID' && txn.status !== 'FINALIZED') {
-                // Update status to PAID
-                await supabase.from('transactions').update({ 
+                await supabase.from('transactions').update({
                     status: 'PAID',
                     metadata: { ...(txn.metadata || {}), payment_gateway: 'Flutterwave', flw_id: data.id }
                 }).eq('id', txn.id);

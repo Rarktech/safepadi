@@ -1855,6 +1855,18 @@ client.on('interactionCreate', async (interaction) => {
                     await axios.post(`${API_URL}/disputes/raise`, { transaction_id: txnId, raised_by: profileRes.data.id, reason });
                     await interaction.editReply({ content: `✅ **Dispute Raised!** The transaction is frozen.`, components: [{ type: 1, components: [{ type: 2, label: '🏠 Menu', style: 2, custom_id: 'main_menu' }] }] });
                 } catch (err: any) { await interaction.editReply(`❌ Failed: ${err.message}`); }
+            } else if (customId.startsWith('dispute_return_buyer_') || customId.startsWith('dispute_return_seller_')) {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const role = customId.startsWith('dispute_return_buyer_') ? 'BUYER' : 'SELLER';
+                const disputeId = customId.replace('dispute_return_buyer_', '').replace('dispute_return_seller_', '');
+                try {
+                    const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
+                    await axios.post(`${API_URL}/disputes/${disputeId}/confirm-return`, { confirmer_id: profileRes.data.id, role });
+                    const msg = role === 'BUYER'
+                        ? '📦 **Shipping Confirmed** — Seller notified. Refund will be issued once they confirm receipt.'
+                        : '✅ **Receipt Confirmed** — Buyer refund credit has been issued.';
+                    await interaction.editReply({ content: msg, components: [] });
+                } catch (err: any) { await interaction.editReply(`❌ ${err.response?.data?.error || err.message}`); }
             } else if (customId.startsWith('txn_modal_step1|')) {
                 const parts = customId.split('|');
                 const role = parts[1];

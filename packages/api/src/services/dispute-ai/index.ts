@@ -6,6 +6,7 @@ import { runInvestigator } from './agents/investigator';
 import { runJudge } from './agents/judge';
 import { runCritic } from './agents/critic';
 import { seedBootstrapSops } from './memory/sop-repository';
+import { sendEmail } from '../email';
 
 let sopsSeedInitiated = false;
 
@@ -20,7 +21,13 @@ async function ensureSopsSeeded(): Promise<void> {
     }
 }
 
-async function writeAdjudication(disputeId: string, ctx: DisputeContext, judgeOut: JudgeOutput): Promise<void> {
+async function writeAdjudication(
+    disputeId: string,
+    ctx: DisputeContext,
+    judgeOut: JudgeOutput,
+    lowConfidence = false,
+    source: 'AI' | 'ADMIN' | 'SLA' | 'RETURN_CONFIRMED' = 'AI'
+): Promise<void> {
     try {
         const topTier = ctx.history.reduce((min: number, m: any) =>
             m.evidence_tier && m.evidence_tier < min ? m.evidence_tier : min, 3);
@@ -40,7 +47,9 @@ async function writeAdjudication(disputeId: string, ctx: DisputeContext, judgeOu
             utility_location: judgeOut.utility_location || 'NEUTRALIZED_OR_CONTESTED',
             evidence_tier_top: topTier,
             sops_applied: sopIds,
-            human_overrode_ai: false
+            human_overrode_ai: false,
+            low_confidence: lowConfidence,
+            resolution_source: source
         }, { onConflict: 'dispute_id' });
     } catch (err) {
         console.warn('⚠️ Could not write adjudication record:', (err as Error).message);
@@ -131,35 +140,100 @@ export async function processAIDispute(disputeId: string): Promise<AIDisputeResu
                 type: 'VERDICT',
                 content: judgeOut.verdict_summary,
                 action: judgeOut.action,
-                split_pct_buyer: judgeOut.split_pct_buyer
+                split_pct_buyer: judgeOut.split_pct_buyer,
+                return_deadline_hours: judgeOut.return_deadline_hours
             };
         }
 
-        // ── Critic ─────────────────────────────────────────────────────────
-        console.log(`🔴 [dispute-ai] Running Critic (${tier})...`);
-        const criticOut = await runCritic(judgeOut, ctx);
+        // ── Critic loop (CONSTITUTIONAL tier retries up to critic_max_iterations) ──
+        const maxIterations = (ctx.dispute.critic_max_iterations || 2);
+        let iterationsThisRun = 0;
+        let currentJudgeOut = judgeOut;
+        let lowConfidenceApproval = false;
 
-        await supabase
-            .from('disputes')
-            .update({ critic_iterations: (ctx.dispute.critic_iterations || 0) + 1 })
-            .eq('id', disputeId);
+        while (iterationsThisRun < maxIterations) {
+            console.log(`🔴 [dispute-ai] Running Critic (${tier}, iteration ${iterationsThisRun + 1}/${maxIterations})...`);
+            const criticOut = await runCritic(currentJudgeOut, ctx);
+            iterationsThisRun++;
 
-        console.log(`🔴 [dispute-ai] Critic: ${criticOut.verdict} (confidence=${criticOut.confidence})`);
+            const newIterationsTotal = (ctx.dispute.critic_iterations || 0) + iterationsThisRun;
+            await supabase
+                .from('disputes')
+                .update({ critic_iterations: newIterationsTotal })
+                .eq('id', disputeId);
 
-        if (criticOut.verdict === 'APPROVED') {
-            await writeAdjudication(disputeId, ctx, judgeOut);
-            return {
-                type: 'VERDICT',
-                content: judgeOut.verdict_summary,
-                action: judgeOut.action,
-                split_pct_buyer: judgeOut.split_pct_buyer
-            };
+            console.log(`🔴 [dispute-ai] Critic: ${criticOut.verdict} (confidence=${criticOut.confidence})`);
+
+            // Track whether critic approved with low confidence (for adjudication flagging)
+            if (criticOut.verdict === 'APPROVED' && criticOut.confidence < 0.6) {
+                lowConfidenceApproval = true;
+            }
+
+            if (criticOut.verdict === 'APPROVED') {
+                await writeAdjudication(disputeId, ctx, currentJudgeOut, lowConfidenceApproval);
+
+                // Log low-confidence approval as a system message for transparency
+                if (lowConfidenceApproval) {
+                    await supabase.from('dispute_messages').insert({
+                        dispute_id: disputeId,
+                        sender_type: 'AI',
+                        content: '[SYSTEM] Mediator reached a verdict with reduced confidence. This case has been flagged for post-resolution quality review.'
+                    }).catch(() => {});
+                }
+
+                return {
+                    type: 'VERDICT',
+                    content: currentJudgeOut.verdict_summary,
+                    action: currentJudgeOut.action,
+                    split_pct_buyer: currentJudgeOut.split_pct_buyer,
+                    return_deadline_hours: currentJudgeOut.return_deadline_hours
+                };
+            }
+
+            // Critic rejected — for CONSTITUTIONAL tier with remaining iterations, re-run Judge
+            const blockingFailures = criticOut.failures.filter(f => f.severity === 'BLOCKING');
+            console.warn(`⚠️ [dispute-ai] Critic REJECTED — ${blockingFailures.length} blocking failure(s), iteration ${iterationsThisRun}/${maxIterations}`);
+
+            if (tier === 'CONSTITUTIONAL' && iterationsThisRun < maxIterations) {
+                // Re-run Judge with Critic's corrective feedback injected into context
+                try {
+                    const correctionNote = criticOut.failures.map(f => `[${f.severity}] ${f.check}: ${f.remediation_hint}`).join('\n');
+                    (ctx as any).criticFeedback = correctionNote;
+                    currentJudgeOut = await runJudge(ctx, invOut);
+                    await supabase.from('disputes').update({ last_judge_payload: currentJudgeOut }).eq('id', disputeId);
+                } catch (err) {
+                    console.error('❌ Re-run Judge failed:', (err as Error).message);
+                    break;
+                }
+            } else if (tier === 'STANDARD') {
+                // STANDARD disputes auto-resolve even with Critic objection — flag for review, never block
+                console.log(`ℹ️ [dispute-ai] STANDARD verdict approved under Critic objection — flagging low_confidence`);
+                lowConfidenceApproval = true;
+                await writeAdjudication(disputeId, ctx, currentJudgeOut, true);
+                return {
+                    type: 'VERDICT',
+                    content: currentJudgeOut.verdict_summary,
+                    action: currentJudgeOut.action,
+                    split_pct_buyer: currentJudgeOut.split_pct_buyer,
+                    return_deadline_hours: currentJudgeOut.return_deadline_hours
+                };
+            } else {
+                break;
+            }
         }
 
-        // Critic rejected — STANDARD and CONSTITUTIONAL both escalate to human
-        // (Chronicler self-healing is Phase 3 — deferred)
-        const blockingFailures = criticOut.failures.filter(f => f.severity === 'BLOCKING');
-        console.warn(`⚠️ [dispute-ai] Critic REJECTED — ${blockingFailures.length} blocking failure(s)`);
+        // All iterations exhausted — escalate to human
+        console.warn(`⚠️ [dispute-ai] Escalating dispute ${disputeId} after ${iterationsThisRun} critic iteration(s)`);
+
+        // Alert ops team by email
+        const opsEmail = process.env.OPS_EMAIL;
+        if (opsEmail) {
+            sendEmail({
+                to: opsEmail,
+                subject: `[Safeeely] Dispute Escalated — Human Review Required`,
+                html: `<p>Dispute <b>${disputeId}</b> could not be resolved by AI after ${iterationsThisRun} iteration(s) and requires human review.</p><p>Please check the admin dashboard to review and resolve this case.</p>`
+            }).catch(() => {});
+        }
 
         return {
             type: 'ESCALATE',

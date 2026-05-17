@@ -6,13 +6,15 @@ import { recordSopHit } from '../memory/sop-repository';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
-// Use stronger model for STANDARD/CONSTITUTIONAL — verdict quality is the product
+// LITE uses gemini-flash-latest for speed on low-stakes cases
+// STANDARD and CONSTITUTIONAL use gemini-2.5-pro for quality verdicts
+// Termination rules (ghost-party + round cap + sufficient evidence) ensure pipeline completes fast
 function selectModel(tier: string): string {
     if (tier === 'LITE') return 'gemini-flash-latest';
     return 'gemini-2.5-pro';
 }
 
-const VALID_ACTIONS = new Set(['REFUND_BUYER', 'PAY_SELLER', 'SPLIT']);
+const VALID_ACTIONS = new Set(['REFUND_BUYER', 'PAY_SELLER', 'SPLIT', 'REFUND_AFTER_RETURN']);
 
 export async function runJudge(ctx: DisputeContext, invOut: InvestigatorOutput): Promise<JudgeOutput> {
     const prompt = buildJudgePrompt(ctx, invOut);

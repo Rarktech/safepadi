@@ -39,8 +39,10 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
     COMPLETED_BY_SELLER:       { label: "Delivered", color: "bg-indigo-50 text-indigo-600 border-indigo-100" },
     FINALIZED:                 { label: "Completed", color: "bg-emerald-50 text-emerald-600 border-emerald-100" },
     DISPUTED:                  { label: "Disputed",  color: "bg-rose-50 text-rose-600 border-rose-100" },
-    DECLINED:                  { label: "Declined",  color: "bg-slate-100 text-slate-500 border-slate-200" },
-    CANCELLED:                 { label: "Cancelled", color: "bg-slate-100 text-slate-400 border-slate-200" },
+    DECLINED:                  { label: "Declined",       color: "bg-slate-100 text-slate-500 border-slate-200" },
+    CANCELLED:                 { label: "Cancelled",      color: "bg-slate-100 text-slate-400 border-slate-200" },
+    RETURN_PENDING:            { label: "Return Pending", color: "bg-amber-50 text-amber-600 border-amber-200" },
+    RESOLVED_SPLIT:            { label: "Split Resolved", color: "bg-teal-50 text-teal-600 border-teal-100" },
 };
 
 const CURRENCY_FLAG: Record<string, string> = { NGN: "🇳🇬", USD: "🇺🇸", USDT: "🪙" };

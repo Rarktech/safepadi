@@ -101,10 +101,17 @@ ${ctx.history.map(m => {
     return `${who}: ${m.content} [Tier: ${m.evidence_tier || '?'}] [Att: ${m.attachments?.length || 0}]`;
 }).join('\n')}
 
+AVAILABLE ACTIONS:
+- PAY_SELLER: Seller fulfilled obligations, buyer has no valid claim. Release escrow to seller.
+- REFUND_BUYER: Seller failed to deliver or goods are materially defective. Refund buyer immediately (no return required — digital goods, services, or non-returnable items).
+- REFUND_AFTER_RETURN: Buyer deserves refund BUT for physical goods where the seller should receive the item back first. Buyer must ship item(s) and seller must confirm receipt before the refund is released. Use for: PHYSICAL_GOODS, ELECTRONICS_GADGET, LUXURY_GOODS, FASHION_GOODS, VEHICLE disputes. Set return_deadline_hours to 72 by default (increase to 120 for cross-border). Do NOT use for digital goods, accounts, services.
+- SPLIT: Partial performance or shared fault. Set split_pct_buyer to buyer's share (0–100).
+
 OUTPUT FORMAT — respond with ONLY this JSON object:
 {
-  "action": "REFUND_BUYER|PAY_SELLER|SPLIT",
+  "action": "REFUND_BUYER|PAY_SELLER|SPLIT|REFUND_AFTER_RETURN",
   "split_pct_buyer": 0,
+  "return_deadline_hours": 72,
   "verdict_summary": "<2-3 sentence verdict suitable for display to both parties>",
   "reasoning": "<detailed evidence-based reasoning trace citing specific messages and evidence tiers>",
   "utility_location": "BUYER_HAS_FUNCTIONAL_UTILITY|SELLER_HAS_FUNCTIONAL_UTILITY|NEUTRALIZED_OR_CONTESTED",

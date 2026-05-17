@@ -787,6 +787,37 @@ bot.action(/^txn_dispute_(.+)$/, async (ctx) => {
     await ctx.scene.enter('dispute_wizard', { txnId });
 });
 
+// Return-of-goods confirmation: buyer confirms shipped, seller confirms received
+bot.action(/^dispute_return_buyer_(.+)$/, async (ctx) => {
+    const disputeId = ctx.match[1];
+    try { await ctx.answerCbQuery(); } catch (e) { /* ignore */ }
+    try {
+        const profileRes = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
+        await axios.post(`${API_URL}/disputes/${disputeId}/confirm-return`, {
+            confirmer_id: profileRes.data.id,
+            role: 'BUYER'
+        });
+        await ctx.reply('📦 <b>Shipping Confirmed</b>\n\nThank you — the seller has been notified. Once they confirm receipt, your refund will be issued.', { parse_mode: 'HTML' });
+    } catch (err: any) {
+        await ctx.reply(`❌ ${err.response?.data?.error || 'Could not confirm shipping. Please try again.'}`);
+    }
+});
+
+bot.action(/^dispute_return_seller_(.+)$/, async (ctx) => {
+    const disputeId = ctx.match[1];
+    try { await ctx.answerCbQuery(); } catch (e) { /* ignore */ }
+    try {
+        const profileRes = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
+        await axios.post(`${API_URL}/disputes/${disputeId}/confirm-return`, {
+            confirmer_id: profileRes.data.id,
+            role: 'SELLER'
+        });
+        await ctx.reply('✅ <b>Receipt Confirmed</b>\n\nGoods received confirmed. The buyer refund credit has been issued.', { parse_mode: 'HTML' });
+    } catch (err: any) {
+        await ctx.reply(`❌ ${err.response?.data?.error || 'Could not confirm receipt. Please try again.'}`);
+    }
+});
+
 bot.action(/^txn_(upload_delivery|external_upload)_(.+)$/, async (ctx) => {
     try { await ctx.answerCbQuery(); } catch (e) { console.error('Answer CB Error:', e); }
     await ctx.reply('📎 <b>Upload Delivery Documents</b>\n\nPlease upload your files here or provide a link for the buyer to review.', { parse_mode: 'HTML' });

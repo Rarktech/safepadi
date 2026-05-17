@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import {
     Download,
     FileText,
@@ -13,7 +13,8 @@ import {
     Loader2,
     Lock,
     Star,
-    Clock
+    Clock,
+    RotateCcw
 } from 'lucide-react';
 import axios from 'axios';
 import { Button } from '@/components/ui/button';
@@ -22,22 +23,30 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 
 export default function DeliveryPortalPage() {
     const { id } = useParams();
+    const searchParams = useSearchParams();
     const [txn, setTxn] = useState<any>(null);
     const [proofs, setProofs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [viewerProfileId, setViewerProfileId] = useState<string | null>(null);
 
     useEffect(() => {
         const loadData = async () => {
             try {
                 console.log(`🔗 Loading Delivery Data for ID/Code: ${id}`);
-                const [txnRes, proofsRes] = await Promise.all([
+                const viewer = searchParams.get('viewer');
+                const requests: Promise<any>[] = [
                     axios.get(`${API_URL}/transactions/${id}`, { headers: { 'ngrok-skip-browser-warning': 'true' } }),
                     axios.get(`${API_URL}/transactions/${id}/proofs`, { headers: { 'ngrok-skip-browser-warning': 'true' } })
-                ]);
+                ];
+                if (viewer) {
+                    requests.push(axios.get(`${API_URL}/profiles/by_safetag/${encodeURIComponent(viewer)}`, { headers: { 'ngrok-skip-browser-warning': 'true' } }).catch(() => null));
+                }
+                const [txnRes, proofsRes, profileRes] = await Promise.all(requests);
                 console.log('✅ Found Transaction:', txnRes.data.txn_code);
                 console.log('✅ Found Proofs:', proofsRes.data.length);
                 setTxn(txnRes.data);
                 setProofs(proofsRes.data);
+                if (profileRes?.data?.id) setViewerProfileId(profileRes.data.id);
             } catch (err: any) {
                 console.error('❌ Fetch error:', err.message);
                 if (err.response) {
@@ -53,6 +62,25 @@ export default function DeliveryPortalPage() {
 
     const [confirming, setConfirming] = useState(false);
     const [confirmed, setConfirmed] = useState(false);
+    const [returnConfirming, setReturnConfirming] = useState(false);
+    const [returnDone, setReturnDone] = useState<'BUYER' | 'SELLER' | null>(null);
+
+    const handleConfirmReturn = async (role: 'BUYER' | 'SELLER') => {
+        if (!txn?.dispute_id) { alert('No dispute found for this transaction.'); return; }
+        setReturnConfirming(true);
+        try {
+            const body: any = { role };
+            if (viewerProfileId) body.confirmer_id = viewerProfileId;
+            await axios.post(`${API_URL}/disputes/${txn.dispute_id}/confirm-return`, body, {
+                headers: { 'ngrok-skip-browser-warning': 'true' }
+            });
+            setReturnDone(role);
+        } catch (err: any) {
+            alert(err.response?.data?.error || 'Failed to confirm. Please try again.');
+        } finally {
+            setReturnConfirming(false);
+        }
+    };
 
     const handleConfirmReceipt = async () => {
         if (!window.confirm('Are you sure you want to confirm receipt and release funds to the seller? This action cannot be undone.')) return;
@@ -164,9 +192,11 @@ export default function DeliveryPortalPage() {
             <main className="max-w-3xl mx-auto pt-12 pb-24 px-6">
                 {/* Hero Header */}
                 <div className="mb-12">
-                    <div className="inline-flex items-center gap-2 bg-green-50 text-green-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest mb-4">
-                        {txn.status === 'FINALIZED' ? <CheckCircle className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-                        {txn.status.replace(/_/g, ' ')}
+                    <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest mb-4 ${
+                        txn.status === 'RETURN_PENDING' ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700'
+                    }`}>
+                        {txn.status === 'FINALIZED' ? <CheckCircle className="w-3 h-3" /> : txn.status === 'RETURN_PENDING' ? <RotateCcw className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                        {txn.status === 'RETURN_PENDING' ? 'Return in Progress' : txn.status.replace(/_/g, ' ')}
                     </div>
                     <h1 className="text-4xl font-bold text-slate-900 tracking-tighter mb-2">Review Delivery Documents</h1>
                     <p className="text-slate-500 font-medium">
@@ -224,8 +254,54 @@ export default function DeliveryPortalPage() {
                     )}
                 </div>
 
+                {/* Return-of-Goods Panel (RETURN_PENDING) */}
+                {txn.status === 'RETURN_PENDING' && (
+                    <div className="mt-12 p-8 bg-amber-50/50 rounded-[40px] border border-amber-100 flex flex-col gap-6 shadow-sm">
+                        <div className="flex gap-4">
+                            <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
+                                <RotateCcw className="w-5 h-5 text-amber-600" />
+                            </div>
+                            <div>
+                                <p className="text-lg font-bold text-amber-900 mb-1">Return of Goods in Progress</p>
+                                <p className="text-sm text-amber-700 leading-relaxed font-medium">
+                                    The AI mediator has ruled that the buyer must return the goods to the seller before a refund is issued. Use the button that applies to your role.
+                                </p>
+                            </div>
+                        </div>
+
+                        {returnDone ? (
+                            <div className="bg-emerald-500 text-white p-6 rounded-[24px] text-center font-bold flex items-center justify-center gap-3">
+                                <CheckCircle className="w-5 h-5" />
+                                {returnDone === 'BUYER' ? 'Shipping confirmed! Awaiting seller receipt confirmation.' : 'Receipt confirmed! Buyer\'s refund has been credited.'}
+                            </div>
+                        ) : (
+                            <div className="flex flex-col gap-3">
+                                <Button
+                                    onClick={() => handleConfirmReturn('BUYER')}
+                                    disabled={returnConfirming}
+                                    className="bg-amber-500 hover:bg-amber-600 text-white font-bold h-14 rounded-[24px] flex items-center justify-center gap-3 w-full shadow-lg shadow-amber-100"
+                                >
+                                    {returnConfirming ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+                                        <span>📦 I'm the Buyer — I've Shipped the Goods Back</span>
+                                    )}
+                                </Button>
+                                <Button
+                                    onClick={() => handleConfirmReturn('SELLER')}
+                                    disabled={returnConfirming}
+                                    variant="outline"
+                                    className="border-amber-300 text-amber-700 hover:bg-amber-50 font-bold h-14 rounded-[24px] flex items-center justify-center gap-3 w-full"
+                                >
+                                    {returnConfirming ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+                                        <span>✅ I'm the Seller — I've Received the Goods Back</span>
+                                    )}
+                                </Button>
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 {/* Footer Message & Action */}
-                {txn.status !== 'FINALIZED' && (
+                {txn.status !== 'FINALIZED' && txn.status !== 'RETURN_PENDING' && (
                     <div className="mt-12 p-8 bg-blue-50/50 rounded-[40px] border border-blue-100 flex flex-col gap-8 shadow-sm">
                         <div className="flex gap-4">
                             <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center shrink-0">

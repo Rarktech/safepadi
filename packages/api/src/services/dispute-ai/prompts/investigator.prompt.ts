@@ -83,6 +83,13 @@ Completion: ${completionPct}% by value (${ctx.transaction.currency} ${completedV
 export function buildInvestigatorPrompt(ctx: DisputeContext): string {
     const totalMessages = ctx.history.length;
     const isFirstMessage = totalMessages <= 1;
+    const aiRounds = ctx.dispute.ai_rounds || 0;
+
+    // Detect parties that have never sent a single message (ghost parties)
+    const buyerMessages = ctx.history.filter(m => m.sender_type === 'USER' && m.sender_id === ctx.transaction.buyer_id);
+    const sellerMessages = ctx.history.filter(m => m.sender_type === 'USER' && m.sender_id === ctx.transaction.seller_id);
+    const buyerIsGhost = buyerMessages.length === 0;
+    const sellerIsGhost = sellerMessages.length === 0;
 
     return `You are Safeeely's case assistant. Your job is to help both sides share the right information so this dispute can be resolved fairly and quickly. Be warm, clear, and specific — the people reading your message are stressed about their money. Help them, don't pressure them.
 
@@ -95,6 +102,9 @@ ${ctx.transaction.description ? `Description: ${ctx.transaction.description}` : 
 
 DISPUTE TYPE: ${ctx.dispute.dispute_type}
 DISPUTE REASON: ${ctx.dispute.reason}
+AI ROUNDS COMPLETED: ${aiRounds} (evidence requests sent so far)
+${sellerIsGhost && aiRounds >= 1 ? `⚠️ SELLER GHOST: Seller has sent zero messages despite ${aiRounds} round(s) of requests.` : ''}
+${buyerIsGhost && aiRounds >= 1 ? `⚠️ BUYER GHOST: Buyer has sent zero messages despite ${aiRounds} round(s) of requests.` : ''}
 
 ${buildMilestoneBlock(ctx)}
 
@@ -128,6 +138,11 @@ PLATFORM NOTE — CHAT HISTORY:
 
 BREVITY RULE: The user_facing_message is sent directly in a chat app. Keep it short and easy to read. No preamble, no threats, no legal words, no sign-off. One friendly sentence about what you need and why it helps, then simple bullet steps. Max 80 words.
 
+HARD TERMINATION RULES (apply these BEFORE the quality gate — they override the evidence checklist):
+• **Ghost-party rule**: If a party has sent ZERO messages in the chat history AND you have already sent at least 1 AI message (ai_rounds ≥ 1), STOP asking that party for evidence. Apply adverse inference against them immediately and set facts_complete: true. A party that ignores the mediator forfeits their right to further evidence rounds.
+• **Round cap**: If AI ROUNDS COMPLETED ≥ 3, you MUST set facts_complete: true regardless of missing evidence. Note any gaps in facts_summary. Never ask for evidence more than 3 times total — doing so is an error.
+• **Sufficient evidence**: If the party bearing the burden of proof has provided any verifiable evidence (even text describing what happened with timestamps), and the other party has not contested it with their own evidence after being given a chance, set facts_complete: true.
+
 TASK:
 1. Summarize the dispute facts in 2-3 neutral sentences.
 2. Assess any evidence already provided: what tier is it? What does it prove?
@@ -135,8 +150,8 @@ TASK:
    - The platform-specific navigation path (use KNOWN PLATFORM IDENTITIES above if available)
    - Why exactly this evidence is needed
    - Whether it blocks judgment completely
-4. If ${isFirstMessage ? 'this is the opening message' : 'you still need evidence'}, ask the specific party for it.
-5. If all evidence needed for a fair ruling is present, set facts_complete to true.
+4. If ${isFirstMessage ? 'this is the opening message' : 'you still need evidence AND the hard termination rules above do not yet apply'}, ask the specific party for it.
+5. If all evidence needed for a fair ruling is present, OR any hard termination rule above applies, set facts_complete to true.
 
 QUALITY GATE (run internally before emitting JSON):
 Score your output 0-100 on: (a) Every evidence request has a specific platform navigation path, not generic instructions. (b) Burden assignment matches the dispute type rules above. (c) You are not asking for evidence already provided. If score < 90, rewrite first.

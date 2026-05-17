@@ -112,7 +112,8 @@ export interface InvestigatorOutput {
 }
 
 export interface JudgeOutput {
-    action: 'REFUND_BUYER' | 'PAY_SELLER' | 'SPLIT';
+    action: 'REFUND_BUYER' | 'PAY_SELLER' | 'SPLIT' | 'REFUND_AFTER_RETURN';
+    return_deadline_hours?: number;
     split_pct_buyer: number;
     verdict_summary: string;
     reasoning: string;
@@ -175,7 +176,8 @@ export interface ClassifierOutput {
 export interface AIDisputeResult {
     type: 'VERDICT' | 'QUESTION' | 'ESCALATE' | 'ERROR';
     content: string;
-    action?: string;
+    action?: 'REFUND_BUYER' | 'PAY_SELLER' | 'SPLIT' | 'REFUND_AFTER_RETURN';
     split_pct_buyer?: number;
+    return_deadline_hours?: number;
     restrict?: string;
 }

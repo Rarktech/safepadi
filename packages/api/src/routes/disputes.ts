@@ -7,6 +7,7 @@ import { maybeSendFeedbackPrompt } from './feedback';
 import multer from 'multer';
 import { classifyDisputeType } from '../services/dispute-ai/classifier';
 import { quickTierHint } from '../services/dispute-ai/config/disputeTypes';
+import { issueReferralCommissions } from '../services/commissions';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -19,11 +20,107 @@ const RaiseDisputeSchema = z.object({
 });
 
 const ResolveDisputeSchema = z.object({
-    resolution_type: z.enum(['REFUND_BUYER', 'PAY_SELLER', 'SPLIT']),
+    resolution_type: z.enum(['REFUND_BUYER', 'PAY_SELLER', 'SPLIT', 'REFUND_AFTER_RETURN']),
     resolution_notes: z.string().optional(),
     buyer_amount: z.number().optional(),
-    seller_amount: z.number().optional()
+    seller_amount: z.number().optional(),
+    return_deadline_hours: z.number().optional()
 });
+
+async function updateDisputeReputation(txn: any, action: string) {
+    try {
+        if (!txn?.buyer_id || !txn?.seller_id) return;
+        const buyerWon = action === 'REFUND_BUYER' || action === 'REFUND_AFTER_RETURN';
+        const sellerWon = action === 'PAY_SELLER';
+
+        const parties = [
+            { id: txn.buyer_id, role: 'BUYER' },
+            { id: txn.seller_id, role: 'SELLER' }
+        ];
+
+        for (const { id, role } of parties) {
+            const { data: existing } = await supabase
+                .from('profile_reputation')
+                .select('*')
+                .eq('profile_id', id)
+                .maybeSingle();
+
+            const base = existing || {
+                profile_id: id,
+                trust_score: 50,
+                disputes_raised_count: 0,
+                disputes_against_count: 0,
+                disputes_won_as_buyer: 0,
+                disputes_lost_as_buyer: 0,
+                disputes_won_as_seller: 0,
+                disputes_lost_as_seller: 0,
+                ghosted_count: 0,
+                fraud_flags: []
+            };
+
+            const update: Record<string, any> = {
+                profile_id: id,
+                trust_score: base.trust_score,
+                disputes_raised_count: base.disputes_raised_count || 0,
+                disputes_against_count: base.disputes_against_count || 0,
+                disputes_won_as_buyer: base.disputes_won_as_buyer || 0,
+                disputes_lost_as_buyer: base.disputes_lost_as_buyer || 0,
+                disputes_won_as_seller: base.disputes_won_as_seller || 0,
+                disputes_lost_as_seller: base.disputes_lost_as_seller || 0,
+                ghosted_count: base.ghosted_count || 0,
+                fraud_flags: base.fraud_flags || [],
+                last_dispute_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+
+            if (role === 'BUYER') {
+                update.disputes_raised_count += 1;
+                if (buyerWon) update.disputes_won_as_buyer += 1;
+                else if (sellerWon) update.disputes_lost_as_buyer += 1;
+            } else {
+                update.disputes_against_count += 1;
+                if (sellerWon) update.disputes_won_as_seller += 1;
+                else if (buyerWon) update.disputes_lost_as_seller += 1;
+            }
+
+            const { error } = await supabase
+                .from('profile_reputation')
+                .upsert(update, { onConflict: 'profile_id' });
+            if (error) throw new Error(error.message);
+        }
+    } catch (err) {
+        console.warn('⚠️ Could not update dispute reputation:', (err as Error).message);
+    }
+}
+
+async function insertBuyerRefundCredit(
+    disputeId: string,
+    txn: any,
+    refundType: 'FULL' | 'SPLIT_SHARE' | 'RETURN_CONFIRMED',
+    source: 'AI' | 'ADMIN' | 'SLA' | 'RETURN_CONFIRMED',
+    overrideAmount?: number
+) {
+    try {
+        const amount = overrideAmount ?? Number(txn.amount);
+        if (!amount || amount <= 0) {
+            console.warn(`⚠️ insertBuyerRefundCredit skipped: amount=${amount} (txn.id=${txn?.id})`);
+            return;
+        }
+        const { error } = await supabase.from('buyer_refund_credits').insert({
+            transaction_id: txn.id,
+            dispute_id: disputeId,
+            buyer_id: txn.buyer_id,
+            amount,
+            currency: txn.currency,
+            refund_type: refundType,
+            status: 'PENDING',
+            resolution_source: source
+        });
+        if (error) throw new Error(error.message);
+    } catch (err) {
+        console.error('❌ insertBuyerRefundCredit failed:', (err as Error).message, { disputeId, txnId: txn?.id, refundType, source });
+    }
+}
 
 async function sendVerdictNotifications(disputeId: string, action: string, txn: any) {
     try {
@@ -82,17 +179,21 @@ async function runAIForDispute(disputeId: string, txn?: any) {
 
             if (aiResult.type === 'VERDICT') {
                 let newTxnStatus = 'FINALIZED';
-                if (aiResult.action === 'REFUND_BUYER') newTxnStatus = 'CANCELLED';
+                if (aiResult.action === 'REFUND_BUYER' || aiResult.action === 'REFUND_AFTER_RETURN') newTxnStatus = 'CANCELLED';
                 else if (aiResult.action === 'SPLIT') newTxnStatus = 'RESOLVED_SPLIT';
+                // REFUND_AFTER_RETURN keeps DISPUTED until goods confirmed; only REFUND_BUYER cancels immediately
+                if (aiResult.action === 'REFUND_AFTER_RETURN') newTxnStatus = 'RETURN_PENDING';
 
-                const txnMeta = (aiResult.action === 'SPLIT' && aiResult.split_pct_buyer != null && txn)
-                    ? { resolution: 'SPLIT', buyer_pct: aiResult.split_pct_buyer, seller_pct: 100 - aiResult.split_pct_buyer, buyer_amount: +(txn.amount * aiResult.split_pct_buyer / 100).toFixed(2), seller_amount: +(txn.amount * (100 - aiResult.split_pct_buyer) / 100).toFixed(2) }
+                const splitBuyerPct = aiResult.split_pct_buyer ?? 0;
+                const txnMeta = (aiResult.action === 'SPLIT' && splitBuyerPct != null && txn)
+                    ? { resolution: 'SPLIT', buyer_pct: splitBuyerPct, seller_pct: 100 - splitBuyerPct, buyer_amount: +(txn.amount * splitBuyerPct / 100).toFixed(2), seller_amount: +(txn.amount * (100 - splitBuyerPct) / 100).toFixed(2) }
                     : undefined;
 
                 await supabase.from('disputes').update({
-                    status: 'RESOLVED',
-                    resolution: `AI_MEDIATION: ${aiResult.action}`,
-                    resolved_at: new Date().toISOString()
+                    status: aiResult.action === 'REFUND_AFTER_RETURN' ? 'OPEN' : 'RESOLVED',
+                    resolution: aiResult.action === 'REFUND_AFTER_RETURN' ? null : `AI_MEDIATION: ${aiResult.action}`,
+                    resolved_at: aiResult.action === 'REFUND_AFTER_RETURN' ? null : new Date().toISOString(),
+                    verdict_action: aiResult.action
                 }).eq('id', disputeId);
 
                 if (txn) {
@@ -101,7 +202,37 @@ async function runAIForDispute(disputeId: string, txn?: any) {
                         ...(txnMeta ? { metadata: txnMeta } : {})
                     }).eq('id', txn.id);
 
-                    await sendVerdictNotifications(disputeId, aiResult.action, txn);
+                    // Insert buyer refund credits immediately for REFUND_BUYER and SPLIT
+                    if (aiResult.action === 'REFUND_BUYER') {
+                        await insertBuyerRefundCredit(disputeId, txn, 'FULL', 'AI');
+                    } else if (aiResult.action === 'SPLIT' && txnMeta) {
+                        await insertBuyerRefundCredit(disputeId, txn, 'SPLIT_SHARE', 'AI', txnMeta.buyer_amount);
+                    }
+
+                    // Issue referral commissions on PAY_SELLER verdicts (skipped by confirm_receipt path)
+                    if (aiResult.action === 'PAY_SELLER') {
+                        issueReferralCommissions(txn).catch(() => {});
+                    }
+
+                    // Update reputation for all resolved verdicts
+                    updateDisputeReputation(txn, aiResult.action).catch(() => {});
+
+                    if (aiResult.action !== 'REFUND_AFTER_RETURN') {
+                        await sendVerdictNotifications(disputeId, aiResult.action, txn);
+                    } else {
+                        // Notify both parties about the return requirement
+                        const REVIEWS_URL = process.env.REVIEWS_URL || 'https://safeeely.com';
+                        await Promise.allSettled([txn.buyer, txn.seller].filter(Boolean).map(async (user: any) => {
+                            const isBuyer = user.id === txn.buyer_id;
+                            const disputeUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txn.id}`;
+                            const msg = isBuyer
+                                ? `📦 <b>Return Required</b>\n\nThe mediator has ruled in your favour, but you must first return the goods to the seller. Please ship the item(s) back and confirm here once shipped. You have <b>${(aiResult as any).return_deadline_hours || 72} hours</b>.`
+                                : `📦 <b>Goods Being Returned</b>\n\nThe mediator has ruled that the buyer will return the goods. Once you confirm receipt, the refund will be released. Please confirm here when you receive them.`;
+                            const btnLabel = isBuyer ? '📤 Confirm Goods Shipped' : '✅ Confirm Goods Received';
+                            const btnId = isBuyer ? `dispute_return_buyer_${disputeId}` : `dispute_return_seller_${disputeId}`;
+                            await routeNotification(user.id, msg, [{ label: btnLabel, customId: btnId, url: disputeUrl }]);
+                        }));
+                    }
                 }
 
             } else if (aiResult.type === 'ESCALATE') {
@@ -173,12 +304,27 @@ async function runAIForDispute(disputeId: string, txn?: any) {
                         sender_type: 'AI',
                         content: '**[SYSTEM]** This case has been reviewed extensively and requires human judgment. A support agent will review this case shortly.'
                     });
+                    // Notify both parties that the case has been escalated
+                    if (txn) {
+                        const REVIEWS_URL = process.env.REVIEWS_URL || 'https://safeeely.com';
+                        await Promise.allSettled([txn.buyer, txn.seller].filter(Boolean).map(async (user: any) => {
+                            try {
+                                const disputeUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txn.id}`;
+                                await routeNotification(
+                                    user.id,
+                                    `⚠️ <b>Case Escalated</b>\n\nYour dispute for <b>"${txn.product_name}"</b> has been escalated for human review after extensive AI analysis. A Safeeely support agent will contact you shortly. Funds remain secure in escrow.`,
+                                    [{ label: '👁️ View Case', url: disputeUrl }]
+                                );
+                            } catch { /* non-critical */ }
+                        }));
+                    }
                 }
             }
         } finally {
             await supabase.from('disputes').update({ processing_locked_at: null }).eq('id', disputeId);
         }
-    }).catch(async () => {
+    }).catch(async (err: any) => {
+        console.error(`❌ [runAIForDispute] processAIDispute rejected for ${disputeId}:`, err?.message || err, err?.stack);
         await supabase.from('disputes').update({ processing_locked_at: null }).eq('id', disputeId);
     });
 }
@@ -202,6 +348,11 @@ router.post('/raise', async (req: Request, res: Response) => {
 
         if (!['PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(txn.status)) {
             return res.status(400).json({ error: 'Transaction cannot be disputed in its current state.' });
+        }
+
+        // Only buyer or seller may raise a dispute — reject third parties
+        if (data.raised_by !== txn.buyer_id && data.raised_by !== txn.seller_id) {
+            return res.status(403).json({ error: 'Only a transaction party may raise a dispute.' });
         }
 
         const { data: dispute, error: disputeError } = await supabase
@@ -584,6 +735,7 @@ router.post('/:id/resolve', async (req: Request, res: Response) => {
 
         if (fetchError || !dispute) return res.status(404).json({ error: 'Dispute not found' });
 
+        const isReturnFlow = data.resolution_type === 'REFUND_AFTER_RETURN';
         let resolutionText = data.resolution_type;
         if (data.resolution_type === 'SPLIT') {
             resolutionText += ` (Buyer: ${data.buyer_amount}, Seller: ${data.seller_amount})`;
@@ -593,9 +745,12 @@ router.post('/:id/resolve', async (req: Request, res: Response) => {
         await supabase
             .from('disputes')
             .update({
-                status: 'RESOLVED',
-                resolution: resolutionText,
-                resolved_at: new Date().toISOString()
+                // REFUND_AFTER_RETURN stays OPEN until goods are returned; then confirm-return closes it
+                status: isReturnFlow ? 'OPEN' : 'RESOLVED',
+                resolution: isReturnFlow ? null : resolutionText,
+                resolved_at: isReturnFlow ? null : new Date().toISOString(),
+                verdict_action: isReturnFlow ? 'REFUND_AFTER_RETURN' : null,
+                ...(isReturnFlow ? { return_deadline_hours: data.return_deadline_hours ?? 72 } : {})
             })
             .eq('id', id);
 
@@ -604,19 +759,70 @@ router.post('/:id/resolve', async (req: Request, res: Response) => {
             newTxnStatus = 'CANCELLED';
         } else if (data.resolution_type === 'SPLIT') {
             newTxnStatus = 'RESOLVED_SPLIT';
+        } else if (isReturnFlow) {
+            newTxnStatus = 'RETURN_PENDING';
+        }
+
+        // Compute SPLIT metadata using consistent key names (buyer_amount / seller_amount)
+        let txnMetadata: Record<string, any> | undefined;
+        if (data.resolution_type === 'SPLIT') {
+            txnMetadata = {
+                resolution: 'SPLIT',
+                buyer_amount: data.buyer_amount,
+                seller_amount: data.seller_amount,
+                // Legacy aliases so old admin UI still works
+                buyer_refund: data.buyer_amount,
+                seller_payout: data.seller_amount
+            };
         }
 
         await supabase
             .from('transactions')
-            .update({ 
+            .update({
                 status: newTxnStatus,
-                metadata: data.resolution_type === 'SPLIT' ? { 
-                    resolution: 'SPLIT',
-                    buyer_refund: data.buyer_amount,
-                    seller_payout: data.seller_amount
-                } : undefined
+                ...(txnMetadata ? { metadata: txnMetadata } : {})
             })
             .eq('id', dispute.transaction_id);
+
+        // Fetch transaction + parties for notifications and credit inserts
+        const { data: txnFull } = await supabase
+            .from('transactions')
+            .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+            .eq('id', dispute.transaction_id)
+            .single();
+
+        if (txnFull) {
+            if (!isReturnFlow) {
+                // Insert buyer refund credit
+                if (data.resolution_type === 'REFUND_BUYER') {
+                    await insertBuyerRefundCredit(id, txnFull, 'FULL', 'ADMIN');
+                } else if (data.resolution_type === 'SPLIT' && data.buyer_amount) {
+                    await insertBuyerRefundCredit(id, txnFull, 'SPLIT_SHARE', 'ADMIN', data.buyer_amount);
+                }
+
+                // Issue referral commissions for PAY_SELLER
+                if (data.resolution_type === 'PAY_SELLER') {
+                    issueReferralCommissions(txnFull).catch(() => {});
+                }
+
+                // Notify both parties
+                await sendVerdictNotifications(id, data.resolution_type, txnFull);
+            } else {
+                // Return flow: notify both parties about return requirement
+                const REVIEWS_URL = process.env.REVIEWS_URL || 'https://safeeely.com';
+                const deadlineHours = data.return_deadline_hours ?? 72;
+                await Promise.allSettled([txnFull.buyer, txnFull.seller].filter(Boolean).map(async (user: any) => {
+                    const isBuyer = user.id === txnFull.buyer_id;
+                    const disputeUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txnFull.id}`;
+                    const msg = isBuyer
+                        ? `📦 <b>Return Required</b>\n\nAdmin has ruled in your favour, but you must first return the goods to the seller. Please ship the item(s) back and confirm once shipped. You have <b>${deadlineHours} hours</b>.`
+                        : `📦 <b>Goods Being Returned</b>\n\nAdmin has ruled that the buyer will return the goods. Please confirm receipt here when you receive them.`;
+                    const btnLabel = isBuyer ? '📤 Confirm Goods Shipped' : '✅ Confirm Goods Received';
+                    const btnId = isBuyer ? `dispute_return_buyer_${id}` : `dispute_return_seller_${id}`;
+                    await routeNotification(user.id, msg, [{ label: btnLabel, customId: btnId, url: disputeUrl }]).catch(() => {});
+                }));
+            }
+        }
 
         console.log(`⚖️ Dispute ${id} resolved as ${data.resolution_type}`);
         res.json({ message: 'Dispute resolved successfully', status: newTxnStatus });
@@ -625,6 +831,79 @@ router.post('/:id/resolve', async (req: Request, res: Response) => {
             return res.status(400).json({ error: (err as any).errors });
         }
         res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * Confirm goods returned (REFUND_AFTER_RETURN flow)
+ * Buyer calls with role='BUYER' to confirm shipping; seller calls with role='SELLER' to confirm receipt.
+ * On seller confirmation the refund credit is issued and both parties are notified.
+ */
+router.post('/:id/confirm-return', async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { confirmer_id, role, tracking_number } = req.body;
+
+        if (!confirmer_id || !['BUYER', 'SELLER'].includes(role)) {
+            return res.status(400).json({ error: 'confirmer_id and role (BUYER|SELLER) are required' });
+        }
+
+        const { data: dispute, error: dErr } = await supabase
+            .from('disputes')
+            .select('*, transaction:transaction_id(*, buyer:buyer_id(*), seller:seller_id(*))')
+            .eq('id', id)
+            .single();
+
+        if (dErr || !dispute) return res.status(404).json({ error: 'Dispute not found' });
+        if (dispute.verdict_action !== 'REFUND_AFTER_RETURN') {
+            return res.status(400).json({ error: 'This dispute does not have a return-after-refund verdict' });
+        }
+        if ((dispute as any).transaction?.status !== 'RETURN_PENDING') {
+            return res.status(400).json({ error: 'Transaction is not in RETURN_PENDING state' });
+        }
+
+        const txn = (dispute as any).transaction;
+        const REVIEWS_URL = process.env.REVIEWS_URL || 'https://safeeely.com';
+
+        if (role === 'BUYER') {
+            // Buyer confirms they have shipped goods back
+            const meta = { ...(dispute.metadata || {}), buyer_shipped_at: new Date().toISOString(), ...(tracking_number ? { tracking_number } : {}) };
+            await supabase.from('disputes').update({ metadata: meta }).eq('id', id);
+
+            // Notify seller
+            if (txn.seller) {
+                const disputeUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(txn.seller.safetag)}?view=dispute_details&txnId=${txn.id}`;
+                await routeNotification(
+                    txn.seller_id,
+                    `📦 <b>Buyer Shipped Goods Back</b>\n\nThe buyer has confirmed they shipped the goods back${tracking_number ? ` (Tracking: <code>${tracking_number}</code>)` : ''}. Please confirm receipt once you receive them.`,
+                    [{ label: '✅ Confirm Received', customId: `dispute_return_seller_${id}`, url: disputeUrl }]
+                );
+            }
+
+            return res.json({ message: 'Shipping confirmed — seller has been notified' });
+
+        } else {
+            // Seller confirms receipt — release the refund credit
+            const returnedAt = new Date().toISOString();
+            const meta = { ...(dispute.metadata || {}), seller_confirmed_return_at: returnedAt };
+
+            await supabase.from('disputes').update({
+                status: 'RESOLVED',
+                resolution: 'AI_MEDIATION: REFUND_AFTER_RETURN',
+                resolved_at: returnedAt,
+                metadata: meta
+            }).eq('id', id);
+
+            await supabase.from('transactions').update({ status: 'CANCELLED' }).eq('id', txn.id);
+
+            await insertBuyerRefundCredit(id, txn, 'RETURN_CONFIRMED', 'RETURN_CONFIRMED');
+
+            await sendVerdictNotifications(id, 'REFUND_BUYER', txn);
+
+            return res.json({ message: 'Return confirmed — refund credit has been issued to buyer' });
+        }
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -710,6 +989,12 @@ router.post('/:id/notify-leave', async (req: Request, res: Response) => {
                     recordNotification(user.id, 'dispute', '🛡️ Support Left', `Support agent ${admin_name || 'Admin'} left your dispute for "${txn.product_name}"`, { transaction_id: disputeData.transaction_id, link_url: `/dashboard/transactions/${disputeData.transaction_id}` }).catch(() => {});
                 }
             }));
+
+            // If the case was not resolved by admin, resume AI mediation
+            if (disputeData.status === 'OPEN') {
+                await supabase.from('disputes').update({ is_ai_paused: false }).eq('id', id);
+                runAIForDispute(id, disputeData.transaction);
+            }
         }
 
         res.json({ success: true });
@@ -807,14 +1092,22 @@ router.post('/cron/timeouts', async (req: Request, res: Response) => {
 
                         await supabase.from('transactions').update({ status: newTxnStatus }).eq('id', dispute.transaction_id);
 
-                        // Notify both parties of timeout resolution
+                        // Notify both parties and issue credits
                         try {
                             const { data: fullTxn } = await supabase
                                 .from('transactions')
                                 .select('*, buyer:buyer_id(*), seller:seller_id(*)')
                                 .eq('id', dispute.transaction_id)
                                 .single();
-                            if (fullTxn) await sendVerdictNotifications(dispute.id, action, fullTxn);
+                            if (fullTxn) {
+                                await sendVerdictNotifications(dispute.id, action, fullTxn);
+                                if (action === 'REFUND_BUYER') {
+                                    await insertBuyerRefundCredit(dispute.id, fullTxn, 'FULL', 'SLA');
+                                }
+                                if (action === 'PAY_SELLER') {
+                                    issueReferralCommissions(fullTxn).catch(() => {});
+                                }
+                            }
                         } catch { /* non-critical */ }
 
                         processed++;

@@ -707,13 +707,13 @@ async function handleDisputeText(psid: string, rawText: string) {
     const state = userStates[psid];
     if (state.step === 'ASK_REASON') {
         try {
-            await axios.post(`${API_URL}/disputes`, {
+            await axios.post(`${API_URL}/disputes/raise`, {
                 transaction_id: state.formData.txnId,
                 reason:         rawText.trim(),
                 raised_by:      state.formData.raisedBy
             });
             delete userStates[psid];
-            await sendMsg(psid, { text: '⚠️ Dispute raised. Transaction frozen. Our team will review within 24h.' });
+            await sendMsg(psid, { text: '⚖️ Dispute raised. Transaction frozen. An AI mediator will review shortly and may ask for evidence.' });
             await sendNextOptions(psid);
         } catch (err: any) {
             delete userStates[psid];
@@ -1243,10 +1243,27 @@ async function handlePostback(psid: string, payload: string) {
         const txnId = payload.startsWith('txn_dispute_') ? payload.replace('txn_dispute_', '') : payload.replace('DISPUTE_TXN_', '');
         try {
             const p = await getProfile(psid);
-            userStates[psid] = { mode: 'DISPUTE', step: 'ASK_REASON', formData: { txnId, raisedBy: p.safetag } };
+            userStates[psid] = { mode: 'DISPUTE', step: 'ASK_REASON', formData: { txnId, raisedBy: p.id } };
             await sendMsg(psid, { text: '⚠️ Raise Dispute\n\nPlease describe the issue with this transaction:' });
         } catch (_) {
             await sendMsg(psid, { text: '❌ Could not start dispute.' });
+        }
+
+    } else if (payload.startsWith('DISPUTE_RETURN_BUYER_') || payload.startsWith('DISPUTE_RETURN_SELLER_')) {
+        const role = payload.startsWith('DISPUTE_RETURN_BUYER_') ? 'BUYER' : 'SELLER';
+        const disputeId = role === 'BUYER'
+            ? payload.replace('DISPUTE_RETURN_BUYER_', '')
+            : payload.replace('DISPUTE_RETURN_SELLER_', '');
+        try {
+            const p = await getProfile(psid);
+            await axios.post(`${API_URL}/disputes/${disputeId}/confirm-return`, { confirmer_id: p.id, role });
+            const msg = role === 'BUYER'
+                ? '📦 Shipping confirmed! The seller has been notified. Awaiting their receipt confirmation.'
+                : '✅ Receipt confirmed! A refund credit has been issued to the buyer.';
+            await sendMsg(psid, { text: msg });
+            await sendNextOptions(psid);
+        } catch (err: any) {
+            await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed to confirm return. Please try again.'}` });
         }
 
     } else if (payload.startsWith('REVIEW_TXN_')) {

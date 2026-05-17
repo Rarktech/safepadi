@@ -168,6 +168,7 @@ app.post('/webhook/:token', (req, res) => {
                 }
                 const session = getSession(clientId);
                 const safetag = profileRes.data.safetag;
+                const profileId = profileRes.data.id;
 
                 const isGreeting = messageText.includes('hello') || messageText.includes('hi') || messageText.includes('menu') || messageText.includes('start');
                 const isExplicitBack = messageText === 'back';
@@ -468,8 +469,8 @@ app.post('/webhook/:token', (req, res) => {
                 if (session.state === 'DISPUTE_REASON') {
                     const txnId = session.formData.dispute_txn_id!;
                     try {
-                        await axios.post(`${API_URL}/disputes`, { transaction_id: txnId, reason: messageText, raised_by_safetag: safetag });
-                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '✅ Dispute raised. The transaction has been frozen. Our team will review it shortly.' });
+                        await axios.post(`${API_URL}/disputes/raise`, { transaction_id: txnId, reason: messageText, raised_by: profileId });
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '⚖️ Dispute raised. Transaction frozen. An AI mediator will review shortly and may ask for evidence.' });
                     } catch (err: any) {
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to raise dispute.'}` });
                     }
@@ -651,6 +652,23 @@ app.post('/webhook/:token', (req, res) => {
                     session.state = 'DISPUTE_REASON';
                     session.formData.dispute_txn_id = txnId;
                     await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '⚠️ Please describe the reason for your dispute:\n\n(e.g., "The item was not delivered", "The credentials did not work")' });
+                    return;
+                }
+
+                if (messageText.startsWith('dispute_return_buyer_') || messageText.startsWith('dispute_return_seller_')) {
+                    const role = messageText.startsWith('dispute_return_buyer_') ? 'BUYER' : 'SELLER';
+                    const disputeId = role === 'BUYER'
+                        ? messageText.replace('dispute_return_buyer_', '')
+                        : messageText.replace('dispute_return_seller_', '');
+                    try {
+                        await axios.post(`${API_URL}/disputes/${disputeId}/confirm-return`, { confirmer_id: profileId, role });
+                        const msg = role === 'BUYER'
+                            ? '📦 Shipping confirmed! The seller has been notified. Awaiting their receipt confirmation.'
+                            : '✅ Receipt confirmed! A refund credit has been issued to the buyer.';
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: msg });
+                    } catch (err: any) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to confirm return. Please try again.'}` });
+                    }
                     return;
                 }
 

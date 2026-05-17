@@ -302,12 +302,20 @@ router.get('/:safetag/balance', async (req, res) => {
 
         if (!profile) return res.status(404).json({ error: 'Profile not found' });
 
-        const [txnResult, pendingTxnResult, withdrawalResult] = await Promise.all([
+        const [txnResult, splitTxnResult, pendingTxnResult, withdrawalResult, refundCreditResult] = await Promise.all([
+            // Seller earnings: FINALIZED one-time + all milestone txns
             supabase
                 .from('transactions')
                 .select('id, amount, currency, fee_amount, fee_allocation, transaction_type, status, milestones:transaction_milestones(*)')
                 .eq('seller_id', profile.id)
                 .or('status.eq.FINALIZED,transaction_type.eq.MILESTONE'),
+            // Seller split-verdict earnings: RESOLVED_SPLIT one-time txns where seller has a share
+            supabase
+                .from('transactions')
+                .select('id, amount, currency, fee_amount, fee_allocation, transaction_type, metadata')
+                .eq('seller_id', profile.id)
+                .eq('status', 'RESOLVED_SPLIT')
+                .eq('transaction_type', 'ONE_TIME'),
             supabase
                 .from('transactions')
                 .select('amount, currency, fee_amount, fee_allocation, transaction_type')
@@ -318,12 +326,19 @@ router.get('/:safetag/balance', async (req, res) => {
                 .select('amount, currency, status')
                 .eq('profile_id', profile.id)
                 .neq('status', 'REJECTED'),
+            // Buyer pending refunds: credits owed from REFUND_BUYER / SPLIT verdicts
+            supabase
+                .from('buyer_refund_credits')
+                .select('amount, currency, status')
+                .eq('buyer_id', profile.id)
+                .in('status', ['PENDING', 'PROCESSING']),
         ]);
 
         if (txnResult.error) throw txnResult.error;
         if (withdrawalResult.error) throw withdrawalResult.error;
 
         const txns = txnResult.data || [];
+        const splitTxns = splitTxnResult.data || [];
         const withdrawals = withdrawalResult.data || [];
 
         const balances: Record<string, number> = {};
@@ -359,6 +374,24 @@ router.get('/:safetag/balance', async (req, res) => {
             if (amountToCredit > 0) {
                 balances[t.currency] = (balances[t.currency] || 0) + amountToCredit;
                 total_earned[t.currency] = (total_earned[t.currency] || 0) + amountToCredit;
+            }
+        });
+
+        // Credit seller's share from SPLIT verdicts (reads metadata.seller_amount set by disputes.ts)
+        splitTxns.forEach(t => {
+            const meta = (t as any).metadata || {};
+            const sellerAmount = Number(meta.seller_amount || 0);
+            if (sellerAmount > 0) {
+                // Deduct fee proportional to seller's share
+                let credit = sellerAmount;
+                const sellerPct = Number(meta.seller_pct || 50) / 100;
+                const fee = Number(t.fee_amount) * sellerPct;
+                if (t.fee_allocation === 'seller') credit -= fee;
+                else if (t.fee_allocation === 'split') credit -= fee / 2;
+                if (credit > 0) {
+                    balances[t.currency] = (balances[t.currency] || 0) + credit;
+                    total_earned[t.currency] = (total_earned[t.currency] || 0) + credit;
+                }
             }
         });
 
@@ -398,6 +431,12 @@ router.get('/:safetag/balance', async (req, res) => {
             }
         });
 
+        // Buyer pending refunds: amounts owed back to this profile as a buyer
+        const pendingRefundsMap: Record<string, number> = {};
+        (refundCreditResult.data || []).forEach((rc: any) => {
+            pendingRefundsMap[rc.currency] = (pendingRefundsMap[rc.currency] || 0) + Number(rc.amount);
+        });
+
         const fmt = (map: Record<string, number>) =>
             Object.entries(map).map(([currency, amount]) => ({
                 currency,
@@ -409,6 +448,7 @@ router.get('/:safetag/balance', async (req, res) => {
             pending_escrow: fmt(pendingEscrowMap),
             in_withdrawal: fmt(inWithdrawalMap),
             total_earned: fmt(total_earned),
+            pending_refunds: fmt(pendingRefundsMap),
         });
     } catch (err: any) {
         res.status(400).json({ error: err.message });
