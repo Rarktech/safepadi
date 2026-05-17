@@ -70,7 +70,7 @@ function MessageBubble({ msg, buyerId, sellerId }: { msg: any; buyerId: string; 
     return (
       <div className="flex flex-col items-center my-2 px-4">
         <div className="flex items-center gap-2 mb-1.5">
-          <img src="/logo-main.svg" alt="SafeAI" className="h-6 w-6 object-contain" />
+          <img src="/assets/images/safeAi.png" alt="SafeAI" className="h-6 w-6 object-contain rounded-full" />
           <span className="text-xs font-bold text-emerald-700">SafeAI</span>
           <span className="text-xs text-stone-400">{timeStr}</span>
         </div>
@@ -125,7 +125,7 @@ function WorkspacePanel({ dispute }: { dispute: any }) {
   return (
     <div className="w-72 border-l border-stone-100 bg-stone-50/50 flex flex-col p-4 gap-4 overflow-y-auto">
       <div className="flex items-center gap-2 mb-1">
-        <img src="/logo-main.svg" alt="SafeAI" className="h-5 w-5 object-contain" />
+        <img src="/assets/images/safeAi.png" alt="SafeAI" className="h-5 w-5 object-contain rounded-full" />
         <p className="text-xs font-black text-stone-600 uppercase tracking-widest">SafeAI Workspace</p>
       </div>
 
@@ -314,7 +314,7 @@ export function DisputeChatPage({ dispute: initialDispute, safetag, onBack }: Di
           {/* SafeAI — center */}
           <div className="flex flex-col items-center">
             <div className="flex items-center gap-1.5">
-              <img src="/logo-main.svg" alt="SafeAI" className="h-7 w-7 object-contain" />
+              <img src="/assets/images/safeAi.png" alt="SafeAI" className="h-7 w-7 object-contain rounded-full" />
               <div className="text-center">
                 <p className="text-xs font-bold text-stone-800 leading-none">SafeAI</p>
                 <p className="text-[10px] text-emerald-600 leading-none mt-0.5">AI Mediator</p>

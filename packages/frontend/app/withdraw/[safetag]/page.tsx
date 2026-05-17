@@ -235,7 +235,9 @@ export default function WithdrawDashboard() {
                             {currentView === 'dashboard' ? 'Dashboard' :
                                 currentView === 'transactions' ? 'My Transactions' :
                                 currentView === 'marketplace' ? 'Marketplace Management' :
-                                currentView === 'notifications' ? 'Notifications' : 'Balance & Withdrawal'}
+                                currentView === 'notifications' ? 'Notifications' :
+                                currentView === 'disputes' ? 'Disputes' :
+                                currentView === 'dispute_chat' ? 'Disputes' : 'Balance & Withdrawal'}
                         </h1>
                     </div>
 
