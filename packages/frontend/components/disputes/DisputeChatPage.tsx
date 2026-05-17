@@ -299,7 +299,7 @@ export function DisputeChatPage({ dispute: initialDispute, safetag, onBack }: Di
     isRestrictedToMe;
 
   return (
-    <div className="flex flex-col h-full bg-stone-50 relative">
+    <div className="flex flex-col h-full bg-stone-50 relative pb-24 md:pb-0">
       {/* ── Top header ── */}
       <div className="shrink-0 bg-white border-b border-stone-100">
         {/* Breadcrumb row */}
