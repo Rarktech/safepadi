@@ -113,7 +113,7 @@ export function ResolutionView({ dispute, messages }: ResolutionViewProps) {
       {judgePayload.verdict_summary && (
         <div className="w-full bg-emerald-50 border border-emerald-100 rounded-2xl p-5">
           <div className="flex items-center gap-2 mb-2">
-            <img src="/logo-main.svg" alt="SafeAI" className="h-5 w-5 object-contain" />
+            <img src="/assets/images/safeAi.png" alt="SafeAI" className="h-5 w-5 object-contain" />
             <p className="text-xs font-black text-emerald-700 uppercase tracking-widest">SafeAI · Post-mortem</p>
           </div>
           <p className="text-sm text-stone-700 leading-relaxed">{judgePayload.verdict_summary}</p>
