@@ -705,7 +705,8 @@ async function handleDisputeText(psid: string, rawText: string) {
             await axios.post(`${API_URL}/disputes/raise`, {
                 transaction_id: state.formData.txnId,
                 reason:         rawText.trim(),
-                raised_by:      state.formData.raisedBy
+                raised_by:      state.formData.raisedBy,
+                category:       state.formData.category
             });
             delete userStates[psid];
             await sendMsg(psid, { text: '⚖️ Dispute raised. Transaction frozen. An AI mediator will review shortly and may ask for evidence.' });
@@ -866,6 +867,17 @@ async function handleMessage(psid: string, message: any) {
     }
     if (state?.mode === 'DISPUTE' && state?.step === 'ASK_REASON') {
         await handleDisputeText(psid, rawText);
+        return;
+    }
+    if (state?.mode === 'DISPUTE' && state?.step === 'ASK_CATEGORY') {
+        await sendMsg(psid, qr('⚠️ Please select a category:', [
+            { title: '📦 Not Delivered',  payload: 'DISPUTE_CAT_NOT_DELIVERED' },
+            { title: '🔍 Not Described',  payload: 'DISPUTE_CAT_NOT_AS_DESCRIBED' },
+            { title: '🔑 Credentials',    payload: 'DISPUTE_CAT_CREDENTIALS_ACCESS' },
+            { title: '🔧 Incomplete',     payload: 'DISPUTE_CAT_SERVICE_INCOMPLETE' },
+            { title: '💳 Payment Issue',  payload: 'DISPUTE_CAT_PAYMENT_ISSUE' },
+            { title: '❓ Other',          payload: 'DISPUTE_CAT_OTHER' }
+        ]));
         return;
     }
     if (state?.mode === 'REVIEW') {
@@ -1232,12 +1244,32 @@ async function handlePostback(psid: string, payload: string) {
             ]));
         } catch (_) { await sendMsg(psid, { text: '❌ Could not start review.' }); }
 
+    } else if (payload.startsWith('DISPUTE_CAT_') && userStates[psid]?.mode === 'DISPUTE') {
+        const categoryMap: Record<string, string> = {
+            DISPUTE_CAT_NOT_DELIVERED:      'NOT_DELIVERED',
+            DISPUTE_CAT_NOT_AS_DESCRIBED:   'NOT_AS_DESCRIBED',
+            DISPUTE_CAT_CREDENTIALS_ACCESS: 'CREDENTIALS_ACCESS',
+            DISPUTE_CAT_SERVICE_INCOMPLETE: 'SERVICE_INCOMPLETE',
+            DISPUTE_CAT_PAYMENT_ISSUE:      'PAYMENT_ISSUE',
+            DISPUTE_CAT_OTHER:              'OTHER'
+        };
+        userStates[psid].formData.category = categoryMap[payload] || 'OTHER';
+        userStates[psid].step = 'ASK_REASON';
+        await sendMsg(psid, { text: '✏️ Step 2 of 2: Describe the Issue\n\nPlease describe the issue with this transaction:' });
+
     } else if (payload.startsWith('txn_dispute_') || payload.startsWith('DISPUTE_TXN_')) {
         const txnId = payload.startsWith('txn_dispute_') ? payload.replace('txn_dispute_', '') : payload.replace('DISPUTE_TXN_', '');
         try {
             const p = await getProfile(psid);
-            userStates[psid] = { mode: 'DISPUTE', step: 'ASK_REASON', formData: { txnId, raisedBy: p.id } };
-            await sendMsg(psid, { text: '⚠️ Raise Dispute\n\nPlease describe the issue with this transaction:' });
+            userStates[psid] = { mode: 'DISPUTE', step: 'ASK_CATEGORY', formData: { txnId, raisedBy: p.id } };
+            await sendMsg(psid, qr('⚠️ Raise Dispute — Step 1 of 2\n\nSelect the category that best describes your issue:', [
+                { title: '📦 Not Delivered',  payload: 'DISPUTE_CAT_NOT_DELIVERED' },
+                { title: '🔍 Not Described',  payload: 'DISPUTE_CAT_NOT_AS_DESCRIBED' },
+                { title: '🔑 Credentials',    payload: 'DISPUTE_CAT_CREDENTIALS_ACCESS' },
+                { title: '🔧 Incomplete',     payload: 'DISPUTE_CAT_SERVICE_INCOMPLETE' },
+                { title: '💳 Payment Issue',  payload: 'DISPUTE_CAT_PAYMENT_ISSUE' },
+                { title: '❓ Other',          payload: 'DISPUTE_CAT_OTHER' }
+            ]));
         } catch (_) {
             await sendMsg(psid, { text: '❌ Could not start dispute.' });
         }

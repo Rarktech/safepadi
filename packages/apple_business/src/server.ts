@@ -27,7 +27,7 @@ app.get('/health', (req, res) => {
 
 // --- SESSION MANAGEMENT ---
 interface UserState {
-    state: 'IDLE' | 'ROLE_SELECTION' | 'PRODUCT_NAME' | 'PRODUCT_DESCRIPTION' | 'ATTACHMENTS' | 'CURRENCY_SELECTION' | 'PRICE_INPUT' | 'FEE_ALLOCATION' | 'COUNTERPARTY_SAFETAG' | 'CONFIRMATION' | 'DISPUTE_REASON' | 'REVIEW_RATING' | 'REVIEW_COMMENT' | 'FEEDBACK_RATING' | 'FEEDBACK_COMMENT';
+    state: 'IDLE' | 'ROLE_SELECTION' | 'PRODUCT_NAME' | 'PRODUCT_DESCRIPTION' | 'ATTACHMENTS' | 'CURRENCY_SELECTION' | 'PRICE_INPUT' | 'FEE_ALLOCATION' | 'COUNTERPARTY_SAFETAG' | 'CONFIRMATION' | 'DISPUTE_CATEGORY' | 'DISPUTE_REASON' | 'REVIEW_RATING' | 'REVIEW_COMMENT' | 'FEEDBACK_RATING' | 'FEEDBACK_COMMENT';
     formData: {
         role?: 'buyer' | 'seller';
         product_name?: string;
@@ -39,6 +39,7 @@ interface UserState {
         other_id?: string;
         other_rating?: string;
         dispute_txn_id?: string;
+        dispute_category?: string;
         review_txn_id?: string;
         review_other?: string;
         review_rating?: number;
@@ -465,11 +466,32 @@ app.post('/webhook/:token', (req, res) => {
                     return;
                 }
 
+                // --- DISPUTE_CATEGORY state input ---
+                if (session.state === 'DISPUTE_CATEGORY') {
+                    const categoryMap: Record<string, string> = {
+                        dispute_cat_NOT_DELIVERED:    'NOT_DELIVERED',
+                        dispute_cat_NOT_AS_DESCRIBED: 'NOT_AS_DESCRIBED',
+                        dispute_cat_CREDENTIALS:      'CREDENTIALS_ACCESS',
+                        dispute_cat_INCOMPLETE:       'SERVICE_INCOMPLETE',
+                        dispute_cat_PAYMENT:          'PAYMENT_ISSUE',
+                        dispute_cat_OTHER:            'OTHER'
+                    };
+                    const category = categoryMap[messageText];
+                    if (!category) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '⚠️ Please tap one of the category buttons above.' });
+                        return;
+                    }
+                    session.formData.dispute_category = category;
+                    session.state = 'DISPUTE_REASON';
+                    await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '✏️ Step 2 of 2: Describe the Issue\n\nPlease describe the reason for your dispute:\n\n(e.g., "The item was not delivered", "The credentials did not work")' });
+                    return;
+                }
+
                 // --- DISPUTE_REASON state input ---
                 if (session.state === 'DISPUTE_REASON') {
                     const txnId = session.formData.dispute_txn_id!;
                     try {
-                        await axios.post(`${API_URL}/disputes/raise`, { transaction_id: txnId, reason: messageText, raised_by: profileId });
+                        await axios.post(`${API_URL}/disputes/raise`, { transaction_id: txnId, reason: messageText, raised_by: profileId, category: session.formData.dispute_category });
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '⚖️ Dispute raised. Transaction frozen. An AI mediator will review shortly and may ask for evidence.' });
                     } catch (err: any) {
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to raise dispute.'}` });
@@ -649,9 +671,22 @@ app.post('/webhook/:token', (req, res) => {
 
                 if (messageText.startsWith('txn_dispute_')) {
                     const txnId = messageText.replace('txn_dispute_', '');
-                    session.state = 'DISPUTE_REASON';
+                    session.state = 'DISPUTE_CATEGORY';
                     session.formData.dispute_txn_id = txnId;
-                    await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '⚠️ Please describe the reason for your dispute:\n\n(e.g., "The item was not delivered", "The credentials did not work")' });
+                    await sendJivoChatMessage(clientId, chatId, {
+                        type: 'BUTTONS',
+                        title: '⚠️ Raise Dispute',
+                        text: 'Step 1 of 2: Select the category that best describes your issue:',
+                        force_reply: true,
+                        buttons: [
+                            { text: '📦 Not Delivered',    id: 'dispute_cat_NOT_DELIVERED',    description: 'Item/service never delivered' },
+                            { text: '🔍 Not As Described', id: 'dispute_cat_NOT_AS_DESCRIBED', description: 'Item differs from listing' },
+                            { text: '🔑 Credentials',      id: 'dispute_cat_CREDENTIALS',      description: 'Account or credentials issue' },
+                            { text: '🔧 Incomplete',       id: 'dispute_cat_INCOMPLETE',       description: 'Work was partial or stopped' },
+                            { text: '💳 Payment Issue',    id: 'dispute_cat_PAYMENT',          description: 'Funds not released' },
+                            { text: '❓ Other',            id: 'dispute_cat_OTHER',            description: 'Doesn\'t fit above' }
+                        ]
+                    });
                     return;
                 }
 

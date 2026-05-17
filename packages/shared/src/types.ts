@@ -61,6 +61,7 @@ export interface Dispute {
   raised_by: string;
   reason: string;
   status: string;
+  user_category?: string;
   resolution?: string;
   created_at: string;
   resolved_at?: string;

@@ -44,7 +44,7 @@ const smartTxnSessions: Map<string, SmartTransactionDraft>              = new Ma
 const txnSessions:     Map<string, { step: string; formData: any }>    = new Map();
 const reviewSessions:    Map<string, { step: string; formData: any }>    = new Map();
 const feedbackSessions:  Map<string, { step: string; formData: any }>    = new Map();
-const disputeSessions:   Map<string, { txnId: string; raisedBy: string }> = new Map();
+const disputeSessions:   Map<string, { txnId: string; raisedBy: string; step: 'ASK_CATEGORY' | 'ASK_REASON'; category?: string }> = new Map();
 const refSessions:     Map<string, string>                               = new Map();
 
 // ─── Message helpers ──────────────────────────────────────────────────────────
@@ -738,8 +738,13 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
     // ── Dispute text step ─────────────────────────────────────────────────────
     if (msgType === 'text' && disputeSessions.has(from)) {
         const ds = disputeSessions.get(from)!;
+        if (ds.step === 'ASK_CATEGORY') {
+            await sendText(from, '⚠️ Please use the list above to select a dispute category.');
+            return;
+        }
+        // step === 'ASK_REASON' (or undefined for backward compat with in-flight sessions)
         try {
-            await axios.post(`${API_URL}/disputes/raise`, { transaction_id: ds.txnId, reason: rawText.trim(), raised_by: ds.raisedBy });
+            await axios.post(`${API_URL}/disputes/raise`, { transaction_id: ds.txnId, reason: rawText.trim(), raised_by: ds.raisedBy, category: ds.category });
             disputeSessions.delete(from);
             await sendButtons(from,
                 '⚖️ Dispute raised. Transaction frozen. An AI mediator will review shortly and may ask for evidence.',
@@ -1086,12 +1091,37 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
             await sendText(from, `❌ ${err.response?.data?.error || 'Could not process confirmation.'}`);
         }
 
+    } else if (interactiveId.startsWith('DISPUTE_CAT_') && disputeSessions.has(from)) {
+        const ds = disputeSessions.get(from)!;
+        const categoryMap: Record<string, string> = {
+            DISPUTE_CAT_NOT_DELIVERED:    'NOT_DELIVERED',
+            DISPUTE_CAT_NOT_AS_DESCRIBED: 'NOT_AS_DESCRIBED',
+            DISPUTE_CAT_CREDENTIALS:      'CREDENTIALS_ACCESS',
+            DISPUTE_CAT_INCOMPLETE:       'SERVICE_INCOMPLETE',
+            DISPUTE_CAT_PAYMENT:          'PAYMENT_ISSUE',
+            DISPUTE_CAT_OTHER:            'OTHER'
+        };
+        ds.category = categoryMap[interactiveId] || 'OTHER';
+        ds.step = 'ASK_REASON';
+        disputeSessions.set(from, ds);
+        await sendText(from, '✏️ *Step 2 of 2: Describe the Issue*\n\nPlease describe the issue with this transaction in detail:');
+
     } else if (interactiveId.startsWith('txn_dispute_') || interactiveId.startsWith('DISPUTE_TXN_')) {
         const txnId = interactiveId.startsWith('txn_dispute_') ? interactiveId.replace('txn_dispute_', '') : interactiveId.replace('DISPUTE_TXN_', '');
         try {
             const p = await getProfile(from);
-            disputeSessions.set(from, { txnId, raisedBy: p.id });
-            await sendText(from, '⚠️ *Raise Dispute*\n\nPlease describe the issue with this transaction:');
+            disputeSessions.set(from, { txnId, raisedBy: p.id, step: 'ASK_CATEGORY' });
+            await sendList(from, '⚠️ Raise Dispute', 'Select the category that best describes your issue:', [{
+                title: 'Dispute Categories',
+                rows: [
+                    { id: 'DISPUTE_CAT_NOT_DELIVERED',    title: 'Not Delivered',     description: 'Item/service never delivered' },
+                    { id: 'DISPUTE_CAT_NOT_AS_DESCRIBED', title: 'Not As Described',   description: 'Item differs from listing' },
+                    { id: 'DISPUTE_CAT_CREDENTIALS',      title: 'Credentials Issue',  description: 'Account or credentials issue' },
+                    { id: 'DISPUTE_CAT_INCOMPLETE',       title: 'Service Incomplete', description: 'Work was partial or stopped' },
+                    { id: 'DISPUTE_CAT_PAYMENT',          title: 'Payment Issue',      description: 'Funds not released' },
+                    { id: 'DISPUTE_CAT_OTHER',            title: 'Other',              description: 'Doesn\'t fit above categories' }
+                ]
+            }], undefined, 'Select Category');
         } catch (_) { await sendText(from, '❌ Could not start dispute.'); }
 
     } else if (interactiveId.startsWith('REVIEW_TXN_')) {

@@ -80,7 +80,8 @@ export async function classifyDisputeType(
     amount: number,
     currency: string,
     _buyerPlatform = '',
-    _sellerPlatform = ''
+    _sellerPlatform = '',
+    userCategory?: string
 ): Promise<ClassifierOutput> {
     // Try heuristic first — free, instant
     const heuristic = platformHeuristicGuess(productName);
@@ -90,10 +91,11 @@ export async function classifyDisputeType(
     }
 
     // Fall back to Gemini classifier
+    const categoryHint = userCategory ? `USER-SELECTED CATEGORY: ${userCategory}\n` : '';
     const prompt = `You are a dispute type classifier for an escrow platform.
 
 TRANSACTION: "${productName}"
-DISPUTE REASON: "${reason}"
+${categoryHint}DISPUTE REASON: "${reason}"
 AMOUNT: ${amount} ${currency}
 
 Classify into exactly one of these types:

@@ -99,6 +99,7 @@ process.on('uncaughtException', (error) => {
 });
 
 const reviewStates = new Collection<string, { txnId: string, stars?: number, proofUrl?: string, role?: string }>();
+const pendingDisputeData = new Map<string, { txnId: string; category: string }>();
 const AWAITING_REVIEW_REMARK = new Collection<string, boolean>();
 const feedbackStates = new Collection<string, { source: string; refId?: string; rating?: number; safetag?: string }>();
 const AWAITING_FEEDBACK_COMMENT = new Collection<string, boolean>();
@@ -1290,9 +1291,27 @@ client.on('interactionCreate', async (interaction) => {
                     });
                 } catch (err: any) { await interaction.editReply(`❌ Error: ${err.message}`); }
             } else if (customId.startsWith('txn_dispute_')) {
-                const tid = customId.split('_')[2];
-                // @ts-ignore
-                await interaction.showModal({ title: '⚠️ Dispute', custom_id: `dispute_modal|${tid}`, components: [{ type: 1, components: [{ type: 4, custom_id: 'reason', label: 'Reason', style: 2, min_length: 10, required: true }] }] });
+                const tid = customId.replace('txn_dispute_', '');
+                await interaction.reply({
+                    flags: MessageFlags.Ephemeral,
+                    content: '⚠️ **Raise Dispute — Step 1 of 2**\n\nSelect the category that best describes your issue:',
+                    components: [{
+                        type: 1,
+                        components: [{
+                            type: 3,
+                            custom_id: `dispute_cat_select|${tid}`,
+                            placeholder: 'Choose a dispute category...',
+                            options: [
+                                { label: 'Not Delivered', value: 'NOT_DELIVERED', description: 'Item/service was never delivered', emoji: { name: '📦' } },
+                                { label: 'Not As Described', value: 'NOT_AS_DESCRIBED', description: 'Item differs from the listing', emoji: { name: '🔍' } },
+                                { label: 'Credentials / Access Issue', value: 'CREDENTIALS_ACCESS', description: 'Account or credentials don\'t work', emoji: { name: '🔑' } },
+                                { label: 'Service Incomplete', value: 'SERVICE_INCOMPLETE', description: 'Work was partial or stopped', emoji: { name: '🔧' } },
+                                { label: 'Payment Issue', value: 'PAYMENT_ISSUE', description: 'Funds not released or payment problem', emoji: { name: '💳' } },
+                                { label: 'Other', value: 'OTHER', description: 'Doesn\'t fit the categories above', emoji: { name: '❓' } }
+                            ]
+                        }]
+                    }]
+                });
             } else if (customId === 'balance') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
@@ -1596,7 +1615,28 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         if (interaction.isStringSelectMenu()) {
-            if (customId === 'view_txn_select') {
+            if (customId.startsWith('dispute_cat_select|')) {
+                const txnId = customId.split('|')[1];
+                const category = interaction.values[0];
+                pendingDisputeData.set(interaction.user.id, { txnId, category });
+                // @ts-ignore
+                await interaction.showModal({
+                    title: '⚠️ Dispute — Describe the Issue',
+                    custom_id: `dispute_modal_${txnId}`,
+                    components: [{
+                        type: 1,
+                        components: [{
+                            type: 4,
+                            custom_id: 'reason',
+                            label: 'Reason (Step 2 of 2)',
+                            style: 2,
+                            min_length: 10,
+                            required: true,
+                            placeholder: 'Describe the issue in detail...'
+                        }]
+                    }]
+                });
+            } else if (customId === 'view_txn_select') {
                 const txnId = interaction.values[0].replace('view_txn_select_val|', '');
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
@@ -1846,6 +1886,17 @@ client.on('interactionCreate', async (interaction) => {
                     await interaction.editReply(`👋 **Welcome back!** Your Discord is linked.`);
                     await sendMainMenu(interaction);
                 } catch (err: any) { await interaction.editReply(`❌ Verification failed: ${err.response?.data?.error || 'Invalid.'}`); }
+            } else if (customId.startsWith('dispute_modal_')) {
+                const txnId = customId.replace('dispute_modal_', '');
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const reason = interaction.fields.getTextInputValue('reason');
+                const pending = pendingDisputeData.get(interaction.user.id);
+                pendingDisputeData.delete(interaction.user.id);
+                try {
+                    const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
+                    await axios.post(`${API_URL}/disputes/raise`, { transaction_id: txnId, raised_by: profileRes.data.id, reason, category: pending?.category });
+                    await interaction.editReply({ content: `✅ **Dispute Raised!** The transaction is frozen.`, components: [{ type: 1, components: [{ type: 2, label: '🏠 Menu', style: 2, custom_id: 'main_menu' }] }] });
+                } catch (err: any) { await interaction.editReply(`❌ Failed: ${err.message}`); }
             } else if (customId.startsWith('dispute_modal|')) {
                 const txnId = customId.split('|')[1];
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
