@@ -2,9 +2,7 @@
   "version": "7.3",
   "data_api_version": "3.0",
   "routing_model": {
-    "REGISTRATION_SCREEN": [
-      "OTP_SCREEN"
-    ],
+    "REGISTRATION_SCREEN": ["OTP_SCREEN"],
     "OTP_SCREEN": []
   },
   "screens": [
@@ -12,13 +10,6 @@
       "id": "REGISTRATION_SCREEN",
       "title": "👋 Welcome to Safeeely!",
       "terminal": false,
-      "data": {
-        "user_name": {
-          "type": "string",
-          "default": "",
-          "__example__": "John"
-        }
-      },
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
@@ -84,7 +75,6 @@
       "data": {
         "display_email": {
           "type": "string",
-          "default": "",
           "__example__": "user@example.com"
         }
       },

@@ -40,6 +40,7 @@ console.log(`🚀 Safeeely WhatsApp Bot Starting...`);
 
 // ─── Session state ────────────────────────────────────────────────────────────
 const loginSessions:   Map<string, { step: string; safetag?: string }> = new Map();
+const flowRegSessions: Map<string, { first_name: string; last_name: string; email: string; safetag: string }> = new Map();
 const smartTxnSessions: Map<string, SmartTransactionDraft>              = new Map();
 const txnSessions:     Map<string, { step: string; formData: any }>    = new Map();
 const reviewSessions:    Map<string, { step: string; formData: any }>    = new Map();
@@ -1304,31 +1305,45 @@ app.post('/flow', async (req, res) => {
                 responsePayload = { data: { status: 'healthy' } };
                 break;
 
-            case 'send_otp':
+            case 'send_otp': {
+                // Cache all registration fields so they survive the screen transition
+                const reg_phone = data.flow_token.split('_')[2];
+                flowRegSessions.set(reg_phone, {
+                    first_name: data.first_name || '',
+                    last_name:  data.last_name  || '',
+                    email:      data.email      || '',
+                    safetag:    data.safetag    || '',
+                });
                 try { await axios.post(`${API_URL}/auth/email-otp/send`, { email: data.email }); }
                 catch (e: any) { console.error('OTP send error:', e.response?.data?.error || e.message); }
                 responsePayload = { screen: 'OTP_SCREEN', data: { display_email: data.email } };
                 break;
+            }
 
             case 'complete_registration': {
-                const email   = data.email;
-                const otpCode = data.otp_code;
+                const phone_number = data.flow_token.split('_')[2];
+                // Retrieve fields cached at send_otp time (not present in OTP screen payload)
+                const regData  = flowRegSessions.get(phone_number) || {} as any;
+                const email    = regData.email    || data.email    || '';
+                const otpCode  = data.otp_code;
                 try {
                     await axios.post(`${API_URL}/auth/email-otp/verify`, { email, code: otpCode });
                 } catch (err: any) {
                     responsePayload = { screen: 'OTP_SCREEN', data: { display_email: `❌ ${err.response?.data?.error || 'Invalid code. Please try again.'}` } };
                     break;
                 }
-                const safetag     = data.safetag.startsWith('@') ? data.safetag : `@${data.safetag}`;
-                const phone_number = data.flow_token.split('_')[2];
+                const rawTag  = regData.safetag || data.safetag || '';
+                const safetag = rawTag.startsWith('@') ? rawTag : `@${rawTag}`;
                 try {
                     const refCode = refSessions.get(phone_number);
                     await axios.post(`${API_URL}/profiles/register`, {
-                        first_name: data.first_name, last_name: data.last_name,
+                        first_name: regData.first_name || data.first_name,
+                        last_name:  regData.last_name  || data.last_name,
                         email, safetag, primary_platform: 'whatsapp', platform_id: phone_number,
                         ...(refCode ? { referral_code: refCode } : {})
                     });
                     refSessions.delete(phone_number);
+                    flowRegSessions.delete(phone_number);
                 } catch (err: any) {
                     const errMsg = err.response?.data?.error || 'Registration failed';
                     responsePayload = errMsg.toLowerCase().includes('safetag')
