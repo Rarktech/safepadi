@@ -74,28 +74,49 @@ export async function sendNotification(platform: string, platformId: string, mes
         } catch (err: any) { log(`❌ Telegram Error: ${err.message}`); }
 
     } else if (platform === 'discord' && DISCORD_BOT_TOKEN) {
-        // ... (Discord logic unchanged)
         try {
             const dm = await axios.post('https://discord.com/api/v10/users/@me/channels', { recipient_id: platformId }, { headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` } });
             const channelId = dm.data.id;
-            
-            // Convert HTML to Discord Markdown
-            let formattedMessage = message
-                .replace(/<b>(.*?)<\/b>/gi, '**$1**')
-                .replace(/<strong>(.*?)<\/strong>/gi, '**$1**')
-                .replace(/<i>(.*?)<\/i>/gi, '_$1_')
-                .replace(/<em>(.*?)<\/em>/gi, '_$1_')
-                .replace(/<code>(.*?)<\/code>/gi, '`$1`')
-                .replace(/<br\s*\/?>/gi, '\n')
-                .replace(/<[^>]*>/g, '') // Strip remaining tags
-                .substring(0, 2000);
 
-            let payload: any = { content: formattedMessage };
+            // Extract title from first <b>...</b> (supports both </b> and legacy <\b> typo)
+            const titleMatch = message.match(/^([^<]*)<b>([^<]*)<[^>]+b>/i);
+            const embedTitle = titleMatch
+                ? (titleMatch[1].trim() + ' ' + titleMatch[2]).trim()
+                : undefined;
+            const bodyMessage = titleMatch
+                ? message.slice(titleMatch[0].length).replace(/^\n+/, '')
+                : message;
+
+            // Map leading emoji to embed border color
+            const emojiColors: Record<string, number> = {
+                '⚠': 0xFFA500, '⏱': 0x3498DB, '⚖': 0x2ECC71,
+                '🛡': 0x9B59B6, '📦': 0xE67E22, '💬': 0x5865F2,
+                '🎉': 0x27AE60, '✅': 0x27AE60, '❌': 0xE74C3C,
+                '🔒': 0x95A5A6,
+            };
+            const firstChar = [...message][0] ?? '';
+            const color = emojiColors[firstChar] ?? 0x5865F2;
+
+            // Convert HTML body to Discord Markdown
+            const formattedBody = bodyMessage
+                .replace(/<b>([\s\S]*?)<\/b>/gi, '**$1**')
+                .replace(/<b>([\s\S]*?)<\\b>/gi, '**$1**')
+                .replace(/<strong>([\s\S]*?)<\/strong>/gi, '**$1**')
+                .replace(/<i>([\s\S]*?)<\/i>/gi, '_$1_')
+                .replace(/<em>([\s\S]*?)<\/em>/gi, '_$1_')
+                .replace(/<code>([\s\S]*?)<\/code>/gi, '`$1`')
+                .replace(/<br\s*\/?>/gi, '\n')
+                .replace(/<[^>]*>/g, '')
+                .trim()
+                .substring(0, 4096);
+
+            const embed: any = { color, description: formattedBody };
+            if (embedTitle) embed.title = embedTitle;
+            if (imageUrl) embed.image = { url: imageUrl };
+
+            const payload: any = { embeds: [embed] };
             if (options && options.length > 0) {
                 payload.components = [{ type: 1, components: options.map(opt => ({ type: 2, label: opt.label, style: opt.url ? 5 : 2, url: opt.url, custom_id: opt.customId })) }];
-            }
-            if (imageUrl) {
-                payload.embeds = [{ image: { url: imageUrl } }];
             }
             await axios.post(`https://discord.com/api/v10/channels/${channelId}/messages`, payload, { headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` } });
             log(`✅ [Discord Notification] Sent to ${platformId}`);
