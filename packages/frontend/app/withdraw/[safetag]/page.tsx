@@ -63,9 +63,20 @@ export default function WithdrawDashboard() {
         if (viewParam === 'dispute_details' && txnIdParam && allTransactions.length > 0) {
             const txn = allTransactions.find(t => t.id === txnIdParam);
             if (txn) {
-                console.log('🔗 Deep Linking to Dispute Details:', txn.txn_code);
-                setSelectedTxn(txn);
-                setCurrentView('dispute_details');
+                api.get(`/disputes/transaction/${txn.id}`)
+                    .then(res => {
+                        if (res.data) {
+                            setSelectedDispute(res.data);
+                            setCurrentView('dispute_chat');
+                        } else {
+                            setSelectedTxn(txn);
+                            setCurrentView('dispute_details');
+                        }
+                    })
+                    .catch(() => {
+                        setSelectedTxn(txn);
+                        setCurrentView('dispute_details');
+                    });
             }
         }
 
@@ -201,15 +212,26 @@ export default function WithdrawDashboard() {
         }
     };
 
-    const handleSelectTxn = (txn: any) => {
+    const handleSelectTxn = async (txn: any) => {
         if (!txn) {
             setSelectedTxn(null);
             return;
         }
-        setSelectedTxn(txn);
-        if (txn.status === 'DISPUTED' || txn.status.includes('DISPUTE')) {
+        if (txn.status === 'DISPUTED' || txn.status?.includes('DISPUTE')) {
+            try {
+                const res = await api.get(`/disputes/transaction/${txn.id}`);
+                if (res.data) {
+                    setSelectedDispute(res.data);
+                    setCurrentView('dispute_chat');
+                    return;
+                }
+            } catch {}
+            // Fallback: old view
+            setSelectedTxn(txn);
             setCurrentView('dispute_details');
+            return;
         }
+        setSelectedTxn(txn);
     };
 
     if (loading) return (
@@ -388,14 +410,15 @@ export default function WithdrawDashboard() {
                                 onBack={() => { setSelectedDispute(null); setCurrentView('disputes'); }}
                             />
                         </div>
-                    ) : currentView === 'dispute_details' && selectedTxn ? (
-                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 md:p-0 pb-24 md:pb-0">
-                            <DisputeDetailsView
-                                txn={selectedTxn}
-                                decodedSafetag={decodedSafetag}
+                    ) : currentView === 'dispute_details' && selectedDispute ? (
+                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full flex flex-col">
+                            <DisputeChatPage
+                                dispute={selectedDispute}
+                                safetag={decodedSafetag}
                                 onBack={() => {
-                                    setCurrentView('transactions');
+                                    setSelectedDispute(null);
                                     setSelectedTxn(null);
+                                    setCurrentView('transactions');
                                     loadData();
                                 }}
                             />
@@ -416,7 +439,7 @@ export default function WithdrawDashboard() {
                 </main>
             </SidebarInset>
 
-            {currentView !== 'dispute_details' && (
+            {currentView !== 'dispute_details' && currentView !== 'dispute_chat' && (
                 <TransactionDetailModal
                     selectedTxn={selectedTxn}
                     setSelectedTxn={handleSelectTxn}

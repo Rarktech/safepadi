@@ -190,7 +190,6 @@ export function DisputeChatPage({ dispute: initialDispute, safetag, onBack }: Di
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [showEvidence, setShowEvidence] = useState(false);
-  const [profileId, setProfileId] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -200,12 +199,10 @@ export function DisputeChatPage({ dispute: initialDispute, safetag, onBack }: Di
   const sellerId: string = txn?.seller_id || '';
   const dspCode = `DSP-${dispute.id.slice(0, 4).toUpperCase()}`;
 
-  // Resolve own profile ID from safetag
-  useEffect(() => {
-    api.get(`/profiles/by_safetag/${encodeURIComponent(safetag)}`)
-      .then(res => setProfileId(res.data?.id || ''))
-      .catch(() => {});
-  }, [safetag]);
+  // Derive profileId synchronously — avoids async timing issues with send
+  const isBuyer = safetag.toLowerCase() === txn?.buyer?.safetag?.toLowerCase();
+  const isSeller = safetag.toLowerCase() === txn?.seller?.safetag?.toLowerCase();
+  const profileId = isBuyer ? buyerId : (isSeller ? sellerId : '');
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -275,6 +272,31 @@ export function DisputeChatPage({ dispute: initialDispute, safetag, onBack }: Di
     : isEscalated ? 'escalation'
     : hasVerdict ? 'verdict'
     : 'chat';
+
+  // Turn-based chat restriction (mirrors DisputeDetailsView logic)
+  const lastMessage = messages[messages.length - 1];
+  const hasAdminJoined = messages.some(m =>
+    typeof m.content === 'string' &&
+    (m.content.includes('[ADMIN_JOINED') || m.sender_type === 'ADMIN')
+  );
+  const isAiWaitingForMe = lastMessage?.sender_type === 'AI' && (
+    lastMessage.content?.toLowerCase().includes(safetag.replace('@', '').toLowerCase()) ||
+    (lastMessage.content?.toLowerCase().includes('buyer') && isBuyer) ||
+    (lastMessage.content?.toLowerCase().includes('seller') && isSeller) ||
+    (lastMessage.content?.toLowerCase().includes('@buyer') && isBuyer) ||
+    (lastMessage.content?.toLowerCase().includes('@seller') && isSeller) ||
+    (lastMessage.content?.toLowerCase().includes('@all'))
+  );
+  const restrictedTo: string = dispute?.restricted_to || 'ALL';
+  const isRestrictedToMe =
+    restrictedTo === 'ALL' ||
+    (restrictedTo === 'BUYER' && isBuyer) ||
+    (restrictedTo === 'SELLER' && isSeller);
+  const canChat = !isResolved &&
+    (hasAdminJoined || isAiWaitingForMe ||
+      (messages.length <= 1 && lastMessage?.sender_type === 'AI') ||
+      messages.length === 0) &&
+    isRestrictedToMe;
 
   return (
     <div className="flex flex-col h-full bg-stone-50 relative">
@@ -442,7 +464,7 @@ export function DisputeChatPage({ dispute: initialDispute, safetag, onBack }: Di
               </div>
 
               {/* Input bar */}
-              {dispute.status === 'OPEN' && (
+              {dispute.status === 'OPEN' && canChat ? (
                 <div className="shrink-0 border-t border-stone-100 bg-white px-4 py-3">
                   {pendingFiles.length > 0 && (
                     <div className="flex gap-2 mb-2 flex-wrap">
@@ -464,7 +486,7 @@ export function DisputeChatPage({ dispute: initialDispute, safetag, onBack }: Di
                       value={input}
                       onChange={e => setInput(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                      placeholder={`Message as ${txn?.buyer?.safetag === safetag ? txn?.buyer?.safetag : txn?.seller?.safetag} (SafeAI and the other party will see this)...`}
+                      placeholder={`Message as ${isBuyer ? txn?.buyer?.safetag : txn?.seller?.safetag} (SafeAI and the other party will see this)...`}
                       rows={1}
                       className="flex-1 resize-none text-sm text-stone-800 placeholder:text-stone-400 border border-stone-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-emerald-400 min-h-[42px] max-h-[120px] bg-stone-50"
                     />
@@ -480,7 +502,14 @@ export function DisputeChatPage({ dispute: initialDispute, safetag, onBack }: Di
                     🔒 Encrypted · visible to both parties + SafeAI · evidence is permanently logged
                   </p>
                 </div>
-              )}
+              ) : dispute.status === 'OPEN' && !canChat ? (
+                <div className="shrink-0 border-t border-stone-100 bg-white px-4 py-3 flex items-center gap-3">
+                  <img src="/assets/images/safeAi.png" alt="SafeAI" className="h-5 w-5 rounded-full opacity-50 shrink-0" />
+                  <p className="text-xs text-stone-400 flex-1">
+                    Waiting for SafeAI to prompt you before you can respond…
+                  </p>
+                </div>
+              ) : null}
             </>
           )}
         </div>

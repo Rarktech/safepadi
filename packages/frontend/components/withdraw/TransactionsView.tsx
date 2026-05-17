@@ -161,7 +161,7 @@ export const FullTransactionsTable = ({
                                         </span>
                                     </TableCell>
                                     <TableCell className="text-right pr-6">
-                                        <Button variant="outline" size="sm" className="rounded-lg h-9 border-slate-200 text-slate-600 font-bold hover:bg-slate-100" onClick={() => onSelectTxn(tx)}>Details</Button>
+                                        <Button variant="outline" size="sm" className={`rounded-lg h-9 border-slate-200 font-bold hover:bg-slate-100 ${tx.status === 'DISPUTED' ? 'text-rose-600 border-rose-200 hover:bg-rose-50' : 'text-slate-600'}`} onClick={() => onSelectTxn(tx)}>{tx.status === 'DISPUTED' ? 'View Dispute' : 'Details'}</Button>
                                     </TableCell>
                                 </TableRow>
                             ))
