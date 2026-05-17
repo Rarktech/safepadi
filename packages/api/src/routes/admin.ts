@@ -323,7 +323,9 @@ router.get('/disputes', async (req, res) => {
             `)
             .order('created_at', { ascending: false });
 
-        if (status) {
+        if (status === 'ESCALATED') {
+            query = query.eq('status', 'OPEN').eq('is_ai_paused', true);
+        } else if (status) {
             query = query.eq('status', status);
         }
 
@@ -822,7 +824,7 @@ router.get('/users', async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('admin_users')
-            .select('id, name, email, role, status, created_at')
+            .select('id, name, email, role, status, created_at, specialist_title, specialist_bio, specialties, cases_resolved, years_on_platform')
             .order('created_at', { ascending: true });
         if (error) throw error;
         res.json(data);
@@ -833,15 +835,20 @@ router.get('/users', async (req, res) => {
 
 router.post('/users', async (req, res) => {
     try {
-        const { name, email, role, password } = req.body;
-        if (!name || !email || !role || !password) 
+        const { name, email, role, password, specialist_title, specialist_bio, specialties, cases_resolved, years_on_platform } = req.body;
+        if (!name || !email || !role || !password)
             return res.status(400).json({ error: 'Missing required profile fields or password.' });
 
         const password_hash = await bcrypt.hash(password, 10);
-        
+
         const { data, error } = await supabase.from('admin_users').insert([{
-            name, email, role, password_hash, status: 'ACTIVE'
-        }]).select('id, name, email, role, status, created_at').single();
+            name, email, role, password_hash, status: 'ACTIVE',
+            specialist_title: specialist_title || null,
+            specialist_bio: specialist_bio || null,
+            specialties: specialties || [],
+            cases_resolved: cases_resolved || 0,
+            years_on_platform: years_on_platform || 0,
+        }]).select('id, name, email, role, status, created_at, specialist_title, specialist_bio, specialties, cases_resolved, years_on_platform').single();
 
         if (error) {
             if (error.code === '23505') return res.status(400).json({ error: 'Email already exists' });
@@ -878,12 +885,17 @@ router.put('/users/:id', async (req, res) => {
         if (role) updates.role = role;
         if (status) updates.status = status;
         if (password) updates.password_hash = await bcrypt.hash(password, 10);
+        if ('specialist_title' in req.body) updates.specialist_title = req.body.specialist_title;
+        if ('specialist_bio' in req.body) updates.specialist_bio = req.body.specialist_bio;
+        if ('specialties' in req.body) updates.specialties = req.body.specialties;
+        if ('cases_resolved' in req.body) updates.cases_resolved = req.body.cases_resolved;
+        if ('years_on_platform' in req.body) updates.years_on_platform = req.body.years_on_platform;
 
         const { data, error } = await supabase
             .from('admin_users')
             .update(updates)
             .eq('id', id)
-            .select('id, name, email, role, status, created_at')
+            .select('id, name, email, role, status, created_at, specialist_title, specialist_bio, specialties, cases_resolved, years_on_platform')
             .single();
             
         if (error) throw error;

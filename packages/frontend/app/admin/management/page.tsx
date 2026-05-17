@@ -39,7 +39,11 @@ export default function AdminManagement() {
     const [confirmDelete, setConfirmDelete] = useState<any | null>(null);
     
     // Forms
-    const [formData, setFormData] = useState({ name: "", email: "", role: "DISPUTER", password: "" });
+    const [formData, setFormData] = useState({
+        name: "", email: "", role: "DISPUTER", password: "",
+        specialist_title: "", specialist_bio: "", specialties: [] as string[],
+        cases_resolved: 0, years_on_platform: 0,
+    });
     const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
     const router = useRouter();
@@ -74,7 +78,7 @@ export default function AdminManagement() {
             });
             showToast("Admin created successfully");
             setIsCreateModalOpen(false);
-            setFormData({ name: "", email: "", role: "DISPUTER", password: "" });
+            setFormData({ name: "", email: "", role: "DISPUTER", password: "", specialist_title: "", specialist_bio: "", specialties: [], cases_resolved: 0, years_on_platform: 0 });
             await fetchAdmins();
         } catch (err: any) {
             showToast(err.response?.data?.error || "Failed to create admin", "error");
@@ -90,7 +94,12 @@ export default function AdminManagement() {
         try {
             const payload: any = {
                 role: editAdmin.role,
-                status: editAdmin.status
+                status: editAdmin.status,
+                specialist_title: editAdmin.specialist_title,
+                specialist_bio: editAdmin.specialist_bio,
+                specialties: editAdmin.specialties,
+                cases_resolved: editAdmin.cases_resolved,
+                years_on_platform: editAdmin.years_on_platform,
             };
             if (editAdmin.newPassword) payload.password = editAdmin.newPassword;
 
@@ -196,7 +205,7 @@ export default function AdminManagement() {
                             </div>
                             <div className="space-y-2">
                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Role Assignment</label>
-                                <select 
+                                <select
                                     className="w-full h-12 px-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all appearance-none"
                                     value={formData.role}
                                     onChange={e => setFormData({...formData, role: e.target.value})}
@@ -206,7 +215,59 @@ export default function AdminManagement() {
                                     <option value="SUPER_ADMIN">Super Admin (Full Access)</option>
                                 </select>
                             </div>
-                            
+
+                            <div className="pt-2 border-t border-slate-50">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Specialist Profile</p>
+                                <div className="space-y-4">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Specialist Title</label>
+                                        <input
+                                            className="w-full h-12 px-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                                            placeholder="e.g. Senior Dispute Specialist"
+                                            value={formData.specialist_title}
+                                            onChange={e => setFormData({...formData, specialist_title: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Bio / Quote</label>
+                                        <textarea
+                                            rows={2}
+                                            className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all resize-none"
+                                            placeholder="Short bio shown to users during escalation..."
+                                            value={formData.specialist_bio}
+                                            onChange={e => setFormData({...formData, specialist_bio: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Specialties (comma-separated)</label>
+                                        <input
+                                            className="w-full h-12 px-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                                            placeholder="freelance, crypto, ecommerce"
+                                            value={formData.specialties.join(', ')}
+                                            onChange={e => setFormData({...formData, specialties: e.target.value.split(',').map(s => s.trim()).filter(Boolean)})}
+                                        />
+                                    </div>
+                                    <div className="flex gap-3">
+                                        <div className="flex-1 space-y-2">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Cases Resolved</label>
+                                            <input type="number" min={0}
+                                                className="w-full h-12 px-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                                                value={formData.cases_resolved}
+                                                onChange={e => setFormData({...formData, cases_resolved: Number(e.target.value)})}
+                                            />
+                                        </div>
+                                        <div className="flex-1 space-y-2">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Years on Platform</label>
+                                            <input type="number" min={0}
+                                                className="w-full h-12 px-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                                                value={formData.years_on_platform}
+                                                onChange={e => setFormData({...formData, years_on_platform: Number(e.target.value)})}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <Button 
                                 type="submit" 
                                 disabled={actionLoading === "create"}
@@ -229,10 +290,10 @@ export default function AdminManagement() {
                                 <X className="w-5 h-5" />
                             </button>
                         </div>
-                        <form onSubmit={handleEditAdmin} className="space-y-6">
+                        <form onSubmit={handleEditAdmin} className="space-y-6 overflow-y-auto max-h-[70vh]">
                             <div className="space-y-2">
                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Change Role</label>
-                                <select 
+                                <select
                                     className="w-full h-12 px-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all appearance-none"
                                     value={editAdmin.role}
                                     onChange={e => setEditAdmin({...editAdmin, role: e.target.value})}
@@ -242,10 +303,10 @@ export default function AdminManagement() {
                                     <option value="SUPER_ADMIN">Super Admin (Full Access)</option>
                                 </select>
                             </div>
-                            
+
                             <div className="space-y-2">
                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Account Status</label>
-                                <select 
+                                <select
                                     className="w-full h-12 px-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all appearance-none"
                                     value={editAdmin.status}
                                     onChange={e => setEditAdmin({...editAdmin, status: e.target.value})}
@@ -254,10 +315,10 @@ export default function AdminManagement() {
                                     <option value="INACTIVE">Inactive (No Login)</option>
                                 </select>
                             </div>
-                            
+
                             <div className="space-y-2">
                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Reset Password (Optional)</label>
-                                <input 
+                                <input
                                     type="password"
                                     className="w-full h-12 px-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all placeholder:text-slate-300"
                                     placeholder="Leave blank to keep unchanged..."
@@ -266,8 +327,60 @@ export default function AdminManagement() {
                                 />
                             </div>
 
-                            <Button 
-                                type="submit" 
+                            <div className="pt-2 border-t border-slate-50">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Specialist Profile</p>
+                                <div className="space-y-4">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Specialist Title</label>
+                                        <input
+                                            className="w-full h-12 px-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                                            placeholder="e.g. Senior Dispute Specialist"
+                                            value={editAdmin.specialist_title || ""}
+                                            onChange={e => setEditAdmin({...editAdmin, specialist_title: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Bio / Quote</label>
+                                        <textarea
+                                            rows={2}
+                                            className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all resize-none"
+                                            placeholder="Short bio shown to users during escalation..."
+                                            value={editAdmin.specialist_bio || ""}
+                                            onChange={e => setEditAdmin({...editAdmin, specialist_bio: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Specialties (comma-separated)</label>
+                                        <input
+                                            className="w-full h-12 px-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                                            placeholder="freelance, crypto, ecommerce"
+                                            value={(editAdmin.specialties || []).join(', ')}
+                                            onChange={e => setEditAdmin({...editAdmin, specialties: e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean)})}
+                                        />
+                                    </div>
+                                    <div className="flex gap-3">
+                                        <div className="flex-1 space-y-2">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Cases Resolved</label>
+                                            <input type="number" min={0}
+                                                className="w-full h-12 px-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                                                value={editAdmin.cases_resolved || 0}
+                                                onChange={e => setEditAdmin({...editAdmin, cases_resolved: Number(e.target.value)})}
+                                            />
+                                        </div>
+                                        <div className="flex-1 space-y-2">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Years on Platform</label>
+                                            <input type="number" min={0}
+                                                className="w-full h-12 px-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                                                value={editAdmin.years_on_platform || 0}
+                                                onChange={e => setEditAdmin({...editAdmin, years_on_platform: Number(e.target.value)})}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <Button
+                                type="submit"
                                 disabled={actionLoading === "edit"}
                                 className="w-full h-14 rounded-2xl bg-indigo-500 hover:bg-indigo-600 text-white font-black uppercase tracking-widest shadow-xl shadow-indigo-500/20"
                             >
@@ -361,7 +474,7 @@ export default function AdminManagement() {
                                                         </div>
                                                         <div className="flex flex-col">
                                                             <span className="text-sm font-black text-[#020617]">{admin.name}</span>
-                                                            <span className="text-[11px] font-bold text-slate-400">{admin.email}</span>
+                                                            <span className="text-[11px] font-bold text-slate-400">{admin.specialist_title || admin.email}</span>
                                                         </div>
                                                     </div>
                                                 </td>

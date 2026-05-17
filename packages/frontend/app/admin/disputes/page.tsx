@@ -24,7 +24,7 @@ export default function AdminDisputesPage() {
     const router = useRouter();
     const [disputes, setDisputes] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [filter, setFilter] = useState('ALL'); // ALL, OPEN, RESOLVED
+    const [filter, setFilter] = useState('ALL'); // ALL, OPEN, ESCALATED, RESOLVED
 
     useEffect(() => {
         fetchDisputes();
@@ -64,18 +64,25 @@ export default function AdminDisputesPage() {
 
                         <div className="flex items-center gap-3">
                             <div className="bg-white p-1 rounded-2xl border border-slate-200 flex shadow-sm">
-                                {['ALL', 'OPEN', 'RESOLVED'].map((s) => (
+                                {[
+                                    { key: 'ALL',       label: 'Everything' },
+                                    { key: 'OPEN',      label: 'Open' },
+                                    { key: 'ESCALATED', label: 'Escalated' },
+                                    { key: 'RESOLVED',  label: 'Resolved' },
+                                ].map(({ key, label }) => (
                                     <button
-                                        key={s}
-                                        onClick={() => setFilter(s)}
+                                        key={key}
+                                        onClick={() => setFilter(key)}
                                         className={cn(
-                                            "px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
-                                            filter === s 
-                                                ? "bg-slate-900 text-white shadow-lg" 
+                                            "px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                                            filter === key
+                                                ? key === 'ESCALATED'
+                                                    ? "bg-rose-600 text-white shadow-lg"
+                                                    : "bg-slate-900 text-white shadow-lg"
                                                 : "text-slate-400 hover:text-slate-900"
                                         )}
                                     >
-                                        {s === 'ALL' ? 'Everything' : s}
+                                        {label}
                                     </button>
                                 ))}
                             </div>
@@ -151,15 +158,21 @@ export default function AdminDisputesPage() {
                                         </div>
 
                                         <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-3 mb-2">
+                                            <div className="flex items-center gap-3 mb-2 flex-wrap">
                                                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Case ID: {dispute.id.slice(0, 8)}</span>
                                                 <div className="w-1 h-1 bg-slate-200 rounded-full" />
-                                                <span className={cn(
-                                                    "text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest",
-                                                    dispute.status === 'OPEN' ? "bg-rose-100 text-rose-600" : "bg-emerald-100 text-emerald-600"
-                                                )}>
-                                                    {dispute.status}
-                                                </span>
+                                                {dispute.is_ai_paused ? (
+                                                    <span className="text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest bg-rose-100 text-rose-600">
+                                                        Escalated
+                                                    </span>
+                                                ) : (
+                                                    <span className={cn(
+                                                        "text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest",
+                                                        dispute.status === 'OPEN' ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-600"
+                                                    )}>
+                                                        {dispute.status}
+                                                    </span>
+                                                )}
                                             </div>
                                             <h3 className="text-xl font-black text-slate-900 group-hover:text-rose-600 transition-colors truncate">
                                                 {dispute.transaction?.product_name || 'Goods/Services Dispute'}

@@ -8,6 +8,7 @@ import multer from 'multer';
 import { classifyDisputeType } from '../services/dispute-ai/classifier';
 import { quickTierHint } from '../services/dispute-ai/config/disputeTypes';
 import { issueReferralCommissions } from '../services/commissions';
+import { routeDispute } from '../services/disputeRouter';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -16,7 +17,8 @@ const upload = multer({ storage: multer.memoryStorage() });
 const RaiseDisputeSchema = z.object({
     transaction_id: z.string().uuid(),
     raised_by: z.string().uuid(),
-    reason: z.string().min(10)
+    reason: z.string().min(10),
+    category: z.string().optional()
 });
 
 const ResolveDisputeSchema = z.object({
@@ -367,7 +369,8 @@ router.post('/raise', async (req: Request, res: Response) => {
                 transaction_id: data.transaction_id,
                 raised_by: data.raised_by,
                 reason: data.reason,
-                status: 'OPEN'
+                status: 'OPEN',
+                user_category: data.category ?? null
             })
             .select()
             .single();
@@ -382,7 +385,8 @@ router.post('/raise', async (req: Request, res: Response) => {
                 txn.amount,
                 txn.currency,
                 txn.buyer?.primary_platform || '',
-                txn.seller?.primary_platform || ''
+                txn.seller?.primary_platform || '',
+                data.category
             );
             await supabase
                 .from('disputes')
@@ -452,7 +456,7 @@ router.get('/transaction/:txnId', async (req: Request, res: Response) => {
         const { txnId } = req.params;
         const { data, error } = await supabase
             .from('disputes')
-            .select('*, raised_by_profile:profiles!raised_by(*)')
+            .select('*, raised_by_profile:profiles!raised_by(*), assigned_specialist:admin_users!assigned_admin_id(id, name, specialist_title, specialist_bio, specialties, cases_resolved, years_on_platform)')
             .eq('transaction_id', txnId)
             .order('created_at', { ascending: false })
             .limit(1)
@@ -498,7 +502,10 @@ router.get('/my-disputes', async (req: Request, res: Response) => {
             .from('disputes')
             .select(`
                 id, status, verdict_action, resolution, created_at, resolved_at,
-                is_ai_paused, ai_rounds, last_judge_payload,
+                is_ai_paused, ai_rounds, last_judge_payload, metadata,
+                assigned_specialist:admin_users!assigned_admin_id(
+                    id, name, specialist_title, specialist_bio, specialties, cases_resolved, years_on_platform
+                ),
                 transaction:transactions!transaction_id(
                     id, product_name, amount, currency, txn_code, buyer_id, seller_id,
                     buyer:profiles!buyer_id(safetag, first_name, last_name),
@@ -512,7 +519,36 @@ router.get('/my-disputes', async (req: Request, res: Response) => {
             .order('created_at', { ascending: false });
 
         if (dispErr) throw dispErr;
-        res.json(disputes || []);
+
+        // Attach latest AI/admin message snippet to each dispute
+        const disputeIds = (disputes || []).map((d: any) => d.id);
+        let snippetMap: Record<string, string> = {};
+        if (disputeIds.length > 0) {
+            const { data: snippetRows } = await supabase
+                .from('dispute_messages')
+                .select('dispute_id, content, created_at')
+                .in('dispute_id', disputeIds)
+                .in('sender_type', ['AI', 'ADMIN'])
+                .order('created_at', { ascending: false });
+
+            // Keep only latest per dispute_id
+            if (snippetRows) {
+                for (const row of snippetRows) {
+                    if (!snippetMap[row.dispute_id]) {
+                        snippetMap[row.dispute_id] = (row.content as string).slice(0, 120);
+                    }
+                }
+            }
+        }
+
+        const result = (disputes || []).map((d: any) => ({
+            ...d,
+            latest_ai_snippet: snippetMap[d.id] || null,
+            // Prefer DB relation; fall back to metadata snapshot for older disputes
+            assigned_specialist: d.assigned_specialist || d.metadata?.assigned_specialist || null,
+        }));
+
+        res.json(result);
     } catch (err: any) {
         res.status(500).json({ error: err.message });
     }
@@ -965,12 +1001,50 @@ router.post('/:id/confirm-return', async (req: Request, res: Response) => {
 });
 
 /**
+ * Escalate to Human — user-facing, sets is_ai_paused and assigns a specialist.
+ * Does NOT send push notifications (those go out when the admin actually joins).
+ */
+router.post('/:id/escalate', async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        const { data: disputeData } = await supabase
+            .from('disputes')
+            .select('dispute_type, is_ai_paused')
+            .eq('id', id)
+            .single();
+
+        if (!disputeData) return res.status(404).json({ error: 'Dispute not found' });
+
+        // Pause AI mediation
+        await supabase.from('disputes').update({ is_ai_paused: true }).eq('id', id);
+
+        // Assign best specialist via smart routing
+        const specialist = await routeDispute(id, disputeData.dispute_type);
+
+        // Insert AI system message to appear in the case thread
+        const specialistName = specialist?.name || 'a specialist';
+        await supabase.from('dispute_messages').insert({
+            dispute_id: id,
+            sender_type: 'AI',
+            content: `Your case has been escalated for human review. **${specialistName}** has been assigned and will review the full case file shortly. You can continue sending messages here — they will respond directly in this thread.`,
+        });
+
+        res.json({ success: true, specialist });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
  * Notify Join
  */
 router.post('/:id/notify-join', async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
         const { admin_name } = req.body;
+
+        await supabase.from('disputes').update({ is_ai_paused: true }).eq('id', id);
 
         const { data: disputeData } = await supabase
             .from('disputes')

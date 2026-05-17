@@ -86,7 +86,7 @@ export function VerdictCard({ dispute, safetag, profileId, onAction }: VerdictCa
   const handleEscalate = async () => {
     setActing(true);
     try {
-      await api.post(`/disputes/${dispute.id}/notify-join`, { admin_id: profileId });
+      await api.post(`/disputes/${dispute.id}/escalate`);
       onAction();
     } catch {} finally { setActing(false); }
   };
@@ -105,7 +105,7 @@ export function VerdictCard({ dispute, safetag, profileId, onAction }: VerdictCa
           </div>
           <span className="bg-emerald-600 text-white text-sm font-bold px-2.5 py-1 rounded-full">{confidence}%</span>
         </div>
-        <h2 className="text-2xl md:text-3xl font-serif font-bold text-stone-900 mb-2">
+        <h2 className="text-2xl md:text-3xl font-sans font-bold text-stone-900 mb-2">
           {VERDICT_HEADLINES[verdictAction] || 'Verdict issued.'}
         </h2>
         <p className="text-sm text-stone-600 leading-relaxed">{judgePayload.verdict_summary || ''}</p>
