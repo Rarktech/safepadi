@@ -46,7 +46,7 @@ export function ResolutionView({ dispute, messages }: ResolutionViewProps) {
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
             Resolved · Funds released
           </span>
-          <h1 className="text-3xl md:text-4xl font-serif font-bold text-stone-900">This case is settled.</h1>
+          <h1 className="text-3xl md:text-4xl font-sans font-bold text-stone-900">This case is settled.</h1>
           {resolvedAt && (
             <p className="text-sm text-stone-500 mt-2">
               Both parties accepted the verdict at{' '}
