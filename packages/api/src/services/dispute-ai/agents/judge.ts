@@ -16,6 +16,21 @@ function selectModel(tier: string): string {
 
 const VALID_ACTIONS = new Set(['REFUND_BUYER', 'PAY_SELLER', 'SPLIT', 'REFUND_AFTER_RETURN']);
 
+async function geminiWithRetry(fn: () => Promise<any>, label: string, maxAttempts = 3): Promise<any> {
+    let lastErr: any;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try { return await fn(); }
+        catch (err: any) {
+            lastErr = err;
+            if (attempt < maxAttempts) {
+                console.warn(`⚠️ [dispute-ai] ${label} attempt ${attempt} failed (${err.message}) — retrying in ${attempt * 8}s`);
+                await new Promise(r => setTimeout(r, attempt * 8000));
+            }
+        }
+    }
+    throw lastErr;
+}
+
 export async function runJudge(ctx: DisputeContext, invOut: InvestigatorOutput): Promise<JudgeOutput> {
     const prompt = buildJudgePrompt(ctx, invOut);
     const modelName = selectModel(ctx.dispute.pipeline_tier);
@@ -25,7 +40,7 @@ export async function runJudge(ctx: DisputeContext, invOut: InvestigatorOutput):
         generationConfig: { responseMimeType: 'application/json' }
     });
 
-    const result = await model.generateContent(prompt);
+    const result = await geminiWithRetry(() => model.generateContent(prompt), `Judge(${modelName})`);
     const raw = result.response.text();
 
     let judgeOut: JudgeOutput;

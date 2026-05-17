@@ -16,6 +16,21 @@ const INVESTIGATOR_FALLBACK: InvestigatorOutput = {
     user_facing_message: '⚖️ **Reviewing your case...**\n\nPlease stand by while the mediator analyses the available information.'
 };
 
+async function geminiWithRetry(fn: () => Promise<any>, label: string, maxAttempts = 3): Promise<any> {
+    let lastErr: any;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try { return await fn(); }
+        catch (err: any) {
+            lastErr = err;
+            if (attempt < maxAttempts) {
+                console.warn(`⚠️ [dispute-ai] ${label} attempt ${attempt} failed (${err.message}) — retrying in ${attempt * 8}s`);
+                await new Promise(r => setTimeout(r, attempt * 8000));
+            }
+        }
+    }
+    throw lastErr;
+}
+
 export async function runInvestigator(ctx: DisputeContext): Promise<InvestigatorOutput> {
     const prompt = buildInvestigatorPrompt(ctx);
     const imageParts = await downloadAttachmentsAsInlineParts(ctx.latestAttachments);
@@ -27,7 +42,7 @@ export async function runInvestigator(ctx: DisputeContext): Promise<Investigator
 
     const promptParts: any[] = [prompt, ...imageParts];
 
-    const result = await model.generateContent(promptParts);
+    const result = await geminiWithRetry(() => model.generateContent(promptParts), 'Investigator');
     const raw = result.response.text();
 
     const output = safeParseJSON<InvestigatorOutput>(raw, INVESTIGATOR_FALLBACK, 'Investigator');

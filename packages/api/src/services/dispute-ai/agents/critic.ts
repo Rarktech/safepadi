@@ -15,6 +15,21 @@ const APPROVED_FALLBACK: CriticOutput = {
     confidence: 0.7
 };
 
+async function geminiWithRetry(fn: () => Promise<any>, label: string, maxAttempts = 3): Promise<any> {
+    let lastErr: any;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try { return await fn(); }
+        catch (err: any) {
+            lastErr = err;
+            if (attempt < maxAttempts) {
+                console.warn(`⚠️ [dispute-ai] ${label} attempt ${attempt} failed (${err.message}) — retrying in ${attempt * 8}s`);
+                await new Promise(r => setTimeout(r, attempt * 8000));
+            }
+        }
+    }
+    throw lastErr;
+}
+
 export async function runCritic(judgeOut: JudgeOutput, ctx: DisputeContext): Promise<CriticOutput> {
     const prompt = buildCriticPrompt(judgeOut, ctx);
 
@@ -23,7 +38,7 @@ export async function runCritic(judgeOut: JudgeOutput, ctx: DisputeContext): Pro
         generationConfig: { responseMimeType: 'application/json' }
     });
 
-    const result = await model.generateContent(prompt);
+    const result = await geminiWithRetry(() => model.generateContent(prompt), 'Critic');
     const raw = result.response.text();
 
     const criticOut = safeParseJSON<CriticOutput>(raw, APPROVED_FALLBACK, 'Critic');

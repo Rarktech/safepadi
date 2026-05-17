@@ -154,7 +154,7 @@ async function sendVerdictNotifications(disputeId: string, action: string, txn: 
     }
 }
 
-async function runAIForDispute(disputeId: string, txn?: any) {
+async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
     // DB-level lock — survives server restarts (replaces in-memory Set)
     const { data: lockAcquired } = await supabase
         .from('disputes')
@@ -164,7 +164,13 @@ async function runAIForDispute(disputeId: string, txn?: any) {
         .select('id')
         .maybeSingle();
 
-    if (!lockAcquired) return;
+    if (!lockAcquired) {
+        // Lock held by in-progress pipeline — schedule one retry so new evidence isn't silently ignored
+        if (!isRetry) {
+            setTimeout(() => runAIForDispute(disputeId, txn, true), 10000);
+        }
+        return;
+    }
 
     const { processAIDispute } = require('../services/dispute-ai');
     processAIDispute(disputeId).then(async (aiResult: any) => {
