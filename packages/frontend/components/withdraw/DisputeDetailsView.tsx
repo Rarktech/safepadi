@@ -119,9 +119,12 @@ export const DisputeDetailsView = ({ txn, onBack, decodedSafetag }: DisputeDetai
                     setDispute(fetchedDispute);
                     await fetchMessages(fetchedDispute.id);
                 }
-            } catch (err) {
-                console.error(err);
-                toast.error('Could not load dispute details.');
+            } catch (err: any) {
+                if (err?.response?.status !== 404) {
+                    console.error(err);
+                    toast.error('Could not load dispute details.');
+                }
+                // 404 = no dispute for this transaction yet — silent, UI shows empty state
             } finally {
                 setLoading(false);
             }
@@ -151,8 +154,8 @@ export const DisputeDetailsView = ({ txn, onBack, decodedSafetag }: DisputeDetai
                     }
                     setDispute(fetchedDispute);
                 }
-            } catch (e) {
-                console.error('Update dispute error:', e);
+            } catch (e: any) {
+                if (e?.response?.status !== 404) console.error('Update dispute error:', e);
             }
         }, 3000);
 

@@ -468,6 +468,57 @@ router.get('/transaction/:txnId', async (req: Request, res: Response) => {
 });
 
 /**
+ * List all disputes for the authenticated user (buyer or seller)
+ */
+router.get('/my-disputes', async (req: Request, res: Response) => {
+    try {
+        const { safetag } = req.query as { safetag: string };
+        if (!safetag) return res.status(400).json({ error: 'safetag query param required' });
+
+        const { data: profile, error: profErr } = await supabase
+            .from('profiles')
+            .select('id')
+            .ilike('safetag', safetag)
+            .maybeSingle();
+        if (profErr) throw profErr;
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+        // Find all transactions where user is buyer or seller
+        const { data: txns, error: txnErr } = await supabase
+            .from('transactions')
+            .select('id')
+            .or(`buyer_id.eq.${profile.id},seller_id.eq.${profile.id}`);
+        if (txnErr) throw txnErr;
+
+        if (!txns || txns.length === 0) return res.json([]);
+
+        const txnIds = txns.map((t: any) => t.id);
+
+        const { data: disputes, error: dispErr } = await supabase
+            .from('disputes')
+            .select(`
+                id, status, verdict_action, resolution, created_at, resolved_at,
+                is_ai_paused, ai_rounds, last_judge_payload,
+                transaction:transactions!transaction_id(
+                    id, product_name, amount, currency, txn_code, buyer_id, seller_id,
+                    buyer:profiles!buyer_id(safetag, first_name, last_name),
+                    seller:profiles!seller_id(safetag, first_name, last_name)
+                ),
+                adjudication:dispute_adjudications!dispute_id(
+                    final_action, resolution_source, split_pct_buyer, low_confidence
+                )
+            `)
+            .in('transaction_id', txnIds)
+            .order('created_at', { ascending: false });
+
+        if (dispErr) throw dispErr;
+        res.json(disputes || []);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
  * Upload evidence
  */
 router.post('/:id/upload', upload.array('files', 5), async (req: Request, res: Response) => {

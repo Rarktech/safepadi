@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, Activity, Home, Send, Settings, User, Users, ShoppingBag, Bell } from 'lucide-react';
+import { Menu, Activity, Bell, Home, Send, Settings, User, Users, ShoppingBag, Scale } from 'lucide-react';
 import { isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import api from '@/lib/api';
 
@@ -23,6 +23,8 @@ import { DisputeDetailsView } from '@/components/withdraw/DisputeDetailsView';
 import { MarketplaceManagement } from '@/components/marketplace/MarketplaceManagement';
 import { NotificationsView } from '@/components/withdraw/NotificationsView';
 import { ContinueTransactionModal } from '@/components/withdraw/ContinueTransactionModal';
+import { DisputesListView } from '@/components/disputes/DisputesListView';
+import { DisputeChatPage } from '@/components/disputes/DisputeChatPage';
 
 export default function WithdrawDashboard() {
     const { safetag } = useParams() as { safetag: string };
@@ -31,7 +33,8 @@ export default function WithdrawDashboard() {
     const router = useRouter();
     const pathname = usePathname();
 
-    const [currentView, setCurrentView] = useState<'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details' | 'marketplace' | 'notifications'>('dashboard');
+    const [currentView, setCurrentView] = useState<'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details' | 'marketplace' | 'notifications' | 'disputes' | 'dispute_chat'>('dashboard');
+    const [selectedDispute, setSelectedDispute] = useState<any>(null);
     const [unreadNotifCount, setUnreadNotifCount] = useState(0);
     const [continueModal, setContinueModal] = useState<{ txnId: string; txnCode: string; txnTitle: string } | null>(null);
     const [balances, setBalances] = useState<any[]>([]);
@@ -368,6 +371,21 @@ export default function WithdrawDashboard() {
                                 onUnreadCountChange={setUnreadNotifCount}
                             />
                         </div>
+                    ) : currentView === 'disputes' ? (
+                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
+                            <DisputesListView
+                                safetag={decodedSafetag}
+                                onSelectDispute={(d) => { setSelectedDispute(d); setCurrentView('dispute_chat'); }}
+                            />
+                        </div>
+                    ) : currentView === 'dispute_chat' && selectedDispute ? (
+                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full flex flex-col">
+                            <DisputeChatPage
+                                dispute={selectedDispute}
+                                safetag={decodedSafetag}
+                                onBack={() => { setSelectedDispute(null); setCurrentView('disputes'); }}
+                            />
+                        </div>
                     ) : currentView === 'dispute_details' && selectedTxn ? (
                         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 md:p-0 pb-24 md:pb-0">
                             <DisputeDetailsView
@@ -473,16 +491,11 @@ export default function WithdrawDashboard() {
                         </div>
                     </button>
                     <button
-                        onClick={() => router.push(`${pathname}?view=notifications`)}
-                        className={`flex-1 flex flex-col items-center justify-center py-2 transition-all duration-300 ${currentView === 'notifications' ? 'scale-110' : 'opacity-40 hover:opacity-100'}`}
+                        onClick={() => setCurrentView('disputes')}
+                        className={`flex-1 flex flex-col items-center justify-center py-2 transition-all duration-300 ${(currentView === 'disputes' || currentView === 'dispute_chat') ? 'scale-110' : 'opacity-40 hover:opacity-100'}`}
                     >
-                        <div className={`relative p-2 rounded-full transition-colors ${currentView === 'notifications' ? 'bg-[#10b981] shadow-lg shadow-emerald-500/20' : ''}`}>
-                            <Bell size={20} className="text-white" />
-                            {unreadNotifCount > 0 && (
-                                <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center leading-none">
-                                    {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
-                                </span>
-                            )}
+                        <div className={`p-2 rounded-full transition-colors ${(currentView === 'disputes' || currentView === 'dispute_chat') ? 'bg-[#10b981] shadow-lg shadow-emerald-500/20' : ''}`}>
+                            <Scale size={20} className="text-white" />
                         </div>
                     </button>
                 </nav>

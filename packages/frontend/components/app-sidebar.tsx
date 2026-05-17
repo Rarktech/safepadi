@@ -6,6 +6,7 @@ import {
   ArrowRightLeft,
   Home,
   LogOut,
+  Scale,
   Send,
   Settings,
   Users,
@@ -48,6 +49,11 @@ const data = {
       icon: Activity,
     },
     {
+      title: "Disputes",
+      url: "#",
+      icon: Scale,
+    },
+    {
       title: "Withdraw",
       url: "#",
       icon: Send,
@@ -72,7 +78,7 @@ const data = {
   ],
 }
 
-type ViewType = 'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details' | 'marketplace' | 'notifications'
+type ViewType = 'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details' | 'marketplace' | 'notifications' | 'disputes' | 'dispute_chat'
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   currentView?: ViewType
@@ -99,7 +105,8 @@ export function AppSidebar({ currentView: propCurrentView, setCurrentView: propS
       (item.title === 'My Transactions' && currentView === 'transactions') ||
       (item.title === 'Withdraw' && currentView === 'withdraw') ||
       (item.title === 'Referrals' && currentView === 'referrals') ||
-      (item.title === 'Marketplace' && currentView === 'marketplace')
+      (item.title === 'Marketplace' && currentView === 'marketplace') ||
+      (item.title === 'Disputes' && (currentView === 'disputes' || currentView === 'dispute_chat'))
   }))
 
   const handleNavClick = (title: string) => {
@@ -108,6 +115,7 @@ export function AppSidebar({ currentView: propCurrentView, setCurrentView: propS
     if (title === 'Withdraw') setCurrentView('withdraw')
     if (title === 'Referrals') setCurrentView('referrals')
     if (title === 'Marketplace') setCurrentView('marketplace')
+    if (title === 'Disputes') setCurrentView('disputes')
   }
 
   return (
