@@ -3,6 +3,7 @@ import axios from 'axios';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import crypto from 'crypto';
+import { buildMagicLink } from './utils/magicLink';
 import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../shared/src/feedbackPrompts';
 
 // Handle Environment Variables relative to the root .env
@@ -102,10 +103,17 @@ async function sendJivoChatMessage(clientId: string, chatId: string, messagePayl
 // JivoChat Webhook Endpoint
 app.post('/webhook/:token', (req, res) => {
     const { token } = req.params;
-    
-    // Security check: Ignore if the token doesn't match
-    if (JIVO_TOKEN && token !== JIVO_TOKEN) {
-        console.warn(`⚠️ Blocked unauthorized webhook request with token: ${token}`);
+
+    // Fail-closed: reject all requests if JIVO_TOKEN is not configured
+    if (!JIVO_TOKEN) {
+        console.error('❌ JIVO_TOKEN not configured — rejecting webhook request');
+        return res.status(503).send('Webhook token not configured');
+    }
+
+    // Constant-time comparison to prevent timing attacks
+    if (token.length !== JIVO_TOKEN.length ||
+        !require('crypto').timingSafeEqual(Buffer.from(token), Buffer.from(JIVO_TOKEN))) {
+        console.warn(`⚠️ Blocked unauthorized webhook request`);
         return res.status(403).send('Unauthorized');
     }
 
@@ -211,7 +219,7 @@ app.post('/webhook/:token', (req, res) => {
 
                         const cleanSafetag = safetag.startsWith('@') ? safetag : `@${safetag}`;
                         const referralLink = `${FRONTEND_URL}/${cleanSafetag}`;
-                        const withdrawLink = `${FRONTEND_URL}/withdraw/${encodeURIComponent(safetag)}?viewer=${encodeURIComponent(safetag)}#referrals`;
+                        const withdrawLink = (await buildMagicLink({ platform_id: clientId, scope: 'withdraw', fallbackUrl: `${FRONTEND_URL}/withdraw/${encodeURIComponent(safetag)}` })) + '#referrals';
 
                         const earningsLines = stats.earningsByCurrency?.length
                             ? stats.earningsByCurrency.map((e: any) => `  • ${fmtAmt(e.totalEarned, e.currency)}`).join('\n')
@@ -375,7 +383,7 @@ app.post('/webhook/:token', (req, res) => {
                         });
 
                         // 2. Standalone Profile Preview Link (Integrated Browser trigger)
-                        const profileLink = `${FRONTEND_URL}/reviews/${encodeURIComponent(res.data.safetag)}?viewer=${encodeURIComponent(safetag)}`;
+                        const profileLink = `${FRONTEND_URL}/reviews/${encodeURIComponent(res.data.safetag)}`;
                         await sendJivoChatMessage(clientId, chatId, {
                             type: 'TEXT',
                             text: profileLink
@@ -779,7 +787,12 @@ app.post('/webhook/:token', (req, res) => {
                         const mode = isLoginSelect ? 'login' : 'register';
                         console.log(`[BOT STEP] 3: User ${clientId} selected ${mode}. Sending direct link.`);
                         
-                        const magicLink = `${FRONTEND_URL}/apple-auth?apple_id=${encodeURIComponent(clientId)}&mode=${mode}`;
+                        // Sign the apple_id + mode + expiry so it can't be replayed or forged
+                        const exp = Date.now() + 5 * 60 * 1000; // 5 min
+                        const secret = process.env.JIVO_TOKEN || process.env.BOT_API_SECRET || 'change-me';
+                        const payload = `${clientId}:${mode}:${exp}`;
+                        const sig = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
+                        const magicLink = `${FRONTEND_URL}/apple-auth?tok=${encodeURIComponent(payload)}&sig=${encodeURIComponent(sig)}`;
                         
                         // To trigger the 'Integrated Browser' (Safari View Controller) in iMessage,
                         // we send the URL as a standalone TEXT message. iOS will auto-expand this 

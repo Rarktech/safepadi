@@ -68,17 +68,7 @@ export function VerdictCard({ dispute, safetag, profileId, onAction }: VerdictCa
   const handleAccept = async () => {
     setActing(true);
     try {
-      const rtMap: Record<string, string> = {
-        REFUND_BUYER: 'REFUND_BUYER',
-        PAY_SELLER: 'PAY_SELLER',
-        SPLIT: 'SPLIT',
-        REFUND_AFTER_RETURN: 'REFUND_AFTER_RETURN',
-      };
-      await api.post(`/disputes/${dispute.id}/resolve`, {
-        resolution_type: rtMap[verdictAction] || verdictAction,
-        resolution_notes: 'Accepted via user dashboard',
-        ...(verdictAction === 'SPLIT' ? { buyer_amount: buyerAmount, seller_amount: sellerAmount } : {}),
-      });
+      await api.post(`/disputes/${dispute.id}/accept-verdict`);
       onAction();
     } catch { /* verdict may auto-resolve */ } finally { setActing(false); }
   };

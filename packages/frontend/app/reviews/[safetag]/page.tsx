@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import styles from './reviews.module.css';
 
 import { SkeletonReviews } from '@/components/skeletons/SkeletonReviews';
@@ -82,9 +82,9 @@ function ReplyModal({
             const res = await fetch(`${API_URL}/reviews/reply`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({
                     review_id: review.id,
-                    responder_safetag: viewerSafetag,
                     comment: text.trim(),
                 }),
             });
@@ -165,7 +165,8 @@ function ReviewCard({
             await fetch(`${API_URL}/reviews/vote`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ review_id: review.id, voter_safetag: viewerSafetag, vote_type: type }),
+                credentials: 'include',
+                body: JSON.stringify({ review_id: review.id, vote_type: type }),
             });
             onRefresh();
         } catch { /* silently ignore */ }
@@ -263,15 +264,19 @@ function ReviewCard({
 /* ─── Main Page ─── */
 export default function ReviewsPage() {
     const { safetag } = useParams() as { safetag: string };
-    const searchParams = useSearchParams();
 
     // Decode the profile safetag from the URL path
     const profileSafetag = decodeURIComponent(safetag);
 
-    // Magic-link: viewer identity comes from ?viewer=@safetag query param
-    // The bot encodes the bot user's safetag here when generating the link
-    const viewerParam = searchParams.get('viewer');
-    const viewerSafetag = viewerParam ? decodeURIComponent(viewerParam) : null;
+    // Viewer identity comes from the session (sf_session cookie via /auth/me)
+    const [viewerSafetag, setViewerSafetag] = useState<string | null>(null);
+
+    useEffect(() => {
+        fetch(`${API_URL}/auth/me`, { credentials: 'include', headers: { 'ngrok-skip-browser-warning': 'true' } })
+            .then(r => r.ok ? r.json() : null)
+            .then(d => { if (d?.safetag) setViewerSafetag(d.safetag); })
+            .catch(() => {});
+    }, []);
 
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(true);

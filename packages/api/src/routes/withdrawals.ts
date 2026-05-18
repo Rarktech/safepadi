@@ -3,22 +3,20 @@ import { supabase } from '@safepal/shared';
 import { z } from 'zod';
 import { routeNotification, recordNotification } from '../services/notifications';
 import { sendWithdrawalInitiatedEmail } from '../services/email';
+import { requireUser, requireSafetagOwner, requireElevation, AuthedRequest } from '../middleware/requireUser';
 
 const router = Router();
 
 // Create a withdrawal request
-router.post('/:safetag', async (req, res) => {
+router.post('/:safetag', requireUser, requireSafetagOwner, requireElevation('withdraw'), async (req, res) => {
     try {
-        const { safetag } = req.params;
         const { amount, currency, payout_method_id, details } = req.body;
-
-        const withAt = safetag.startsWith('@') ? safetag : `@${safetag}`;
-        const withoutAt = safetag.startsWith('@') ? safetag.slice(1) : safetag;
+        const profileId = (req as AuthedRequest).user.sub;
 
         const { data: profile } = await supabase
             .from('profiles')
             .select('id, email, safetag, kyc_status')
-            .or(`safetag.ilike.${withAt},safetag.ilike.${withoutAt}`)
+            .eq('id', profileId)
             .maybeSingle();
 
         if (!profile) return res.status(404).json({ error: 'Profile not found' });
@@ -69,24 +67,14 @@ router.post('/:safetag', async (req, res) => {
 });
 
 // Get withdrawal history for a profile
-router.get('/:safetag', async (req, res) => {
+router.get('/:safetag', requireUser, requireSafetagOwner, async (req, res) => {
     try {
-        const { safetag } = req.params;
-        const withAt = safetag.startsWith('@') ? safetag : `@${safetag}`;
-        const withoutAt = safetag.startsWith('@') ? safetag.slice(1) : safetag;
-
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('id')
-            .or(`safetag.ilike.${withAt},safetag.ilike.${withoutAt}`)
-            .maybeSingle();
-
-        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+        const profileId = (req as AuthedRequest).user.sub;
 
         const { data, error } = await supabase
             .from('withdrawals')
             .select('*')
-            .eq('profile_id', profile.id)
+            .eq('profile_id', profileId)
             .order('created_at', { ascending: false });
 
         if (error) throw error;

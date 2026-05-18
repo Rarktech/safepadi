@@ -40,9 +40,8 @@ export default function AdminKYCList() {
     useEffect(() => {
         const fetchKyc = async () => {
             try {
-                const token = localStorage.getItem("safepadi_admin_token");
                 const res = await axios.get(`${API_URL}/admin/kyc`, {
-                    headers: { Authorization: `Bearer ${token}` }
+                    withCredentials: true,
                 });
                 setData(res.data);
             } catch (err) {

@@ -12,6 +12,7 @@ import { reviewScene } from './scenes/review';
 import { feedbackScene } from './scenes/feedback';
 import { disputeScene } from './scenes/dispute';
 import { accountDeletionScene } from './scenes/account_deletion';
+import { buildMagicLink } from './utils/magicLink';
 import { communityLicensingScene } from './scenes/community_licensing';
 import { communityWithdrawScene } from './scenes/community_withdraw';
 import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
@@ -303,11 +304,12 @@ bot.action('reviews', async (ctx) => {
 
         const msg = `⭐ <b>Reviews & Ratings</b>\n\nYou have a trust score of <b>${rating.toFixed(1)}/5 ${stars}</b> (based on <b>${review_count}</b> reviews).${badgeList}\n\nYou can view your full review history on our external platform.`;
 
+        const reviewsUrl = await buildMagicLink({ platform_id: String(ctx.from!.id), scope: 'reviews', fallbackUrl: `${REVIEWS_URL}/reviews/${encodeURIComponent(safetag)}` });
         return ctx.reply(msg, {
             parse_mode: 'HTML',
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: '👌 View Reviews', url: `${REVIEWS_URL}/reviews/${encodeURIComponent(safetag)}?viewer=${encodeURIComponent(safetag)}` }],
+                    [{ text: '👌 View Reviews', url: reviewsUrl }],
                     [{ text: '🔙 Main Menu', callback_data: 'main_menu' }]
                 ]
             }
@@ -341,9 +343,10 @@ bot.action('referral', async (ctx) => {
 
         const msg = `🎁 <b>My Referrals</b>\n\nInvite friends and earn up to <b>1.5% commision for life on all secured purchases</b>!\n\n🔗 <b>Your Invite Link:</b>\n<code>${referralLink}</code>\n\n📊 <b>Statistics:</b>\n👥 Tier 1 Referrals: <b>${stats.tier1Count}</b>\n👥 Tier 2 Referrals: <b>${stats.tier2Count}</b>\n💰 <b>Commissions Earned:</b>\n${earningsLines}`;
 
+        const referralWithdrawUrl = (await buildMagicLink({ platform_id: String(ctx.from!.id), scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}` })) + '#referrals';
         const markup = {
             inline_keyboard: [
-                [{ text: '💸 Withdraw Earnings', url: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}?viewer=${encodeURIComponent(safetag)}#referrals` }],
+                [{ text: '💸 Withdraw Earnings', url: referralWithdrawUrl }],
                 [{ text: '🔙 Main Menu', callback_data: 'main_menu' }]
             ]
         };
@@ -406,11 +409,12 @@ bot.action('balance', async (ctx) => {
             msg += '\n<i>Balances are calculated from your completed (finalized) sales.</i>';
         }
 
+        const withdrawUrl = await buildMagicLink({ platform_id: String(ctx.from!.id), scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}` });
         return ctx.reply(msg, {
             parse_mode: 'HTML',
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: '💸 Withdraw Funds', url: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}?viewer=${encodeURIComponent(safetag)}` }],
+                    [{ text: '💸 Withdraw Funds', url: withdrawUrl }],
                     [{ text: '🔙 Main Menu', callback_data: 'main_menu' }]
                 ]
             }
@@ -441,8 +445,8 @@ bot.action('settings', async (ctx) => {
                     `👤 Name: ${safeName}\n\n` +
                     `Manage your account and privacy preferences below:`;
 
-        const kycUrl = `${REVIEWS_URL}/kyc?viewer=${encodeURIComponent(p.safetag)}`;
-        const useWebApp = REVIEWS_URL && REVIEWS_URL.startsWith('https');
+        const kycUrl = await buildMagicLink({ platform_id: String(ctx.from!.id), scope: 'kyc', fallbackUrl: `${REVIEWS_URL}/kyc` });
+        const useWebApp = kycUrl.startsWith('https');
 
         await ctx.reply(msg, {
             parse_mode: 'HTML',
@@ -476,8 +480,8 @@ bot.action('other_settings', async (ctx) => {
     try {
         const profileRes = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
         const p = profileRes.data;
-        const kycUrl = `${REVIEWS_URL}/kyc?viewer=${encodeURIComponent(p.safetag)}`;
-        const useWebApp = REVIEWS_URL && REVIEWS_URL.startsWith('https');
+        const kycUrl = await buildMagicLink({ platform_id: String(ctx.from!.id), scope: 'kyc', fallbackUrl: `${REVIEWS_URL}/kyc` });
+        const useWebApp = kycUrl.startsWith('https');
         await ctx.reply('⚙️ <b>Other Settings</b>\n\nManage linked accounts and identity verification:', {
             parse_mode: 'HTML',
             reply_markup: {

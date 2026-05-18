@@ -51,9 +51,8 @@ export default function AdminKYCDetails() {
     useEffect(() => {
         const fetchDetails = async () => {
             try {
-                const token = localStorage.getItem("safepadi_admin_token");
                 const res = await axios.get(`${API_URL}/admin/kyc/${params.id}`, {
-                    headers: { Authorization: `Bearer ${token}` }
+                    withCredentials: true,
                 });
                 setKyc(res.data);
             } catch (err) {
@@ -69,19 +68,14 @@ export default function AdminKYCDetails() {
     const handleAction = async (type: 'approve' | 'reject') => {
         setProcessing(true);
         try {
-            const token = localStorage.getItem("safepadi_admin_token");
-            await axios.post(`${API_URL}/admin/kyc/${params.id}/${type}`, { 
-                reason: type === 'reject' ? rejectionReason : undefined 
-            }, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            
+            await axios.post(`${API_URL}/admin/kyc/${params.id}/${type}`, {
+                reason: type === 'reject' ? rejectionReason : undefined
+            }, { withCredentials: true });
+
             toast.success(`KYC ${type === 'approve' ? 'Approved' : 'Rejected'} successfully`);
             setRejectDialogOpen(false);
             // Refresh
-            const res = await axios.get(`${API_URL}/admin/kyc/${params.id}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const res = await axios.get(`${API_URL}/admin/kyc/${params.id}`, { withCredentials: true });
             setKyc(res.data);
         } catch (err: any) {
             toast.error(err.response?.data?.error || "Action failed");

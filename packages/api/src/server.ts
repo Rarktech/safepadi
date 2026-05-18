@@ -5,6 +5,12 @@ if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 }
 
+// Fail fast on missing secrets — never allow the server to start insecurely
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+    console.error('FATAL: JWT_SECRET env var is not set or is too short (min 32 chars). Refusing to start.');
+    process.exit(1);
+}
+
 console.log(`📡 API Starting up...`);
 console.log(`🔗 API_URL: ${process.env.API_URL || 'Not Set'}`);
 console.log(`🔗 DATABASE_URL: ${process.env.SUPABASE_URL || 'Not Set'}`);
@@ -12,6 +18,7 @@ console.log(`🔗 DATABASE_URL: ${process.env.SUPABASE_URL || 'Not Set'}`);
 import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
+import cookieParser from 'cookie-parser';
 import profileRoutes from './routes/profiles';
 import transactionRoutes from './routes/transactions';
 import reviewRoutes from './routes/reviews';
@@ -23,6 +30,7 @@ import waitlistRoutes from './routes/waitlist';
 import receiptRoutes from './routes/receipts';
 import adminRoutes from './routes/admin';
 import authRoutes from './routes/auth';
+import magicLinkRoutes from './routes/magicLink';
 import marketplaceRoutes from './routes/marketplace';
 import notificationRoutes from './routes/notifications';
 import communityRoutes from './routes/communities';
@@ -39,11 +47,19 @@ import { runDisputeEnforcement } from './cron/disputeEnforcement';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:3001,http://127.0.0.1:3001')
+    .split(',').map(o => o.trim()).filter(Boolean);
 app.use(cors({
-    origin: '*',
+    origin: (origin, callback) => {
+        // Allow server-to-server calls (no origin) and whitelisted origins
+        if (!origin || CORS_ORIGINS.includes(origin)) return callback(null, true);
+        callback(new Error(`CORS: origin ${origin} not allowed`));
+    },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['*']
+    allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
+    credentials: true
 }));
+app.use(cookieParser());
 app.use(bodyParser.json({
     verify: (req: any, _res, buf) => {
         req.rawBody = buf.toString();
@@ -97,6 +113,7 @@ app.get('/api/ping', (req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
 });
 app.use('/api/auth', authRoutes);
+app.use('/api/auth/magic-link', magicLinkRoutes);
 
 // Global error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

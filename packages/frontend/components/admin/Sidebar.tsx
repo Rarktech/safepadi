@@ -20,6 +20,9 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
+import axios from "axios";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api";
 
 const menuItems = [
     { name: "Dashboard", icon: LayoutDashboard, href: "/admin/dashboard" },
@@ -46,13 +49,13 @@ export default function AdminSidebar() {
     const [role, setRole] = useState<"SUPER_ADMIN" | "DISPUTER">("SUPER_ADMIN");
 
     useEffect(() => {
-        const savedRole = localStorage.getItem("safepadi_admin_role");
-        if (savedRole === "DISPUTER") setRole("DISPUTER");
+        axios.get(`${API_URL}/admin/auth/me`, { withCredentials: true })
+            .then(res => { if (res.data.role === "DISPUTER") setRole("DISPUTER"); })
+            .catch(() => {});
     }, []);
 
-    const handleLogout = () => {
-        localStorage.removeItem("safepadi_admin_token");
-        localStorage.removeItem("safepadi_admin_role");
+    const handleLogout = async () => {
+        await axios.post(`${API_URL}/admin/auth/logout`, {}, { withCredentials: true }).catch(() => {});
         router.push("/admin/login");
     };
 

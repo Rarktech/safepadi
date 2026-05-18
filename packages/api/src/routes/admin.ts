@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { sendNotification, recordNotification } from '../services/notifications';
 import { sendEmail } from '../services/email';
+import { buildInternalMagicLink } from '../services/magicLinkInternal';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
@@ -36,11 +37,18 @@ router.post('/auth/login', async (req, res) => {
         if (!isValid) return res.status(401).json({ error: 'Invalid credentials (Password Mismatch)' });
 
         const token = jwt.sign(
-            { id: admin.id, role: admin.role, email: admin.email },
-            process.env.JWT_SECRET || 'safepadi_admin_super_secret',
-            { expiresIn: '24h' }
+            { id: admin.id, role: admin.role, email: admin.email, typ: 'admin' },
+            process.env.JWT_SECRET!,
+            { expiresIn: '24h', algorithm: 'HS256' }
         );
 
+        res.cookie('sf_admin', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 24 * 60 * 60 * 1000,
+            path: '/',
+        });
         res.json({ token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role } });
     } catch (err: any) {
         console.error("❌ Login exception:", err);
@@ -48,12 +56,30 @@ router.post('/auth/login', async (req, res) => {
     }
 });
 
+router.get('/auth/me', (req: any, res: any) => {
+    const token = req.headers.authorization?.split(' ')[1] || req.cookies?.sf_admin;
+    if (!token) return res.status(401).json({ error: 'NOT_AUTHENTICATED' });
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET!, { algorithms: ['HS256'] }) as any;
+        if (decoded.typ !== 'admin') return res.status(403).json({ error: 'ADMIN_REQUIRED' });
+        res.json({ email: decoded.email, role: decoded.role, id: decoded.id });
+    } catch {
+        res.status(401).json({ error: 'INVALID_TOKEN' });
+    }
+});
+
+router.post('/auth/logout', (req: any, res: any) => {
+    res.clearCookie('sf_admin', { path: '/' });
+    res.json({ success: true });
+});
+
 const adminAuthMiddleware = (req: any, res: any, next: any) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
+        const token = req.headers.authorization?.split(' ')[1] || req.cookies?.sf_admin;
         if (!token) return res.status(401).json({ error: 'Unauthorized: No token provided' });
-        
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'safepadi_admin_super_secret');
+
+        const decoded = jwt.verify(token, process.env.JWT_SECRET!, { algorithms: ['HS256'] });
+        if ((decoded as any).typ !== 'admin') throw new Error('Invalid token type');
         req.admin = decoded;
         next();
     } catch (err) {
@@ -1075,10 +1101,11 @@ router.post('/kyc/:id/reject', async (req, res) => {
         
         if (linked) {
             const frontendUrl = process.env.REVIEWS_URL || 'https://safeeely.com';
+            const kycRetryUrl = await buildInternalMagicLink({ profileId: kyc.profile_id, safetag: kyc.profile.safetag, platform: linked.platform, platformId: linked.platform_id, scope: 'kyc' });
             const msg = `⚠️ **KYC Verification Issue**\n\nHello @${kyc.profile.safetag}, unfortunately your recent KYC submission was not approved for the following reason:\n\n📝 **Reason:** ${reason}\n\nNo worries! You can quickly correct this and retry. Click the button below to update your details. 🔄`;
 
             await sendNotification(linked.platform, linked.platform_id, msg, [
-                { label: "Retry KYC Verification 🔎", url: `${frontendUrl}/kyc?viewer=${kyc.profile.safetag}` }
+                { label: "Retry KYC Verification 🔎", url: kycRetryUrl }
             ]);
         }
         recordNotification(kyc.profile_id, 'kyc', '⚠️ KYC Rejected', `KYC submission rejected: ${reason}`, { link_url: '/kyc', reason }).catch(() => {});
@@ -1087,7 +1114,7 @@ router.post('/kyc/:id/reject', async (req, res) => {
             sendEmail({
                 to: kyc.profile.email,
                 subject: '⚠️ KYC Submission Rejected — Please Resubmit',
-                html: `<div style="font-family:sans-serif;max-width:520px;margin:auto;padding:32px;background:#fff;border-radius:16px;border:1px solid #e2e8f0"><h2 style="color:#dc2626">KYC Rejected</h2><p>Hi <b>@${kyc.profile.safetag}</b>,</p><p>Your KYC submission was not approved.</p><p><b>Reason:</b> ${reason}</p><p>Please <a href="${frontendUrl}/kyc?viewer=${kyc.profile.safetag}">resubmit your documents</a> to complete verification.</p></div>`
+                html: `<div style="font-family:sans-serif;max-width:520px;margin:auto;padding:32px;background:#fff;border-radius:16px;border:1px solid #e2e8f0"><h2 style="color:#dc2626">KYC Rejected</h2><p>Hi <b>@${kyc.profile.safetag}</b>,</p><p>Your KYC submission was not approved.</p><p><b>Reason:</b> ${reason}</p><p>Please resubmit your documents via the Safeeely app to complete verification.</p></div>`
             }).catch(() => {});
         }
 

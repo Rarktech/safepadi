@@ -11,7 +11,6 @@ declare global {
 }
 
 import { useState, useEffect, useMemo, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
 import { 
     ArrowLeft, 
     UploadCloud, 
@@ -62,13 +61,14 @@ const labelClasses = "text-[10px] font-black text-emerald-600 uppercase tracking
 const btnClasses = "w-full h-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-[20px] font-black text-sm uppercase tracking-widest shadow-xl shadow-emerald-600/20 transition-all disabled:opacity-50 disabled:shadow-none";
 
 function KYCVerification() {
-    let safetag = "";
-    try {
-        const searchParams = useSearchParams();
-        safetag = searchParams.get('viewer') || '';
-    } catch { /* Ignore hydration */ }
-
+    const [safetag, setSafetag] = useState("");
     const [step, setStep] = useState(1);
+
+    useEffect(() => {
+        axios.get(`${API_URL}/auth/me`, { withCredentials: true })
+            .then(res => { if (res.data?.safetag) setSafetag(res.data.safetag); })
+            .catch(() => {});
+    }, []);
     const [isSubmitting, setIsSubmitting] = useState(false);
     
     // Data states

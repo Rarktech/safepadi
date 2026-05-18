@@ -3,6 +3,7 @@ import { supabase } from '@safepal/shared';
 import { z } from 'zod';
 import { sendNotification, routeNotification, recordNotification } from '../services/notifications';
 import { sendReviewReceivedEmail } from '../services/email';
+import { requireUser, AuthedRequest } from '../middleware/requireUser';
 
 const router = Router();
 
@@ -178,17 +179,18 @@ router.get('/user/:safetag', async (req, res) => {
     }
 });
 
-router.post('/reply', async (req, res) => {
+router.post('/reply', requireUser, async (req, res) => {
     try {
-        const { review_id, responder_safetag, comment } = req.body;
-        const { data: profile } = await supabase.from('profiles').select('id').eq('safetag', responder_safetag).single();
-        if (!profile) return res.status(404).json({ error: 'Responder not found' });
+        const user = (req as AuthedRequest).user;
+        const { review_id, comment } = req.body;
+        const profileId = user.sub;
+        const responderSafetag = user.safetag;
 
         const { data: reply, error } = await supabase
             .from('review_replies')
             .insert({
                 review_id,
-                responder_id: profile.id,
+                responder_id: profileId,
                 comment
             })
             .select()
@@ -198,9 +200,9 @@ router.post('/reply', async (req, res) => {
 
         // Notify the original reviewer that their review received a reply
         const { data: originalReview } = await supabase.from('reviews').select('reviewer_id').eq('id', review_id).single();
-        if (originalReview && originalReview.reviewer_id !== profile.id) {
-            routeNotification(originalReview.reviewer_id, `💬 <b>${responder_safetag}</b> replied to your review:\n\n"${comment}"`).catch(() => {});
-            recordNotification(originalReview.reviewer_id, 'review', '💬 Reply to Your Review', `${responder_safetag} replied: "${comment?.substring(0, 80)}"`, { review_id, responder_safetag, link_url: '/dashboard' }).catch(() => {});
+        if (originalReview && originalReview.reviewer_id !== profileId) {
+            routeNotification(originalReview.reviewer_id, `💬 <b>${responderSafetag}</b> replied to your review:\n\n"${comment}"`).catch(() => {});
+            recordNotification(originalReview.reviewer_id, 'review', '💬 Reply to Your Review', `${responderSafetag} replied: "${comment?.substring(0, 80)}"`, { review_id, responder_safetag: responderSafetag, link_url: '/dashboard' }).catch(() => {});
         }
 
         res.status(201).json(reply);
@@ -209,17 +211,16 @@ router.post('/reply', async (req, res) => {
     }
 });
 
-router.post('/vote', async (req, res) => {
+router.post('/vote', requireUser, async (req, res) => {
     try {
-        const { review_id, voter_safetag, vote_type } = req.body;
-        const { data: profile } = await supabase.from('profiles').select('id').eq('safetag', voter_safetag).single();
-        if (!profile) return res.status(404).json({ error: 'Voter not found' });
+        const user = (req as AuthedRequest).user;
+        const { review_id, vote_type } = req.body;
 
         const { data: vote, error } = await supabase
             .from('review_votes')
             .upsert({
                 review_id,
-                voter_id: profile.id,
+                voter_id: user.sub,
                 vote_type
             }, { onConflict: 'review_id,voter_id' })
             .select()

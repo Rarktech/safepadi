@@ -252,8 +252,6 @@ export function DisputeChatPage({ dispute: initialDispute, safetag, onBack }: Di
         attachments = upRes.data || [];
       }
       await api.post(`/disputes/${dispute.id}/messages`, {
-        sender_id: profileId,
-        sender_type: 'USER',
         content: input.trim(),
         attachments,
       });

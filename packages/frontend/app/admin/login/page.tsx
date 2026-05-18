@@ -21,11 +21,9 @@ export default function AdminLogin() {
 
         try {
             const res = await axios.post(`${API_URL}/admin/auth/login`, formData, {
-                headers: { 'ngrok-skip-browser-warning': 'true' }
+                headers: { 'ngrok-skip-browser-warning': 'true' },
+                withCredentials: true,
             });
-
-            localStorage.setItem("safepadi_admin_token", res.data.token);
-            localStorage.setItem("safepadi_admin_role", res.data.user.role);
             
             toast.success("Authentication Validated", {
                 description: `Welcome back, ${res.data.user.name}`

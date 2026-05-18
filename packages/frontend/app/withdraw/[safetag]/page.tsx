@@ -127,6 +127,13 @@ export default function WithdrawDashboard() {
     const loadData = useCallback(async () => {
         setLoading(true);
         try {
+            // Verify session belongs to this dashboard's safetag
+            const meRes = await api.get('/auth/me').catch(() => null);
+            if (meRes?.data?.safetag && meRes.data.safetag.toLowerCase() !== decodedSafetag.toLowerCase()) {
+                router.replace('/login?reason=forbidden');
+                return;
+            }
+
             console.log('🔄 Loading Dashboard Data for:', decodedSafetag);
 
             const [balRes, profRes, txnsRes, statsRes] = await Promise.all([

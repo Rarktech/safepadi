@@ -9,6 +9,8 @@ import { classifyDisputeType } from '../services/dispute-ai/classifier';
 import { quickTierHint } from '../services/dispute-ai/config/disputeTypes';
 import { issueReferralCommissions } from '../services/commissions';
 import { routeDispute } from '../services/disputeRouter';
+import { requireUser, AuthedRequest } from '../middleware/requireUser';
+import { requireAdmin } from '../middleware/requireAdmin';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -340,9 +342,11 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
 /**
  * Raise a dispute
  */
-router.post('/raise', async (req: Request, res: Response) => {
+router.post('/raise', requireUser, async (req: Request, res: Response) => {
     try {
-        const data = RaiseDisputeSchema.parse(req.body);
+        const user = (req as AuthedRequest).user;
+        // Override raised_by — always use the authenticated user, never trust body
+        const data = RaiseDisputeSchema.parse({ ...req.body, raised_by: user.sub });
 
         const { data: txn, error: txnError } = await supabase
             .from('transactions')
@@ -474,24 +478,15 @@ router.get('/transaction/:txnId', async (req: Request, res: Response) => {
 /**
  * List all disputes for the authenticated user (buyer or seller)
  */
-router.get('/my-disputes', async (req: Request, res: Response) => {
+router.get('/my-disputes', requireUser, async (req: Request, res: Response) => {
     try {
-        const { safetag } = req.query as { safetag: string };
-        if (!safetag) return res.status(400).json({ error: 'safetag query param required' });
-
-        const { data: profile, error: profErr } = await supabase
-            .from('profiles')
-            .select('id')
-            .ilike('safetag', safetag)
-            .maybeSingle();
-        if (profErr) throw profErr;
-        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+        const profileId = (req as AuthedRequest).user.sub;
 
         // Find all transactions where user is buyer or seller
         const { data: txns, error: txnErr } = await supabase
             .from('transactions')
             .select('id')
-            .or(`buyer_id.eq.${profile.id},seller_id.eq.${profile.id}`);
+            .or(`buyer_id.eq.${profileId},seller_id.eq.${profileId}`);
         if (txnErr) throw txnErr;
 
         if (!txns || txns.length === 0) return res.json([]);
@@ -557,10 +552,23 @@ router.get('/my-disputes', async (req: Request, res: Response) => {
 /**
  * Upload evidence
  */
-router.post('/:id/upload', upload.array('files', 20), async (req: Request, res: Response) => {
+router.post('/:id/upload', requireUser, upload.array('files', 20), async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
+        const user = (req as AuthedRequest).user;
+        const id = String(req.params.id);
         const files = req.files as Express.Multer.File[];
+
+        // Verify uploader is a party to this dispute
+        const { data: disputeParties } = await supabase
+            .from('disputes')
+            .select('transaction:transaction_id(buyer_id, seller_id)')
+            .eq('id', id)
+            .single();
+        if (!disputeParties) return res.status(404).json({ error: 'Dispute not found' });
+        const dt = (disputeParties as any).transaction;
+        if (user.sub !== dt?.buyer_id && user.sub !== dt?.seller_id) {
+            return res.status(403).json({ error: 'FORBIDDEN' });
+        }
 
         console.log(`📤 Upload request for dispute ${id}. Files:`, files?.length);
 
@@ -610,9 +618,23 @@ router.post('/:id/upload', upload.array('files', 20), async (req: Request, res: 
 /**
  * Get messages
  */
-router.get('/:id/messages', async (req: Request, res: Response) => {
+router.get('/:id/messages', requireUser, async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
+        const user = (req as AuthedRequest).user;
+        const id = String(req.params.id);
+
+        // Verify requester is a party to this dispute
+        const { data: disputeParties } = await supabase
+            .from('disputes')
+            .select('transaction:transaction_id(buyer_id, seller_id)')
+            .eq('id', id)
+            .single();
+        if (!disputeParties) return res.status(404).json({ error: 'Dispute not found' });
+        const dt = (disputeParties as any).transaction;
+        if (user.sub !== dt?.buyer_id && user.sub !== dt?.seller_id) {
+            return res.status(403).json({ error: 'FORBIDDEN' });
+        }
+
         const { data, error } = await supabase
             .from('dispute_messages')
             .select('*')
@@ -629,10 +651,14 @@ router.get('/:id/messages', async (req: Request, res: Response) => {
 /**
  * Send message
  */
-router.post('/:id/messages', async (req: Request, res: Response) => {
+router.post('/:id/messages', requireUser, async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
-        const { sender_id, content, attachments, sender_type = 'USER', metadata = {} } = req.body;
+        const user = (req as AuthedRequest).user;
+        const id = String(req.params.id);
+        const { content, attachments, metadata = {} } = req.body;
+        // Derive identity from JWT — never trust body for sender_id or sender_type
+        const sender_id = user.sub;
+        const sender_type = 'USER';
 
         // 1. Initial Dispute Check
         const { data: disputeData, error: dError } = await supabase
@@ -645,61 +671,29 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Dispute not found' });
         }
 
-        // 2. Server-Side Enforcement (for Users)
-        if (sender_type === 'USER' && disputeData.restricted_to !== 'ALL') {
-            const isBuyer = sender_id === disputeData.transaction.buyer_id;
-            const isSeller = sender_id === disputeData.transaction.seller_id;
-            
-            if ((disputeData.restricted_to === 'BUYER' && !isBuyer) || 
+        // Verify sender is a party to this dispute
+        const txnParties = disputeData.transaction;
+        if (sender_id !== txnParties.buyer_id && sender_id !== txnParties.seller_id) {
+            return res.status(403).json({ error: 'FORBIDDEN' });
+        }
+
+        // Mediator-imposed message restrictions
+        if (disputeData.restricted_to !== 'ALL') {
+            const isBuyer = sender_id === txnParties.buyer_id;
+            const isSeller = sender_id === txnParties.seller_id;
+            if ((disputeData.restricted_to === 'BUYER' && !isBuyer) ||
                 (disputeData.restricted_to === 'SELLER' && !isSeller)) {
-                return res.status(403).json({ 
-                    error: 'You are temporarily restricted from sending messages by the mediator.' 
+                return res.status(403).json({
+                    error: 'You are temporarily restricted from sending messages by the mediator.'
                 });
             }
         }
 
-        // 3. Parse Mentions (@buyer, @seller, @all)
-        let restrictedTo = 'ALL';
-        const lowerContent = typeof content === 'string' ? content.toLowerCase() : '';
-        if (lowerContent.includes('@buyer')) restrictedTo = 'BUYER';
-        else if (lowerContent.includes('@seller')) restrictedTo = 'SELLER';
-        else if (lowerContent.includes('@all')) restrictedTo = 'ALL';
-
-        // 2. If Admin, Pause AI and broadcast "Join" if needed
-        let adminJoinedText = '';
-        if (sender_type === 'ADMIN') {
-            try {
-                await supabase
-                    .from('disputes')
-                    .update({ 
-                        is_ai_paused: true,
-                        restricted_to: restrictedTo 
-                    })
-                    .eq('id', id);
-            } catch (sqErr) {
-                console.warn('⚠️ Could not update AI Pause status.');
-            }
-
-            // IMPROVED: Check if this is the first admin presence ever
-            const { data: existingAdminMsgs } = await supabase
-                .from('dispute_messages')
-                .select('content')
-                .eq('dispute_id', id)
-                .or('content.ilike.%[ADMIN_MSG:%,content.ilike.%[ADMIN_JOINED:%');
-            
-            if (!existingAdminMsgs || existingAdminMsgs.length === 0) {
-                adminJoinedText = `[ADMIN_JOINED:${metadata.identity || 'Administrator'}]`;
-            }
-        }
-
-        // 3. Save Message
-        const isSignal = typeof content === 'string' && (content.startsWith('[ADMIN_JOINED:') || content.startsWith('[ADMIN_LEFT:'));
-        const adminTag = (sender_type === 'ADMIN' && !isSignal) ? `[ADMIN_MSG:${metadata.identity || 'Administrator'}]` : '';
         const messageData: any = {
             dispute_id: id,
-            sender_id: sender_id === 'SYSTEM_ADMIN' ? null : sender_id,
-            sender_type: 'USER', // Internal storage uses USER/AI; 'sender_type: ADMIN' in req is a helper
-            content: adminJoinedText ? `${adminJoinedText}\n${adminTag}${content}` : `${adminTag}${content}`,
+            sender_id,
+            sender_type,
+            content,
             attachments: attachments || [],
             metadata: metadata || {}
         };
@@ -715,8 +709,8 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
             if (error) throw error;
             savedMessage = message;
 
-            // Tag evidence tier on user messages (fire-and-forget — non-critical)
-            if (sender_type !== 'ADMIN' && savedMessage?.id) {
+            // Tag evidence tier (fire-and-forget)
+            if (savedMessage?.id) {
                 const tierHint = quickTierHint(content || '', attachments || []);
                 Promise.resolve(
                     supabase
@@ -730,78 +724,8 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
             return res.status(500).json({ error: insertErr.message });
         }
 
-        // 5. Notify parties about admin message / human intervention
-        if (sender_type === 'ADMIN' && metadata.type !== 'restriction_signal') {
-            try {
-                if (disputeData && disputeData.transaction) {
-                    const { buyer, seller } = disputeData.transaction;
-                    const parties = [buyer, seller];
-                    const REVIEWS_URL = process.env.REVIEWS_URL || 'https://Safeeely.com';
-
-                    // Send notifications concurrently for better performance
-                    await Promise.all(parties.map(async (user) => {
-                        try {
-                            const { data: linked } = await supabase
-                                .from('linked_accounts')
-                                .select('platform, platform_id')
-                                .eq('profile_id', user.id)
-                                .eq('is_primary', true)
-                                .single();
-
-                            if (linked) {
-                                const txn = disputeData.transaction;
-                                let cleanMsgContent = content.replace(/\[ADMIN_MSG:.*?\]/g, '').replace(/\[ADMIN_JOINED:.*?\]/g, '').trim();
-                                
-                                // Handle voice recording notification specifically
-                                const isRecording = cleanMsgContent.includes('[Voice Recording:') || 
-                                                   (attachments && attachments.length > 0 && attachments.some((a: any) => a.type?.includes('audio') || a.name?.toLowerCase().endsWith('.webm')));
-
-                                if (isRecording) {
-                                    cleanMsgContent = 'a new recording has been sent';
-                                }
-
-                                let msgHeader = '';
-                                let msgBody = '';
-                                
-                                if (metadata.type === 'join_announcement' || adminJoinedText) {
-                                    msgHeader = `🛡️ <b>Human Support Joined</b>`;
-                                    msgBody = `Support agent <b>${metadata.identity || 'Admin'}</b> has joined the conversation to resolve this dispute personally. AI Mediation is now on standby.`;
-                                } else if (metadata.type === 'leave_announcement') {
-                                    msgHeader = `🛡️ <b>Human Support Left</b>`;
-                                    msgBody = `Support agent <b>${metadata.identity || 'Admin'}</b> has left the conversation. AI Mediation or final resolution will follow.`;
-                                } else if (isRecording) {
-                                    msgHeader = `🎙️ <b>New Voice Note from Support</b>`;
-                                    msgBody = `<b>${metadata.identity || 'Admin'}</b> just sent a voice message to your case.`;
-                                } else if (!cleanMsgContent && (attachments && attachments.length > 0)) {
-                                    msgHeader = `📎 <b>Admin added an attachment</b>`;
-                                    msgBody = `<b>${metadata.identity || 'Admin'}</b> just added a file to your case context.`;
-                                } else {
-                                    msgHeader = `💬 <b>New Message from Support</b>`;
-                                    msgBody = `<b>${metadata.identity || 'Admin'}</b>: ${cleanMsgContent.substring(0, 100)}${cleanMsgContent.length > 100 ? '...' : ''}`;
-                                }
-
-                                const fullMsg = `${msgHeader}\n\n${msgBody}\n\n<b>Case Context:</b>\n📦 ${txn.product_name}\n💰 ${txn.amount} ${txn.currency}\n🆔 #${txn.txn_code}`;
-
-                                const actionBtn = {
-                                    label: '👁️ View Case',
-                                    url: `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${disputeData.transaction_id}`
-                                };
-
-                                await sendNotification(linked.platform, linked.platform_id, fullMsg, [actionBtn]);
-                                recordNotification(user.id, 'dispute', '💬 Dispute Message', msgBody.substring(0, 120), { transaction_id: disputeData.transaction_id, link_url: `/dashboard/transactions/${disputeData.transaction_id}` }).catch(() => {});
-                            }
-                        } catch (e: any) {
-                            console.warn(`Could not notify user ${user.safetag}:`, e.message);
-                        }
-                    }));
-                }
-            } catch (notifyErr) {
-                console.warn('⚠️ Notification failed but message was saved.');
-            }
-        }
-
-        // 5. Trigger AI only if not paused and not an admin message
-        if (!disputeData.is_ai_paused && sender_type !== 'ADMIN') {
+        // Trigger AI if not paused
+        if (!disputeData.is_ai_paused) {
             runAIForDispute(id as string, disputeData.transaction);
         }
 
@@ -813,11 +737,57 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
 });
 
 /**
- * Resolve dispute
+ * Accept AI verdict (user-facing — records consent without releasing funds directly)
  */
-router.post('/:id/resolve', async (req: Request, res: Response) => {
+router.post('/:id/accept-verdict', requireUser, async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
+        const id = String(req.params.id);
+        const user = (req as AuthedRequest).user;
+
+        const { data: dispute } = await supabase
+            .from('disputes')
+            .select('id, transaction_id')
+            .eq('id', id)
+            .single();
+
+        if (!dispute) return res.status(404).json({ error: 'Dispute not found' });
+
+        const { data: txn } = await supabase
+            .from('transactions')
+            .select('buyer_id, seller_id')
+            .eq('id', dispute.transaction_id)
+            .single();
+
+        if (!txn || (user.sub !== txn.buyer_id && user.sub !== txn.seller_id)) {
+            return res.status(403).json({ error: 'FORBIDDEN' });
+        }
+
+        // Store acceptance in dispute metadata
+        const { data: existing } = await supabase
+            .from('disputes')
+            .select('verdict_accepted_by')
+            .eq('id', id)
+            .single();
+
+        const acceptedBy: string[] = ((existing as any)?.verdict_accepted_by as string[]) || [];
+        if (!acceptedBy.includes(user.sub)) {
+            acceptedBy.push(user.sub);
+        }
+
+        await supabase.from('disputes').update({ verdict_accepted_by: acceptedBy }).eq('id', id);
+
+        res.json({ success: true });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Resolve dispute (admin-only)
+ */
+router.post('/:id/resolve', requireAdmin, async (req: Request, res: Response) => {
+    try {
+        const id = String(req.params.id);
         const data = ResolveDisputeSchema.parse(req.body);
 
         const { data: dispute, error: fetchError } = await supabase
@@ -932,13 +902,14 @@ router.post('/:id/resolve', async (req: Request, res: Response) => {
  * Buyer calls with role='BUYER' to confirm shipping; seller calls with role='SELLER' to confirm receipt.
  * On seller confirmation the refund credit is issued and both parties are notified.
  */
-router.post('/:id/confirm-return', async (req: Request, res: Response) => {
+router.post('/:id/confirm-return', requireUser, async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
-        const { confirmer_id, role, tracking_number } = req.body;
+        const user = (req as AuthedRequest).user;
+        const id = String(req.params.id);
+        const { role, tracking_number } = req.body;
 
-        if (!confirmer_id || !['BUYER', 'SELLER'].includes(role)) {
-            return res.status(400).json({ error: 'confirmer_id and role (BUYER|SELLER) are required' });
+        if (!['BUYER', 'SELLER'].includes(role)) {
+            return res.status(400).json({ error: 'role (BUYER|SELLER) is required' });
         }
 
         const { data: dispute, error: dErr } = await supabase
@@ -956,6 +927,15 @@ router.post('/:id/confirm-return', async (req: Request, res: Response) => {
         }
 
         const txn = (dispute as any).transaction;
+
+        // Verify caller matches the claimed role
+        if (role === 'BUYER' && user.sub !== txn.buyer_id) {
+            return res.status(403).json({ error: 'FORBIDDEN' });
+        }
+        if (role === 'SELLER' && user.sub !== txn.seller_id) {
+            return res.status(403).json({ error: 'FORBIDDEN' });
+        }
+
         const REVIEWS_URL = process.env.REVIEWS_URL || 'https://safeeely.com';
 
         if (role === 'BUYER') {
@@ -1004,17 +984,24 @@ router.post('/:id/confirm-return', async (req: Request, res: Response) => {
  * Escalate to Human — user-facing, sets is_ai_paused and assigns a specialist.
  * Does NOT send push notifications (those go out when the admin actually joins).
  */
-router.post('/:id/escalate', async (req: Request, res: Response) => {
+router.post('/:id/escalate', requireUser, async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
+        const user = (req as AuthedRequest).user;
+        const id = String(req.params.id);
 
         const { data: disputeData } = await supabase
             .from('disputes')
-            .select('dispute_type, is_ai_paused')
+            .select('dispute_type, is_ai_paused, transaction:transaction_id(buyer_id, seller_id)')
             .eq('id', id)
             .single();
 
         if (!disputeData) return res.status(404).json({ error: 'Dispute not found' });
+
+        // Only parties to the dispute may escalate
+        const dt = (disputeData as any).transaction;
+        if (user.sub !== dt?.buyer_id && user.sub !== dt?.seller_id) {
+            return res.status(403).json({ error: 'FORBIDDEN' });
+        }
 
         // Pause AI mediation
         await supabase.from('disputes').update({ is_ai_paused: true }).eq('id', id);
@@ -1039,9 +1026,9 @@ router.post('/:id/escalate', async (req: Request, res: Response) => {
 /**
  * Notify Join
  */
-router.post('/:id/notify-join', async (req: Request, res: Response) => {
+router.post('/:id/notify-join', requireAdmin, async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
+        const id = String(req.params.id);
         const { admin_name } = req.body;
 
         await supabase.from('disputes').update({ is_ai_paused: true }).eq('id', id);
@@ -1086,9 +1073,9 @@ router.post('/:id/notify-join', async (req: Request, res: Response) => {
 /**
  * Notify Leave
  */
-router.post('/:id/notify-leave', async (req: Request, res: Response) => {
+router.post('/:id/notify-leave', requireAdmin, async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
+        const id = String(req.params.id);
         const { admin_name } = req.body;
 
         const { data: disputeData } = await supabase
@@ -1137,9 +1124,9 @@ router.post('/:id/notify-leave', async (req: Request, res: Response) => {
 /**
  * Restrict Chat Participation
  */
-router.post('/:id/restrict', async (req: Request, res: Response) => {
+router.post('/:id/restrict', requireAdmin, async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
+        const id = String(req.params.id);
         const { restricted_to } = req.body; // 'ALL', 'BUYER', or 'SELLER'
 
         if (!['ALL', 'BUYER', 'SELLER'].includes(restricted_to)) {
@@ -1257,7 +1244,7 @@ router.post('/cron/timeouts', async (req: Request, res: Response) => {
 /**
  * Admin: List SOPs
  */
-router.get('/admin/sops', async (req: Request, res: Response) => {
+router.get('/admin/sops', requireAdmin, async (req: Request, res: Response) => {
     try {
         const { type, status } = req.query;
         let query = supabase.from('dispute_sops').select('*').order('priority', { ascending: false });
@@ -1274,7 +1261,7 @@ router.get('/admin/sops', async (req: Request, res: Response) => {
 /**
  * Admin: Approve a HARD_GATE SOP
  */
-router.post('/admin/sops/:sopId/approve', async (req: Request, res: Response) => {
+router.post('/admin/sops/:sopId/approve', requireAdmin, async (req: Request, res: Response) => {
     try {
         const { sopId } = req.params;
         const { error } = await supabase
@@ -1291,7 +1278,7 @@ router.post('/admin/sops/:sopId/approve', async (req: Request, res: Response) =>
 /**
  * Admin: Archive a SOP
  */
-router.post('/admin/sops/:sopId/archive', async (req: Request, res: Response) => {
+router.post('/admin/sops/:sopId/archive', requireAdmin, async (req: Request, res: Response) => {
     try {
         const { sopId } = req.params;
         const { error } = await supabase

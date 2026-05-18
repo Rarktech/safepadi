@@ -57,12 +57,9 @@ export default function AdminSettings() {
 
     const fetchSettings = async () => {
         try {
-            const token = localStorage.getItem("safepadi_admin_token");
             const res = await axios.get(`${API_URL}/admin/settings`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    "ngrok-skip-browser-warning": "true",
-                },
+                withCredentials: true,
+                headers: { "ngrok-skip-browser-warning": "true" },
             });
             const data: PlatformSettings = res.data;
             setForm({
@@ -111,7 +108,6 @@ export default function AdminSettings() {
         setValidationError(null);
         setSaving(true);
         try {
-            const token = localStorage.getItem("safepadi_admin_token");
             await axios.patch(
                 `${API_URL}/admin/settings`,
                 {
@@ -120,10 +116,8 @@ export default function AdminSettings() {
                     referral_tier2_percent: parseFloat(form.tier2) / 100,
                 },
                 {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                        "ngrok-skip-browser-warning": "true",
-                    },
+                    withCredentials: true,
+                    headers: { "ngrok-skip-browser-warning": "true" },
                 }
             );
             showToast("Settings saved successfully");
@@ -138,7 +132,6 @@ export default function AdminSettings() {
     const handleSaveCommunity = async () => {
         setSavingCommunity(true);
         try {
-            const token = localStorage.getItem("safepadi_admin_token");
             await axios.patch(
                 `${API_URL}/admin/settings`,
                 {
@@ -151,10 +144,8 @@ export default function AdminSettings() {
                     community_enterprise_duration_days: parseInt(communityForm.enterpriseDuration, 10),
                 },
                 {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                        "ngrok-skip-browser-warning": "true",
-                    },
+                    withCredentials: true,
+                    headers: { "ngrok-skip-browser-warning": "true" },
                 }
             );
             showToast("Community settings saved successfully");

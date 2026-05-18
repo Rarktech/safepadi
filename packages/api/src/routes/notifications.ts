@@ -1,34 +1,27 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
+import { requireUser, requireSafetagOwner, AuthedRequest } from '../middleware/requireUser';
 
 const router = Router();
 
 // GET /notifications/:safetag?limit=20&offset=0
-router.get('/:safetag', async (req, res) => {
+router.get('/:safetag', requireUser, requireSafetagOwner, async (req, res) => {
     try {
-        const { safetag } = req.params;
+        const profileId = (req as AuthedRequest).user.sub;
         const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
         const offset = parseInt(req.query.offset as string) || 0;
-
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('id')
-            .ilike('safetag', safetag)
-            .single();
-
-        if (!profile) return res.status(404).json({ error: 'Profile not found' });
 
         const [{ data: notifications, error }, { count: unread_count }] = await Promise.all([
             supabase
                 .from('notifications')
                 .select('*')
-                .eq('profile_id', profile.id)
+                .eq('profile_id', profileId)
                 .order('created_at', { ascending: false })
                 .range(offset, offset + limit - 1),
             supabase
                 .from('notifications')
                 .select('*', { count: 'exact', head: true })
-                .eq('profile_id', profile.id)
+                .eq('profile_id', profileId)
                 .eq('is_read', false),
         ]);
 
@@ -41,23 +34,15 @@ router.get('/:safetag', async (req, res) => {
 });
 
 // PATCH /notifications/:safetag/read  body: { ids?: string[], all?: boolean }
-router.patch('/:safetag/read', async (req, res) => {
+router.patch('/:safetag/read', requireUser, requireSafetagOwner, async (req, res) => {
     try {
-        const { safetag } = req.params;
+        const profileId = (req as AuthedRequest).user.sub;
         const { ids, all } = req.body as { ids?: string[]; all?: boolean };
-
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('id')
-            .ilike('safetag', safetag)
-            .single();
-
-        if (!profile) return res.status(404).json({ error: 'Profile not found' });
 
         let query = supabase
             .from('notifications')
             .update({ is_read: true })
-            .eq('profile_id', profile.id);
+            .eq('profile_id', profileId);
 
         if (!all && ids && ids.length > 0) {
             query = query.in('id', ids);
@@ -73,23 +58,16 @@ router.patch('/:safetag/read', async (req, res) => {
 });
 
 // DELETE /notifications/:safetag/:id
-router.delete('/:safetag/:id', async (req, res) => {
+router.delete('/:safetag/:id', requireUser, requireSafetagOwner, async (req, res) => {
     try {
-        const { safetag, id } = req.params;
-
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('id')
-            .ilike('safetag', safetag)
-            .single();
-
-        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+        const { id } = req.params;
+        const profileId = (req as AuthedRequest).user.sub;
 
         const { error } = await supabase
             .from('notifications')
             .delete()
             .eq('id', id)
-            .eq('profile_id', profile.id);
+            .eq('profile_id', profileId);
 
         if (error) throw error;
 

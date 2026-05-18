@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import {
     Download,
     FileText,
@@ -23,30 +23,21 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 
 export default function DeliveryPortalPage() {
     const { id } = useParams();
-    const searchParams = useSearchParams();
     const [txn, setTxn] = useState<any>(null);
     const [proofs, setProofs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [viewerProfileId, setViewerProfileId] = useState<string | null>(null);
-
     useEffect(() => {
         const loadData = async () => {
             try {
                 console.log(`🔗 Loading Delivery Data for ID/Code: ${id}`);
-                const viewer = searchParams.get('viewer');
-                const requests: Promise<any>[] = [
+                const [txnRes, proofsRes] = await Promise.all([
                     axios.get(`${API_URL}/transactions/${id}`, { headers: { 'ngrok-skip-browser-warning': 'true' } }),
                     axios.get(`${API_URL}/transactions/${id}/proofs`, { headers: { 'ngrok-skip-browser-warning': 'true' } })
-                ];
-                if (viewer) {
-                    requests.push(axios.get(`${API_URL}/profiles/by_safetag/${encodeURIComponent(viewer)}`, { headers: { 'ngrok-skip-browser-warning': 'true' } }).catch(() => null));
-                }
-                const [txnRes, proofsRes, profileRes] = await Promise.all(requests);
+                ]);
                 console.log('✅ Found Transaction:', txnRes.data.txn_code);
                 console.log('✅ Found Proofs:', proofsRes.data.length);
                 setTxn(txnRes.data);
                 setProofs(proofsRes.data);
-                if (profileRes?.data?.id) setViewerProfileId(profileRes.data.id);
             } catch (err: any) {
                 console.error('❌ Fetch error:', err.message);
                 if (err.response) {
@@ -69,10 +60,9 @@ export default function DeliveryPortalPage() {
         if (!txn?.dispute_id) { alert('No dispute found for this transaction.'); return; }
         setReturnConfirming(true);
         try {
-            const body: any = { role };
-            if (viewerProfileId) body.confirmer_id = viewerProfileId;
-            await axios.post(`${API_URL}/disputes/${txn.dispute_id}/confirm-return`, body, {
-                headers: { 'ngrok-skip-browser-warning': 'true' }
+            await axios.post(`${API_URL}/disputes/${txn.dispute_id}/confirm-return`, { role }, {
+                headers: { 'ngrok-skip-browser-warning': 'true' },
+                withCredentials: true
             });
             setReturnDone(role);
         } catch (err: any) {
@@ -90,7 +80,8 @@ export default function DeliveryPortalPage() {
             const res = await axios.patch(`${API_URL}/transactions/${id}/status`, {
                 status: 'confirm_receipt'
             }, {
-                headers: { 'ngrok-skip-browser-warning': 'true' }
+                headers: { 'ngrok-skip-browser-warning': 'true' },
+                withCredentials: true
             });
             console.log('✅ Confirmation response:', res.data);
             setConfirmed(true);

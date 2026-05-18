@@ -4,6 +4,7 @@ import * as dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import { FlowCrypto } from './utils/crypto';
+import { buildMagicLink } from './utils/magicLink';
 import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
 import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../shared/src/feedbackPrompts';
 
@@ -200,7 +201,7 @@ async function showBalance(from: string) {
             msg += '\n_Balances are calculated from your completed (finalized) sales._';
         }
 
-        const withdrawUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(p.safetag)}?viewer=${encodeURIComponent(p.safetag)}`;
+        const withdrawUrl = await buildMagicLink({ platform_id: from, scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(p.safetag)}` });
         await sendText(from, msg);
         await sendCTAUrl(from, 'Withdraw your earnings securely:', '💸 Withdraw Funds', withdrawUrl);
         await sendButtons(from, 'Need anything else?', [{ id: 'MAIN_MENU', title: '🔙 Main Menu' }]);
@@ -219,7 +220,7 @@ async function showReferral(from: string) {
 
         const cleanSafetag = p.safetag.startsWith('@') ? p.safetag : `@${p.safetag}`;
         const referralLink = `${REVIEWS_URL}/${cleanSafetag}`;
-        const withdrawUrl  = `${REVIEWS_URL}/withdraw/${encodeURIComponent(p.safetag)}?viewer=${encodeURIComponent(p.safetag)}#referrals`;
+        const withdrawUrl  = (await buildMagicLink({ platform_id: from, scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(p.safetag)}` })) + '#referrals';
 
         const earningsLines = stats.earningsByCurrency?.length
             ? stats.earningsByCurrency.map((e: any) => `  • *${fmtCurrency(e.totalEarned, e.currency)}*`).join('\n')
@@ -270,7 +271,7 @@ async function showSettings(from: string) {
 async function showOtherSettings(from: string) {
     try {
         const p = await getProfile(from);
-        const kycUrl = `${REVIEWS_URL}/kyc?viewer=${encodeURIComponent(p.safetag)}`;
+        const kycUrl = await buildMagicLink({ platform_id: from, scope: 'kyc', fallbackUrl: `${REVIEWS_URL}/kyc` });
         await sendButtons(from,
             '⚙️ *Other Settings*\n\nManage your linked accounts and identity verification:',
             [

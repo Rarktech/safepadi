@@ -1,5 +1,6 @@
 import { Scenes } from 'telegraf';
 import axios from 'axios';
+import { buildMagicLink } from '../utils/magicLink';
 
 const API_URL = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
 let REVIEWS_URL = process.env.REVIEWS_URL || 'http://localhost:3001';
@@ -278,7 +279,7 @@ export const transactionScene = new Scenes.WizardScene(
             ctx.wizard.state.formData.other_safetag = profile.safetag;
             ctx.wizard.state.formData.other_id = profile.id;
 
-            // 2. Fetch current user profile (for the ?viewer= param)
+            // 2. Fetch current user profile (used for display in the confirm step)
             let mySafetag = '';
             try {
                 const myProfileRes = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
@@ -304,7 +305,7 @@ export const transactionScene = new Scenes.WizardScene(
             let reviewsUrlBase = REVIEWS_URL;
             if (!reviewsUrlBase.startsWith('http')) reviewsUrlBase = `http://${reviewsUrlBase}`;
             const cleanBase = reviewsUrlBase.endsWith('/') ? reviewsUrlBase.slice(0, -1) : reviewsUrlBase;
-            const reviewsUrl = `${cleanBase}/reviews/${encodeURIComponent(profile.safetag)}?viewer=${encodeURIComponent(mySafetag)}`;
+            const reviewsUrl = `${cleanBase}/reviews/${encodeURIComponent(profile.safetag)}`;
 
             const isVerified = profile.kyc_status === 'VERIFIED';
             const verifiedEmoji = isVerified ? '✅' : '❌';

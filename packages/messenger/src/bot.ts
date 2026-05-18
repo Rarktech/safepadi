@@ -2,6 +2,7 @@ import express from 'express';
 import axios from 'axios';
 import * as dotenv from 'dotenv';
 import path from 'path';
+import { buildMagicLink } from './utils/magicLink';
 import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
 import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../shared/src/feedbackPrompts';
 
@@ -207,7 +208,7 @@ async function showSettings(psid: string) {
 async function showOtherSettings(psid: string) {
     try {
         const p = await getProfile(psid);
-        const kycUrl = `${REVIEWS_URL}/kyc?viewer=${encodeURIComponent(p.safetag)}`;
+        const kycUrl = await buildMagicLink({ platform_id: psid, scope: 'kyc', fallbackUrl: `${REVIEWS_URL}/kyc` });
         await sendMsg(psid, btnTemplate(
             '⚙️ Other Settings\n\nManage your linked accounts and identity verification:',
             [
@@ -240,7 +241,7 @@ async function showBalance(psid: string) {
             msg += '\nBalances are calculated from your completed (finalized) sales.';
         }
 
-        const withdrawUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(p.safetag)}?viewer=${encodeURIComponent(p.safetag)}`;
+        const withdrawUrl = await buildMagicLink({ platform_id: psid, scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(p.safetag)}` });
         await sendMsg(psid, btnTemplate(msg, [
             { type: 'web_url',  url: withdrawUrl,     title: '💸 Withdraw Funds' },
             { type: 'postback', payload: 'MAIN_MENU', title: '🔙 Main Menu'      }
@@ -261,7 +262,7 @@ async function showReferral(psid: string) {
 
         const cleanSafetag = safetag.startsWith('@') ? safetag : `@${safetag}`;
         const referralLink = `${REVIEWS_URL}/${cleanSafetag}`;
-        const withdrawUrl  = `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}?viewer=${encodeURIComponent(safetag)}#referrals`;
+        const withdrawUrl  = (await buildMagicLink({ platform_id: psid, scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}` })) + '#referrals';
 
         const earningsLines = stats.earningsByCurrency?.length
             ? stats.earningsByCurrency.map((e: any) => `  • ${fmtCurrency(e.totalEarned, e.currency)}`).join('\n')

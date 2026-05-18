@@ -64,6 +64,7 @@ const CURRENCIES = [
 ];
 
 export function CreateListingForm({ onCancel, editId }: { onCancel: () => void; editId?: string | null }) {
+    const [profileId, setProfileId] = useState<string>('');
     const [type, setType] = useState<ListingType>('product');
     const [productType, setProductType] = useState<'physical' | 'digital'>('physical');
     const [title, setTitle] = useState('');
@@ -110,6 +111,13 @@ export function CreateListingForm({ onCancel, editId }: { onCancel: () => void; 
     const [salaryRange, setSalaryRange] = useState('');
 
     const [isHydrating, setIsHydrating] = useState(!!editId);
+
+    React.useEffect(() => {
+        fetch('http://127.0.0.1:3000/api/auth/me', { credentials: 'include' })
+            .then(r => r.ok ? r.json() : null)
+            .then(d => { if (d?.sub) setProfileId(d.sub); })
+            .catch(() => {});
+    }, []);
 
     // Hydrate form if editing
     React.useEffect(() => {
@@ -180,7 +188,7 @@ export function CreateListingForm({ onCancel, editId }: { onCancel: () => void; 
             const safetag = window.location.pathname.split('/').pop();
 
             const payload = {
-                profile_id: 'bab0ea44-99e2-47a8-be54-a80cac8ee5bf', // Valid profile for test
+                profile_id: profileId,
                 category_type: type,
                 product_type: type === 'product' ? productType : 'physical',
                 intent: type === 'job' ? 'hiring' : 'offering',

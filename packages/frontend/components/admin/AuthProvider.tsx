@@ -5,30 +5,26 @@ import { useRouter, usePathname } from "next/navigation";
 import axios from "axios";
 import { Loader2 } from "lucide-react";
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api";
+
 export default function AdminAuthProvider({ children }: { children: React.ReactNode }) {
     const router = useRouter();
     const pathname = usePathname();
     const [isAuthorized, setIsAuthorized] = useState(false);
 
     useEffect(() => {
-        const token = localStorage.getItem("safepadi_admin_token");
+        axios.defaults.withCredentials = true;
         const isLoginPage = pathname === "/admin/login";
 
-        if (token) {
-            axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-        } else {
-            delete axios.defaults.headers.common["Authorization"];
-        }
-
-        if (!token && !isLoginPage) {
-            router.replace("/admin/login");
-        } else if (token && isLoginPage) {
-            router.replace("/admin/dashboard");
-            setIsAuthorized(true);
-        } else {
-            setIsAuthorized(true);
-        }
-
+        axios.get(`${API_URL}/admin/auth/me`, { headers: { 'ngrok-skip-browser-warning': 'true' } })
+            .then(() => {
+                if (isLoginPage) router.replace("/admin/dashboard");
+                setIsAuthorized(true);
+            })
+            .catch(() => {
+                if (!isLoginPage) router.replace("/admin/login");
+                else setIsAuthorized(true);
+            });
     }, [pathname, router]);
 
     if (!isAuthorized) {

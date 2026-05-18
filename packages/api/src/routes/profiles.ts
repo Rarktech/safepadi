@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { sendNotification, sendReferralNotification, recordNotification } from '../services/notifications';
 import { sendEmail } from '../services/email';
 import multer from 'multer';
+import { requireUser, requireSafetagOwner, requireElevation, AuthedRequest } from '../middleware/requireUser';
 const upload = multer({ storage: multer.memoryStorage() });
 
 const router = Router();
@@ -274,10 +275,13 @@ router.get('/search', async (req, res) => {
         return res.status(400).json({ error: 'Search query required' });
     }
 
+    const safeQuery = query.replace(/[^a-zA-Z0-9\s@_\-]/g, '').trim().slice(0, 50);
+    if (!safeQuery) return res.status(400).json({ error: 'Search query required' });
+
     const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .or(`safetag.ilike.%${query}%,first_name.ilike.%${query}%,last_name.ilike.%${query}%`)
+        .or(`safetag.ilike.%${safeQuery}%,first_name.ilike.%${safeQuery}%,last_name.ilike.%${safeQuery}%`)
         .limit(5);
 
     if (error) {
@@ -288,49 +292,39 @@ router.get('/search', async (req, res) => {
 });
 
 // Get balance for a profile
-router.get('/:safetag/balance', async (req, res) => {
+router.get('/:safetag/balance', requireUser, requireSafetagOwner, async (req, res) => {
     try {
-        const { safetag } = req.params;
-        const withAt = safetag.startsWith('@') ? safetag : `@${safetag}`;
-        const withoutAt = safetag.startsWith('@') ? safetag.slice(1) : safetag;
-
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('id')
-            .or(`safetag.ilike.${withAt},safetag.ilike.${withoutAt}`)
-            .maybeSingle();
-
-        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+        const profileId = (req as AuthedRequest).user.sub;
 
         const [txnResult, splitTxnResult, pendingTxnResult, withdrawalResult, refundCreditResult] = await Promise.all([
             // Seller earnings: FINALIZED one-time + all milestone txns
             supabase
                 .from('transactions')
                 .select('id, amount, currency, fee_amount, fee_allocation, transaction_type, status, milestones:transaction_milestones(*)')
-                .eq('seller_id', profile.id)
+                .eq('seller_id', profileId)
                 .or('status.eq.FINALIZED,transaction_type.eq.MILESTONE'),
             // Seller split-verdict earnings: RESOLVED_SPLIT one-time txns where seller has a share
             supabase
                 .from('transactions')
                 .select('id, amount, currency, fee_amount, fee_allocation, transaction_type, metadata')
-                .eq('seller_id', profile.id)
+                .eq('seller_id', profileId)
                 .eq('status', 'RESOLVED_SPLIT')
                 .eq('transaction_type', 'ONE_TIME'),
             supabase
                 .from('transactions')
                 .select('amount, currency, fee_amount, fee_allocation, transaction_type')
-                .eq('seller_id', profile.id)
+                .eq('seller_id', profileId)
                 .in('status', ['ACCEPTED', 'PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER']),
             supabase
                 .from('withdrawals')
                 .select('amount, currency, status')
-                .eq('profile_id', profile.id)
+                .eq('profile_id', profileId)
                 .neq('status', 'REJECTED'),
             // Buyer pending refunds: credits owed from REFUND_BUYER / SPLIT verdicts
             supabase
                 .from('buyer_refund_credits')
                 .select('amount, currency, status')
-                .eq('buyer_id', profile.id)
+                .eq('buyer_id', profileId)
                 .in('status', ['PENDING', 'PROCESSING']),
         ]);
 
@@ -399,7 +393,7 @@ router.get('/:safetag/balance', async (req, res) => {
         const { data: referralCommissions } = await supabase
             .from('referral_commissions')
             .select('amount, currency')
-            .eq('referrer_id', profile.id)
+            .eq('referrer_id', profileId)
             .eq('status', 'COMPLETED');
 
         referralCommissions?.forEach((rc: any) => {
@@ -456,20 +450,10 @@ router.get('/:safetag/balance', async (req, res) => {
 });
 
 // Get monthly earnings history for the earnings chart
-router.get('/:safetag/earnings-history', async (req, res) => {
+router.get('/:safetag/earnings-history', requireUser, requireSafetagOwner, async (req, res) => {
     try {
-        const { safetag } = req.params;
+        const profileId = (req as AuthedRequest).user.sub;
         const months = Math.min(parseInt(req.query.months as string) || 6, 12);
-        const withAt = safetag.startsWith('@') ? safetag : `@${safetag}`;
-        const withoutAt = safetag.startsWith('@') ? safetag.slice(1) : safetag;
-
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('id')
-            .or(`safetag.ilike.${withAt},safetag.ilike.${withoutAt}`)
-            .maybeSingle();
-
-        if (!profile) return res.status(404).json({ error: 'Profile not found' });
 
         const cutoff = new Date();
         cutoff.setMonth(cutoff.getMonth() - months);
@@ -477,7 +461,7 @@ router.get('/:safetag/earnings-history', async (req, res) => {
         const { data: txns } = await supabase
             .from('transactions')
             .select('amount, currency, fee_amount, fee_allocation, updated_at')
-            .eq('seller_id', profile.id)
+            .eq('seller_id', profileId)
             .eq('status', 'FINALIZED')
             .gte('updated_at', cutoff.toISOString());
 
@@ -571,26 +555,14 @@ router.get('/:safetag/badges', async (req, res) => {
 });
 
 // Get payout methods for a profile
-router.get('/:safetag/payout-methods', async (req, res) => {
+router.get('/:safetag/payout-methods', requireUser, requireSafetagOwner, async (req, res) => {
     try {
-        const { safetag } = req.params;
-        const withAt = safetag.startsWith('@') ? safetag : `@${safetag}`;
-        const withoutAt = safetag.startsWith('@') ? safetag.slice(1) : safetag;
-
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('id')
-            .or(`safetag.ilike.${withAt},safetag.ilike.${withoutAt}`)
-            .maybeSingle();
-
-        console.log(`🔍 Payout GET - Safetag: ${safetag}, Found:`, !!profile);
-
-        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+        const profileId = (req as AuthedRequest).user.sub;
 
         const { data: methods, error } = await supabase
             .from('payout_methods')
             .select('*')
-            .eq('profile_id', profile.id)
+            .eq('profile_id', profileId)
             .order('created_at', { ascending: false });
 
         if (error) throw error;
@@ -601,29 +573,18 @@ router.get('/:safetag/payout-methods', async (req, res) => {
 });
 
 // Save a new payout method
-router.post('/:safetag/payout-methods', async (req, res) => {
+router.post('/:safetag/payout-methods', requireUser, requireSafetagOwner, requireElevation('payout_method'), async (req, res) => {
     try {
-        const { safetag } = req.params;
         const { type, details, is_default = false } = req.body;
+        const profileId = (req as AuthedRequest).user.sub;
 
-        const withAt = safetag.startsWith('@') ? safetag : `@${safetag}`;
-        const withoutAt = safetag.startsWith('@') ? safetag.slice(1) : safetag;
-
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('id')
-            .or(`safetag.ilike.${withAt},safetag.ilike.${withoutAt}`)
-            .maybeSingle();
-
-        if (!profile) return res.status(404).json({ error: 'Profile not found' });
-
-        console.log(`🔍 Payout POST - Safetag: ${safetag}, Found Profile ID:`, profile.id);
+        console.log(`🔍 Payout POST - Profile ID:`, profileId);
         console.log(`📦 Payout Details:`, JSON.stringify(details));
 
         const { data, error } = await supabase
             .from('payout_methods')
             .insert({
-                profile_id: profile.id,
+                profile_id: profileId,
                 type,
                 details: typeof details === 'string' ? JSON.parse(details) : details,
                 is_default
@@ -645,14 +606,21 @@ router.post('/:safetag/payout-methods', async (req, res) => {
 });
 
 // Delete a payout method
-router.delete('/:safetag/payout-methods/:id', async (req, res) => {
+router.delete('/:safetag/payout-methods/:id', requireUser, requireSafetagOwner, async (req, res) => {
     try {
         const { id } = req.params;
-        const { error } = await supabase
-            .from('payout_methods')
-            .delete()
-            .eq('id', id);
+        const profileId = (req as AuthedRequest).user.sub;
 
+        const { data: method } = await supabase
+            .from('payout_methods')
+            .select('id')
+            .eq('id', id)
+            .eq('profile_id', profileId)
+            .maybeSingle();
+
+        if (!method) return res.status(404).json({ error: 'Payout method not found' });
+
+        const { error } = await supabase.from('payout_methods').delete().eq('id', id);
         if (error) throw error;
         res.status(204).send();
     } catch (err: any) {
@@ -661,19 +629,16 @@ router.delete('/:safetag/payout-methods/:id', async (req, res) => {
 });
 
 // Deactivate account (Meta policy compliance)
-router.post('/:safetag/deactivate', async (req, res) => {
+router.post('/:safetag/deactivate', requireUser, requireSafetagOwner, async (req, res) => {
     try {
-        const { safetag } = req.params;
         const { reason } = DeactivateSchema.parse(req.body);
-
-        const withAt = safetag.startsWith('@') ? safetag : `@${safetag}`;
-        const withoutAt = safetag.startsWith('@') ? safetag.slice(1) : safetag;
+        const profileId = (req as AuthedRequest).user.sub;
 
         // 1. Find profile
         const { data: profile, error: findError } = await supabase
             .from('profiles')
             .select('*')
-            .or(`safetag.ilike.${withAt},safetag.ilike.${withoutAt}`)
+            .eq('id', profileId)
             .maybeSingle();
 
         if (findError) throw findError;
@@ -760,24 +725,22 @@ router.post('/kyc/upload', upload.single('file'), async (req: any, res) => {
     }
 });
 
-router.post('/:safetag/kyc/submit', async (req, res) => {
+router.post('/:safetag/kyc/submit', requireUser, requireSafetagOwner, requireElevation('kyc'), async (req, res) => {
     try {
-        const { safetag } = req.params;
         const { firstName, lastName, phone, address, city, state, country, dob, documentCountry, nin, frontUrl, backUrl } = req.body;
 
         // 0. Enforce DOB
         if (!dob || dob.trim() === "") {
             return res.status(400).json({ error: 'Date of Birth is required' });
         }
-        
-        const withAt = safetag.startsWith('@') ? safetag : `@${safetag}`;
-        const withoutAt = safetag.startsWith('@') ? safetag.slice(1) : safetag;
+
+        const profileId = (req as AuthedRequest).user.sub;
 
         // 1. Find profile and primary linked account
         const { data: profile, error: findError } = await supabase
             .from('profiles')
             .select('id, safetag')
-            .or(`safetag.ilike.${withAt},safetag.ilike.${withoutAt}`)
+            .eq('id', profileId)
             .maybeSingle();
 
         if (findError || !profile) return res.status(404).json({ error: 'Profile not found' });

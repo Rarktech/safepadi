@@ -2,6 +2,7 @@ import express from 'express';
 import axios from 'axios';
 import * as dotenv from 'dotenv';
 import path from 'path';
+import { buildMagicLink } from './utils/magicLink';
 import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
 import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../shared/src/feedbackPrompts';
 
@@ -9,11 +10,15 @@ if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 }
 
+import crypto from 'crypto';
+
 const app = express();
-app.use(express.json());
+app.use(express.json({
+    verify: (req: any, _res, buf) => { req.rawBody = buf; }
+}));
 
 const INSTAGRAM_ACCESS_TOKEN = process.env.INSTAGRAM_ACCESS_TOKEN || '';
-const HUB_VERIFY_TOKEN      = process.env.INSTAGRAM_VERIFY_TOKEN || 'SAFEO_IG_123';
+const HUB_VERIFY_TOKEN      = process.env.INSTAGRAM_VERIFY_TOKEN || '';
 const API_URL                = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
 const PUBLIC_API_URL         = process.env.API_URL || 'http://localhost:3000/api';
 const REVIEWS_URL            = process.env.REVIEWS_URL || 'http://localhost:3001';
@@ -201,7 +206,7 @@ async function showSettings(psid: string) {
 async function showOtherSettings(psid: string) {
     try {
         const p = await getProfile(psid);
-        const kycUrl = `${REVIEWS_URL}/kyc?viewer=${encodeURIComponent(p.safetag)}`;
+        const kycUrl = await buildMagicLink({ platform_id: psid, scope: 'kyc', fallbackUrl: `${REVIEWS_URL}/kyc` });
         await sendMsg(psid, btnTemplate(
             '⚙️ Other Settings\n\nManage your linked accounts and identity verification:',
             [
@@ -234,7 +239,7 @@ async function showBalance(psid: string) {
             msg += '\nBalances are calculated from your completed (finalized) sales.';
         }
 
-        const withdrawUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(p.safetag)}?viewer=${encodeURIComponent(p.safetag)}`;
+        const withdrawUrl = await buildMagicLink({ platform_id: psid, scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(p.safetag)}` });
         await sendMsg(psid, btnTemplate(msg, [
             { type: 'web_url',  url: withdrawUrl,  title: '💸 Withdraw Funds'  },
             { type: 'postback', payload: 'MAIN_MENU', title: '🔙 Main Menu'    }
@@ -255,7 +260,7 @@ async function showReferral(psid: string) {
 
         const cleanSafetag = safetag.startsWith('@') ? safetag : `@${safetag}`;
         const referralLink = `${REVIEWS_URL}/${cleanSafetag}`;
-        const withdrawUrl  = `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}?viewer=${encodeURIComponent(safetag)}#referrals`;
+        const withdrawUrl  = (await buildMagicLink({ platform_id: psid, scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}` })) + '#referrals';
 
         const earningsLines = stats.earningsByCurrency?.length
             ? stats.earningsByCurrency.map((e: any) => `  • ${fmtCurrency(e.totalEarned, e.currency)}`).join('\n')
@@ -1533,6 +1538,24 @@ app.get('/webhook', (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
+    // Verify Meta X-Hub-Signature-256 before processing anything
+    const metaAppSecret = process.env.META_APP_SECRET;
+    if (!metaAppSecret) {
+        console.error('❌ META_APP_SECRET not configured — rejecting webhook');
+        return res.sendStatus(503);
+    }
+    const sigHeader = req.headers['x-hub-signature-256'] as string;
+    if (!sigHeader) {
+        console.error('❌ Missing X-Hub-Signature-256 header');
+        return res.sendStatus(401);
+    }
+    const rawBody = (req as any).rawBody as Buffer;
+    const expected = 'sha256=' + crypto.createHmac('sha256', metaAppSecret).update(rawBody).digest('hex');
+    if (!crypto.timingSafeEqual(Buffer.from(sigHeader), Buffer.from(expected))) {
+        console.error('❌ Instagram webhook signature mismatch');
+        return res.sendStatus(401);
+    }
+
     const body = req.body;
     if (body.object === 'instagram') {
         if (body.entry?.length) {

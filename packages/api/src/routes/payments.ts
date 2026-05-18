@@ -24,14 +24,14 @@ router.post('/opay/webhook', async (req, res) => {
         const authHeader = (req.headers['authorization'] as string || '').replace(/^Bearer\s+/i, '');
 
         // Verify HMAC-SHA512 signature (OPay signs body with merchant public key)
-        if (opayPublicKey) {
-            const expected = crypto.createHmac('sha512', opayPublicKey).update(rawBody).digest('hex');
-            if (!authHeader || authHeader.toLowerCase() !== expected.toLowerCase()) {
-                console.error('❌ [OPay Webhook] Signature mismatch');
-                return res.status(401).send('Unauthorized');
-            }
-        } else {
-            console.warn('⚠️ [OPay Webhook] OPAY_PUBLIC_KEY not set — skipping signature check');
+        if (!opayPublicKey) {
+            console.error('❌ [OPay Webhook] OPAY_PUBLIC_KEY not set — rejecting request');
+            return res.status(503).send('Webhook signing key not configured');
+        }
+        const expected = crypto.createHmac('sha512', opayPublicKey).update(rawBody).digest('hex');
+        if (!authHeader || !crypto.timingSafeEqual(Buffer.from(authHeader.toLowerCase()), Buffer.from(expected.toLowerCase()))) {
+            console.error('❌ [OPay Webhook] Signature mismatch');
+            return res.status(401).send('Unauthorized');
         }
 
         const data = req.body;
@@ -106,21 +106,21 @@ router.post('/airwallex/webhook', async (req, res) => {
         const signature = req.headers['x-signature'] as string;
 
         // Verify HMAC-SHA256 signature (Airwallex signs timestamp + body with webhook secret)
-        if (airwallexWebhookSecret) {
-            if (!timestamp || !signature) {
-                console.error('❌ [Airwallex Webhook] Missing signature headers');
-                return res.status(401).send('Unauthorized');
-            }
-            const expected = crypto
-                .createHmac('sha256', airwallexWebhookSecret)
-                .update(`${timestamp}${rawBody}`)
-                .digest('hex');
-            if (signature !== expected) {
-                console.error('❌ [Airwallex Webhook] Signature mismatch');
-                return res.status(401).send('Unauthorized');
-            }
-        } else {
-            console.warn('⚠️ [Airwallex Webhook] AIRWALLEX_WEBHOOK_SECRET not set — skipping signature check');
+        if (!airwallexWebhookSecret) {
+            console.error('❌ [Airwallex Webhook] AIRWALLEX_WEBHOOK_SECRET not set — rejecting request');
+            return res.status(503).send('Webhook signing key not configured');
+        }
+        if (!timestamp || !signature) {
+            console.error('❌ [Airwallex Webhook] Missing signature headers');
+            return res.status(401).send('Unauthorized');
+        }
+        const airwallexExpected = crypto
+            .createHmac('sha256', airwallexWebhookSecret)
+            .update(`${timestamp}${rawBody}`)
+            .digest('hex');
+        if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(airwallexExpected))) {
+            console.error('❌ [Airwallex Webhook] Signature mismatch');
+            return res.status(401).send('Unauthorized');
         }
 
         const event = req.body;
@@ -189,17 +189,22 @@ router.post('/chainrails/webhook', async (req, res) => {
         const signature = req.headers['x-chainrails-signature'] as string;
         const timestamp = req.headers['x-chainrails-timestamp'] as string;
 
-        if (webhookSecret && signature && timestamp) {
-            const rawBody = (req as any).rawBody || JSON.stringify(req.body);
-            const expectedSig = crypto
-                .createHmac('sha256', webhookSecret)
-                .update(`${timestamp}.${rawBody}`)
-                .digest('hex');
-
-            if (signature !== expectedSig) {
-                console.error('❌ [ChainRails Webhook] Signature mismatch');
-                return res.status(401).send('Unauthorized');
-            }
+        if (!webhookSecret) {
+            console.error('❌ [ChainRails Webhook] CHAINRAILS_WEBHOOK_SECRET not set — rejecting request');
+            return res.status(503).send('Webhook signing key not configured');
+        }
+        if (!signature || !timestamp) {
+            console.error('❌ [ChainRails Webhook] Missing signature headers');
+            return res.status(401).send('Unauthorized');
+        }
+        const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+        const expectedSig = crypto
+            .createHmac('sha256', webhookSecret)
+            .update(`${timestamp}.${rawBody}`)
+            .digest('hex');
+        if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+            console.error('❌ [ChainRails Webhook] Signature mismatch');
+            return res.status(401).send('Unauthorized');
         }
 
         const event = req.body;
@@ -288,10 +293,12 @@ router.post('/flutterwave/webhook', async (req, res) => {
         console.log('📦 [Flutterwave Webhook] Headers:', JSON.stringify(req.headers));
         console.log('📦 [Flutterwave Webhook] Body:', JSON.stringify(req.body));
 
-        if (secretHash && signature !== secretHash) {
+        if (!secretHash) {
+            console.error('❌ [Flutterwave Webhook] FLUTTERWAVE_WEBHOOK_HASH not set — rejecting request');
+            return res.status(503).send('Webhook signing key not configured');
+        }
+        if (!signature || !crypto.timingSafeEqual(Buffer.from(signature as string), Buffer.from(secretHash))) {
             console.error('❌ [Flutterwave Webhook] Signature Mismatch');
-            console.error(`  -> Expected: ${secretHash}`);
-            console.error(`  -> Received: ${signature}`);
             return res.status(401).send('Unauthorized');
         }
 

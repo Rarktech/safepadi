@@ -3,6 +3,9 @@ import { supabase } from '@safepal/shared';
 import { z } from 'zod';
 import { sendNotification } from '../services/notifications';
 import { sendEmail } from '../services/email';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+import { requireUser, AuthedRequest } from '../middleware/requireUser';
 
 const router = Router();
 
@@ -187,7 +190,37 @@ router.post('/otp/verify', async (req, res) => {
         // 3. Cleanup OTP
         await supabase.from('auth_otps').delete().eq('id', otpData.id);
 
-        res.json({ success: true, profile });
+        // 4. Issue session JWT
+        const jti = crypto.randomUUID();
+        const now = Math.floor(Date.now() / 1000);
+        const exp = now + 30 * 60;
+        const sessionToken = jwt.sign({
+            sub: profile.id,
+            safetag: cleanTag,
+            platform,
+            platform_id,
+            jti,
+            typ: 'user',
+            elevated_scopes: [],
+            elev_exp: null,
+            iat: now,
+            exp,
+        }, process.env.JWT_SECRET!, { algorithm: 'HS256', noTimestamp: true });
+
+        const expiresAt = new Date(exp * 1000).toISOString();
+        void supabase.from('user_sessions').insert({
+            profile_id: profile.id, jti, platform, platform_id, expires_at: expiresAt
+        });
+
+        (res as any).cookie('sf_session', sessionToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            path: '/',
+            maxAge: 30 * 60 * 1000,
+        });
+
+        res.json({ success: true, profile, session_token: sessionToken });
     } catch (err: any) {
         res.status(400).json({ error: err.message });
     }
@@ -233,28 +266,20 @@ router.post('/block', async (req, res) => {
 /**
  * Unlink a platform from an existing profile
  */
-router.delete('/unlink', async (req, res) => {
+router.delete('/unlink', requireUser, async (req, res) => {
     try {
-        const { safetag, platform, platform_id } = z.object({
-            safetag: z.string(),
+        const user = (req as AuthedRequest).user;
+        const { platform, platform_id } = z.object({
             platform: z.enum(['telegram', 'discord', 'whatsapp', 'instagram', 'apple']),
             platform_id: z.string()
         }).parse(req.body);
 
-        const cleanTag = safetag.startsWith('@') ? safetag : `@${safetag}`;
-
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('id')
-            .eq('safetag', cleanTag)
-            .single();
-
-        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+        const profileId = user.sub;
 
         const { data: linked } = await supabase
             .from('linked_accounts')
             .select('id, is_primary')
-            .eq('profile_id', profile.id)
+            .eq('profile_id', profileId)
             .eq('platform', platform)
             .eq('platform_id', platform_id)
             .maybeSingle();
@@ -265,7 +290,7 @@ router.delete('/unlink', async (req, res) => {
         const { count } = await supabase
             .from('linked_accounts')
             .select('*', { count: 'exact', head: true })
-            .eq('profile_id', profile.id);
+            .eq('profile_id', profileId);
 
         if (count !== null && count <= 1) {
             return res.status(400).json({ error: 'Cannot unlink your only linked platform. Add another platform first.' });

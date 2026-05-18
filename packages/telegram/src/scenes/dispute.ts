@@ -1,5 +1,6 @@
 import { Scenes } from 'telegraf';
 import axios from 'axios';
+import { buildMagicLink } from '../utils/magicLink';
 
 const API_URL = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
 const REVIEWS_URL = process.env.REVIEWS_URL || 'https://Safeeely.com';
@@ -66,11 +67,12 @@ export const disputeScene = new Scenes.WizardScene(
                 category: category
             });
 
+            const disputeUrl = await buildMagicLink({ platform_id: String(ctx.from.id), scope: 'dispute', txn_id: txnId, fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(profile.safetag)}?view=dispute_details&txnId=${txnId}` });
             ctx.reply('✅ <b>Dispute Raised Successfully</b>\n\nThe transaction has been frozen. You can view the status and provide further evidence on your Safeeely Web Dashboard.', {
                 parse_mode: 'HTML',
                 reply_markup: {
                     inline_keyboard: [
-                        [{ text: '👁️ View Dispute Details', url: `${REVIEWS_URL}/withdraw/${encodeURIComponent(profile.safetag)}?view=dispute_details&txnId=${txnId}` }],
+                        [{ text: '👁️ View Dispute Details', url: disputeUrl }],
                         [{ text: '🏠 Main Menu', callback_data: 'main_menu' }]
                     ]
                 }

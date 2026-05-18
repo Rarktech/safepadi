@@ -7,6 +7,8 @@ import crypto from 'crypto';
 import axios from 'axios';
 import multer from 'multer';
 import { maybeSendFeedbackPrompt } from './feedback';
+import { requireUser, AuthedRequest } from '../middleware/requireUser';
+import { buildInternalMagicLink } from '../services/magicLinkInternal';
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -222,7 +224,7 @@ router.post('/create', async (req, res) => {
                 [
                     { label: '✅ Accept', customId: `txn_action_accept|${txn.id}` },
                     { label: '❌ Decline', customId: `txn_action_decline|${txn.id}` },
-                    { label: '⭐ View Reviews', url: `${reviewsUrl}/reviews/${encodeURIComponent(otherTag)}?viewer=${encodeURIComponent(recipientTag)}` }
+                    { label: '⭐ View Reviews', url: `${reviewsUrl}/reviews/${encodeURIComponent(otherTag)}` }
                 ],
                 undefined,
                 recipientEmail ? () => sendNewTransactionRequestEmail(recipientEmail, {
@@ -405,12 +407,14 @@ router.get('/:id/proofs', async (req, res) => {
     }
 });
 
-router.patch('/:id/status', async (req, res) => {
+router.patch('/:id/status', requireUser, async (req, res) => {
     let newStatus: string = '';
     let txn: any, fetchError: any;
     try {
-        const { id } = req.params;
-        const { status, updater_safetag } = req.body;
+        const user = (req as AuthedRequest).user;
+        const id = String(req.params.id);
+        const status: string = req.body.status;
+        const updater_safetag = req.body.updater_safetag;
 
         if (id.startsWith('TXN-')) {
             const result = await supabase
@@ -439,6 +443,23 @@ router.patch('/:id/status', async (req, res) => {
         }
 
         if (fetchError || !txn) return res.status(404).json({ error: 'Transaction not found' });
+
+        // Role-based guard for real state changes
+        if (!status.endsWith('_prompt') && status !== 'pay_prompt') {
+            const isBuyer = user.sub === txn.buyer_id;
+            const isSeller = user.sub === txn.seller_id;
+            if (!isBuyer && !isSeller) {
+                return res.status(403).json({ error: 'FORBIDDEN' });
+            }
+            const sellerOnlyActions = ['accept', 'decline', 'complete_yes', 'complete_confirmed', 'complete_skip'];
+            const buyerOnlyActions = ['confirm_receipt'];
+            if (sellerOnlyActions.includes(status) && !isSeller) {
+                return res.status(403).json({ error: 'Only the seller can perform this action' });
+            }
+            if (buyerOnlyActions.includes(status) && !isBuyer) {
+                return res.status(403).json({ error: 'Only the buyer can perform this action' });
+            }
+        }
 
         // Case 1: Just a prompt (no state change)
         if (status.endsWith('_prompt') || status === 'pay_prompt') {
@@ -788,8 +809,17 @@ router.patch('/:id/status', async (req, res) => {
             } else if (status === 'confirm_receipt') {
                 const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
                 msg = `🎉 <b>Transaction Complete</b>\n\nthe buyer has confirmed receipt!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n👤 Buyer: <code>${txn.buyer.safetag}</code>\n💰 Amount: <b>${txn.amount} ${txn.currency}</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Funds have been released to your account!\n\n💵 Available Balance: <b>${txn.amount} ${txn.currency}</b>\n\nYou can now:\n• Withdraw your funds\n• Leave a review for the buyer\n• Create a new transaction`;
+                const { data: sellerLinked } = await supabase
+                    .from('linked_accounts')
+                    .select('platform, platform_id')
+                    .eq('profile_id', txn.seller.id)
+                    .eq('is_primary', true)
+                    .maybeSingle();
+                const sellerWithdrawUrl = sellerLinked
+                    ? await buildInternalMagicLink({ profileId: txn.seller.id, safetag: txn.seller.safetag, platform: sellerLinked.platform, platformId: sellerLinked.platform_id, scope: 'withdraw' })
+                    : `${reviewsUrl}/withdraw/${encodeURIComponent(txn.seller.safetag)}`;
                 options = [
-                    { label: '💰 Withdraw Funds', url: `${reviewsUrl}/withdraw/${encodeURIComponent(txn.seller.safetag)}?viewer=${encodeURIComponent(txn.seller.safetag)}` },
+                    { label: '💰 Withdraw Funds', url: sellerWithdrawUrl },
                     { label: '✍️ Leave Review', customId: `leave_review_${txn.id}` },
                     { label: '🔙 Main Menu', customId: 'main_menu' }
                 ];
@@ -935,8 +965,9 @@ router.patch('/:id/status', async (req, res) => {
     }
 });
 
-router.patch('/:id/milestones/:mId/status', async (req, res) => {
+router.patch('/:id/milestones/:mId/status', requireUser, async (req, res) => {
     try {
+        const user = (req as AuthedRequest).user;
         const { id, mId } = req.params;
         const { status, proof_url } = req.body; // status can be COMPLETED, RELEASED
 
@@ -947,6 +978,12 @@ router.patch('/:id/milestones/:mId/status', async (req, res) => {
             .single();
 
         if (!txn) return res.status(404).json({ error: 'Transaction not found' });
+
+        const isBuyer = user.sub === txn.buyer_id;
+        const isSeller = user.sub === txn.seller_id;
+        if (!isBuyer && !isSeller) return res.status(403).json({ error: 'FORBIDDEN' });
+        if (status === 'COMPLETED' && !isSeller) return res.status(403).json({ error: 'Only seller can complete a milestone' });
+        if (status === 'RELEASED' && !isBuyer) return res.status(403).json({ error: 'Only buyer can release a milestone' });
 
         const milestone = txn.milestones?.find((m: any) => m.id === mId);
         if (!milestone) return res.status(404).json({ error: 'Milestone not found' });
@@ -1051,8 +1088,9 @@ router.patch('/:id/milestones/:mId/status', async (req, res) => {
 });
 
 // Real binary file upload from the web portal → Supabase Storage
-router.post('/:id/upload-proof-files', upload.array('files', 10), async (req, res) => {
+router.post('/:id/upload-proof-files', requireUser, upload.array('files', 10), async (req, res) => {
     const { id } = req.params;
+    const user = (req as AuthedRequest).user;
     const files = req.files as Express.Multer.File[];
     try {
         if (!files || files.length === 0) return res.status(400).json({ error: 'No files provided' });
@@ -1063,6 +1101,7 @@ router.post('/:id/upload-proof-files', upload.array('files', 10), async (req, re
             .eq('id', id)
             .single();
         if (txnErr || !txn) return res.status(404).json({ error: 'Transaction not found' });
+        if (user.sub !== txn.seller_id) return res.status(403).json({ error: 'Only the seller can upload proof' });
 
         const proofRecords: any[] = [];
         for (const file of files) {
@@ -1275,77 +1314,6 @@ router.post('/:id/upload-proof', async (req, res) => {
     }
 });
 
-router.post('/:id/pay', async (req, res) => {
-    const { id } = req.params;
-    try {
-        let txn, fetchError;
-
-        if (typeof id === 'string' && id.startsWith('TXN-')) {
-            const result = await supabase
-                .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
-                .eq('txn_code', id)
-                .single();
-            txn = result.data;
-            fetchError = result.error;
-        } else if (isUUID(id)) {
-            const result = await supabase
-                .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
-                .eq('id', id)
-                .single();
-            txn = result.data;
-            fetchError = result.error;
-        } else {
-            const result = await supabase
-                .from('transactions')
-                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
-                .eq('txn_code', id)
-                .single();
-            txn = result.data;
-            fetchError = result.error;
-        }
-
-        if (fetchError || !txn) return res.status(404).json({ error: 'Transaction not found' });
-
-        const { error: updateError } = await supabase
-            .from('transactions')
-            .update({ status: 'PAID' })
-            .eq('id', id);
-
-        if (updateError) throw updateError;
-
-        const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
-        const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
-
-        // Notify Buyer
-        const buyerPayMsg = `✅ <b>Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
-        routeNotification(txn.buyer_id, buyerPayMsg, [
-            { label: '👁️ View Transaction', customId: `view_txn_${txn.id}` },
-            { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
-            { label: '🔙 Main Menu', customId: 'main_menu' }
-        ], receiptUrl,
-            txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined
-        ).catch(e => console.error('Background Notification Error:', e));
-        recordNotification(txn.buyer_id, 'payment', '✅ Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
-
-        // Notify Seller
-        const sellerPayMsg = `🔐 <b>Payment Received and Held Securely!</b>\n\nThe buyer has made payment and funds are now secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Secured: <b>${txn.amount} ${txn.currency}</b>\n👤 Buyer: <code>${txn.buyer.safetag}</code>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller, you can now proceed to fulfill the order.\n\n❓ Have you completed your part of the agreement?\n   (Shipped the product or delivered the service)\n\n⚠️ Important: Please be sure the buyer has received satisfactory delivery — any disputes raised after confirmation won't be considered.`;
-        routeNotification(txn.seller_id, sellerPayMsg, [
-            { label: '✅ Mark as Completed', customId: `txn_action_complete_prompt|${txn.id}` },
-            { label: '🔄 New Transaction', customId: 'create_txn' },
-            { label: '👁️ View Details', customId: `view_txn_${txn.id}` }
-        ], receiptUrl,
-            txn.seller?.email ? () => sendPaymentConfirmedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined
-        ).catch(e => console.error('Background Notification Error:', e));
-        recordNotification(txn.seller_id, 'payment', '🔐 Payment Received in Escrow', `${txn.amount} ${txn.currency} secured for ${txn.product_name} — proceed to fulfill`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
-
-        res.json({ success: true });
-    } catch (err: any) {
-        res.status(400).json({ error: err.message });
-    }
-});
-
 router.post('/:id/initialize-payment', async (req, res) => {
     const { id } = req.params;
     const { platform } = req.body;
@@ -1455,7 +1423,11 @@ router.post('/:id/initialize-payment', async (req, res) => {
 
             return res.status(500).json({ error: 'Failed to create OPay session. Please check your dashboard settings or keys.' });
         } else if (platform?.toLowerCase() === 'flutterwave') {
-            const secretKey = process.env.FLUTTERWAVE_SECRET_KEY || 'FLWSECK_TEST-d37f68bfe20c57467bcfad91ae51881c-X';
+            const secretKey = process.env.FLUTTERWAVE_SECRET_KEY;
+            if (!secretKey) {
+                console.error('FATAL: FLUTTERWAVE_SECRET_KEY env var is not set');
+                return res.status(503).json({ error: 'Payment gateway not configured' });
+            }
             const dynamicOrigin = req.headers.origin || (req.headers.referer ? new URL(req.headers.referer).origin : null) || process.env.REVIEWS_URL || 'http://localhost:3001';
 
             const payload = {

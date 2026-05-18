@@ -34,8 +34,10 @@ export function UserListings({ onEdit }: UserListingsProps) {
     useEffect(() => {
         const fetchMyListings = async () => {
             try {
-                // Warning: Temp ID matching what we put in CreateListingForm
-                const profileId = 'bab0ea44-99e2-47a8-be54-a80cac8ee5bf'; 
+                const meRes = await fetch('http://127.0.0.1:3000/api/auth/me', { credentials: 'include' });
+                const me = meRes.ok ? await meRes.json() : null;
+                const profileId = me?.sub;
+                if (!profileId) { setIsLoading(false); return; }
                 const res = await fetch(`http://127.0.0.1:3000/api/marketplace/user/${profileId}`);
                 if (!res.ok) throw new Error('API Sync Failed');
                 const data = await res.json();

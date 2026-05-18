@@ -232,7 +232,7 @@ export function sendKycApprovedEmail(to: string, opts: { safetag: string }) {
 export function sendKycRejectedEmail(to: string, opts: { safetag: string; reason: string }) {
     sendEmail({
         to, subject: `KYC Submission Rejected — please resubmit`,
-        html: wrap('KYC Rejected ⚠️', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p('Your KYC submission was not approved.')}${kv('Reason', opts.reason)}${p('Please correct the issue and resubmit your documents.')}`, `${reviewsUrl()}/kyc?viewer=${opts.safetag}`, '🔄 Retry KYC')
+        html: wrap('KYC Rejected ⚠️', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p('Your KYC submission was not approved.')}${kv('Reason', opts.reason)}${p('Please correct the issue and resubmit your documents via the Safeeely app.')}`, `${reviewsUrl()}/kyc`, '🔄 Retry KYC')
     }).catch(() => {});
 }
 
@@ -323,7 +323,7 @@ export function sendOnboardingDay7Email(to: string, opts: { safetag: string; fir
 export function sendKycNudgeEmail(to: string, opts: { safetag: string; firstName: string }) {
     sendEmail({
         to, subject: `Verify your identity to unlock full access`,
-        html: wrap('Unlock Full Access 🛡️', `${p(`Hi <b>${opts.firstName}</b>,`)}${p('Verifying your identity on Safeeely unlocks:')}${p('✅ Higher transaction limits<br>✅ The Verified badge — buyers trust verified sellers more<br>✅ Priority dispute resolution')}${p('It takes less than 2 minutes.')}`, `${reviewsUrl()}/kyc?viewer=${opts.safetag}`, '🛡️ Verify My Identity')
+        html: wrap('Unlock Full Access 🛡️', `${p(`Hi <b>${opts.firstName}</b>,`)}${p('Verifying your identity on Safeeely unlocks:')}${p('✅ Higher transaction limits<br>✅ The Verified badge — buyers trust verified sellers more<br>✅ Priority dispute resolution')}${p('It takes less than 2 minutes. Open the Safeeely app and go to Settings → KYC Verification.')}`, `${reviewsUrl()}/kyc`, '🛡️ Verify My Identity')
     }).catch(() => {});
 }
 

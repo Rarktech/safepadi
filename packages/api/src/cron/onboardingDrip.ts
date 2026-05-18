@@ -1,6 +1,7 @@
 import { supabase } from '@safepal/shared';
 import { routeNotification } from '../services/notifications';
 import { sendOnboardingDay1Email, sendOnboardingDay3Email, sendOnboardingDay7Email, sendKycNudgeEmail } from '../services/email';
+import { buildInternalMagicLink } from '../services/magicLinkInternal';
 
 const log = (msg: string) => console.log(`[OnboardingDrip] ${msg}`);
 
@@ -104,10 +105,14 @@ export async function runOnboardingDrip(): Promise<void> {
         for (const profile of kycProfiles || []) {
             const firstName = profile.first_name || profile.safetag;
             const msg = `🔐 <b>Complete Your Identity Verification</b>\n\nVerifying your identity on Safeeely unlocks higher transaction limits, the Verified badge, and priority dispute resolution.\n\nIt takes less than 2 minutes.`;
+            const { data: primaryLinked } = await supabase.from('linked_accounts').select('platform, platform_id').eq('profile_id', profile.id).eq('is_primary', true).maybeSingle();
+            const kycUrl = primaryLinked
+                ? await buildInternalMagicLink({ profileId: profile.id, safetag: profile.safetag, platform: primaryLinked.platform, platformId: primaryLinked.platform_id, scope: 'kyc' })
+                : `${process.env.REVIEWS_URL || 'http://localhost:3001'}/kyc`;
             await routeNotification(
                 profile.id,
                 msg,
-                [{ label: '🛡️ Verify Now', url: `${process.env.REVIEWS_URL || 'http://localhost:3001'}/kyc?viewer=${profile.safetag}` }],
+                [{ label: '🛡️ Verify Now', url: kycUrl }],
                 undefined,
                 profile.email ? () => sendKycNudgeEmail(profile.email, { safetag: profile.safetag, firstName }) : undefined
             ).catch(() => {});

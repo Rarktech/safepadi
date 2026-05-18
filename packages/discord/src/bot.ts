@@ -1,6 +1,7 @@
 import { Client, GatewayIntentBits, Partials, Collection, InteractionReplyOptions, MessageFlags } from 'discord.js';
 import * as dotenv from 'dotenv';
 import axios from 'axios';
+import { buildMagicLink } from './utils/magicLink';
 import path from 'path';
 import http from 'http';
 import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
@@ -17,7 +18,7 @@ const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 console.log(`🤖 Bot Startup Configuration:`);
 console.log(`📡 API_URL: ${API_URL}`);
 console.log(`🔗 REVIEWS_URL: ${REVIEWS_URL}`);
-console.log(`🔑 Token Preview: ${BOT_TOKEN ? BOT_TOKEN.substring(0, 10) + '...' + BOT_TOKEN.substring(BOT_TOKEN.length - 4) : 'MISSING'}`);
+console.log(`🔑 Bot token: ${BOT_TOKEN ? '[SET]' : 'MISSING'}`);
 
 // 🚀 NETWORK RATE-LIMIT FIX (Per Audit: "Too Many Axios Calls")
 // This interceptor automatically caches Safetag profile lookups so that clicking buttons 
@@ -645,7 +646,7 @@ client.on('interactionCreate', async (interaction) => {
                     }
                     const navButtons: any[] = [
                         { type: 2, label: '🔙 Back', style: 2, custom_id: 'my_txns' },
-                        { type: 2, label: '⭐ Reviews', style: 5, url: `${REVIEWS_URL}/reviews/${encodeURIComponent(otherTag)}?viewer=${encodeURIComponent(myTag)}` }
+                        { type: 2, label: '⭐ Reviews', style: 5, url: `${REVIEWS_URL}/reviews/${encodeURIComponent(otherTag)}` }
                     ];
                     const isOngoing = ['PENDING_SELLER_ACCEPTANCE', 'ACCEPTED', 'PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(t.status);
                     if (isOngoing) navButtons.push({ type: 2, label: '🚀 Action', style: 1, custom_id: `txn_resume|${t.id}` });
@@ -1331,11 +1332,12 @@ client.on('interactionCreate', async (interaction) => {
                         msg += '\n_Balances are calculated from your completed (finalized) sales._';
                     }
 
+                    const withdrawUrl = await buildMagicLink({ platform_id: interaction.user.id, scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}` });
                     await interaction.editReply({
                         content: msg,
                         components: [{
                             type: 1, components: [
-                                { type: 2, label: '💸 Withdraw Funds', style: 5, url: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}?viewer=${encodeURIComponent(safetag)}` },
+                                { type: 2, label: '💸 Withdraw Funds', style: 5, url: withdrawUrl },
                                 { type: 2, label: '🔙 Main Menu', style: 2, custom_id: 'main_menu' }
                             ]
                         }]
@@ -1364,9 +1366,10 @@ client.on('interactionCreate', async (interaction) => {
 
                     const msg = `🎁 **My Referrals**\n\nInvite friends and earn up to **1.5% commision for life on all secured purchases**!\n\n🔗 **Your Invite Link:**\n\`${referralLink}\`\n\n📊 **Statistics:**\n👥 Tier 1 Referrals: **${stats.tier1Count}**\n👥 Tier 2 Referrals: **${stats.tier2Count}**\n💰 **Commissions Earned:**\n${earningsLines}`;
 
+                    const referralWithdrawUrl = (await buildMagicLink({ platform_id: interaction.user.id, scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}` })) + '#referrals';
                     const components = [{
                         type: 1, components: [
-                            { type: 2, label: '💸 Withdraw Earnings', style: 5, url: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}?viewer=${encodeURIComponent(safetag)}#referrals` },
+                            { type: 2, label: '💸 Withdraw Earnings', style: 5, url: referralWithdrawUrl },
                             { type: 2, label: '🔙 Main Menu', style: 2, custom_id: 'main_menu' }
                         ]
                     }];
@@ -1418,11 +1421,12 @@ client.on('interactionCreate', async (interaction) => {
 
                     const msg = `⭐ **Reviews & Ratings**\n\nYou have a trust score of **${rating.toFixed(1)}/5 ${stars}** (based on **${review_count}** reviews).${badgeList}\n\nYou can view your full review history on our external platform.`;
 
+                    const reviewsUrl = await buildMagicLink({ platform_id: interaction.user.id, scope: 'reviews', fallbackUrl: `${REVIEWS_URL}/reviews/${encodeURIComponent(safetag)}` });
                     await interaction.editReply({
                         content: msg,
                         components: [{
                             type: 1, components: [
-                                { type: 2, label: '👌 View Reviews', style: 5, url: `${REVIEWS_URL}/reviews/${encodeURIComponent(safetag)}?viewer=${encodeURIComponent(safetag)}` },
+                                { type: 2, label: '👌 View Reviews', style: 5, url: reviewsUrl },
                                 { type: 2, label: '🔙 Main Menu', style: 2, custom_id: 'main_menu' }
                             ]
                         }]
@@ -1557,7 +1561,7 @@ client.on('interactionCreate', async (interaction) => {
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
                     const p = profileRes.data;
-                    const kycUrl = `${REVIEWS_URL}/kyc?viewer=${encodeURIComponent(p.safetag)}`;
+                    const kycUrl = await buildMagicLink({ platform_id: interaction.user.id, scope: 'kyc', fallbackUrl: `${REVIEWS_URL}/kyc` });
                     await interaction.editReply({
                         content: '⚙️ **Other Settings**\n\nManage linked accounts and identity verification:',
                         components: [{
@@ -1678,7 +1682,7 @@ client.on('interactionCreate', async (interaction) => {
 
                     const navButtons: any[] = [
                         { type: 2, label: '🔙 Back', style: 2, custom_id: 'my_txns' },
-                        { type: 2, label: '⭐ Counterparty Reviews', style: 5, url: `${REVIEWS_URL}/reviews/${encodeURIComponent(otherTag)}?viewer=${encodeURIComponent(myTag)}` }
+                        { type: 2, label: '⭐ Counterparty Reviews', style: 5, url: `${REVIEWS_URL}/reviews/${encodeURIComponent(otherTag)}` }
                     ];
 
                     const isOngoing = ['PENDING_SELLER_ACCEPTANCE', 'ACCEPTED', 'PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(t.status);
