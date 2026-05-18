@@ -481,7 +481,7 @@ export function DisputeChatPage({ dispute: initialDispute, safetag, onBack }: Di
                     <button onClick={() => fileInputRef.current?.click()} className="p-2 text-stone-400 hover:text-emerald-600 transition-colors">
                       <Paperclip size={18} />
                     </button>
-                    <input type="file" ref={fileInputRef} className="hidden" multiple onChange={e => setPendingFiles(Array.from(e.target.files || []))} />
+                    <input type="file" ref={fileInputRef} className="hidden" multiple onChange={e => { setPendingFiles(pf => [...pf, ...Array.from(e.target.files || [])]); e.target.value = ''; }} />
                     <textarea
                       value={input}
                       onChange={e => setInput(e.target.value)}

@@ -456,7 +456,7 @@ router.get('/transaction/:txnId', async (req: Request, res: Response) => {
         const { txnId } = req.params;
         const { data, error } = await supabase
             .from('disputes')
-            .select('*, raised_by_profile:profiles!raised_by(*), assigned_specialist:admin_users!assigned_admin_id(id, name, specialist_title, specialist_bio, specialties, cases_resolved, years_on_platform)')
+            .select(`*, raised_by_profile:profiles!raised_by(*), assigned_specialist:admin_users!assigned_admin_id(id, name, specialist_title, specialist_bio, specialties, cases_resolved, years_on_platform), transaction:transactions!transaction_id(id, product_name, amount, currency, txn_code, buyer_id, seller_id, buyer:profiles!buyer_id(safetag, first_name, last_name), seller:profiles!seller_id(safetag, first_name, last_name))`)
             .eq('transaction_id', txnId)
             .order('created_at', { ascending: false })
             .limit(1)
@@ -557,7 +557,7 @@ router.get('/my-disputes', async (req: Request, res: Response) => {
 /**
  * Upload evidence
  */
-router.post('/:id/upload', upload.array('files', 5), async (req: Request, res: Response) => {
+router.post('/:id/upload', upload.array('files', 20), async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
         const files = req.files as Express.Multer.File[];
