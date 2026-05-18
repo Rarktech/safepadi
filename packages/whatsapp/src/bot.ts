@@ -11,12 +11,16 @@ if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 }
 
+import crypto from 'crypto';
+
 const app = express();
-app.use(express.json());
+app.use(express.json({
+    verify: (req: any, _res, buf) => { req.rawBody = buf; }
+}));
 
 const WHATSAPP_TOKEN   = process.env.WHATSAPP_TOKEN   || '';
 const PHONE_NUMBER_ID  = process.env.PHONE_NUMBER_ID  || '';
-const HUB_VERIFY_TOKEN = process.env.HUB_VERIFY_TOKEN || 'SAFEO_VERIFY_123';
+const HUB_VERIFY_TOKEN = process.env.HUB_VERIFY_TOKEN || '';
 const VERSION          = 'v17.0';
 const API_URL          = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
 const PUBLIC_API_URL   = process.env.API_URL || 'http://localhost:3000/api';
@@ -760,8 +764,8 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
 
     // ── Smart transaction (audio or free text) ────────────────────────────────
     const isBasicCommand = ['hello', 'hi', 'start'].includes(textBody) || !!interactiveId;
-    if ((msgType === 'audio' || (msgType === 'text' && !isBasicCommand && !txnSessions.has(from))) && rawText) {
-        await sendText(from, '🎙️ Processing your request...');
+    if (msgType === 'audio' || (msgType === 'text' && !isBasicCommand && !txnSessions.has(from) && rawText)) {
+        await sendText(from, msgType === 'audio' ? '🎙️ Processing your voice note...' : '💭 Got it, analyzing your message...');
         try {
             let audioBuffer: Buffer | undefined;
             let mimeType: string | undefined;
@@ -797,7 +801,17 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
                     { id: 'SMART_TXN_CANCEL',  title: '❌ Cancel'   }
                 ]);
             } else {
-                await sendText(from, aiResult.follow_up_question || 'Please provide the missing details.');
+                const pd = aiResult.draft;
+                const captured: string[] = [];
+                if (pd.product_name)        captured.push(`  📦 Product: ${pd.product_name}`);
+                if (pd.amount && pd.currency) captured.push(`  💰 Amount: ${pd.amount} ${pd.currency}`);
+                if (pd.role)                captured.push(`  💠 Your Role: ${pd.role}`);
+                if (pd.counterparty_safetag) captured.push(`  👤 Counterparty: @${pd.counterparty_safetag}`);
+                if (pd.fee_allocation)      captured.push(`  💵 Fee: ${pd.fee_allocation}`);
+                const capturedText = captured.length
+                    ? `✅ *Captured so far:*\n${captured.join('\n')}\n\n`
+                    : '';
+                await sendText(from, `${capturedText}❓ ${aiResult.follow_up_question || 'Please provide the missing details.'}`);
             }
         } catch (e: any) {
             console.error('Smart Txn Error:', e.message);
@@ -808,6 +822,25 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
 
     // ── Greeting ──────────────────────────────────────────────────────────────
     if (textBody === 'hello' || textBody === 'hi' || textBody === 'start') {
+        // If a Smart Transaction draft is pending, offer to resume instead of overwriting it
+        if (smartTxnSessions.has(from)) {
+            const pd = smartTxnSessions.get(from)!;
+            const captured: string[] = [];
+            if (pd.product_name)         captured.push(`  📦 Product: ${pd.product_name}`);
+            if (pd.amount && pd.currency) captured.push(`  💰 Amount: ${pd.amount} ${pd.currency}`);
+            if (pd.role)                 captured.push(`  💠 Your Role: ${pd.role}`);
+            if (pd.counterparty_safetag)  captured.push(`  👤 Counterparty: @${pd.counterparty_safetag}`);
+            if (pd.fee_allocation)       captured.push(`  💵 Fee: ${pd.fee_allocation}`);
+            const summary = captured.length ? `\n\n${captured.join('\n')}` : '';
+            await sendButtons(from,
+                `⚠️ *Unfinished Transaction*\n\nYou have a Smart Transaction draft in progress:${summary}\n\nWould you like to continue where you left off?`,
+                [
+                    { id: 'SMART_TXN_RESUME',   title: '▶️ Continue Draft' },
+                    { id: 'SMART_TXN_DISCARD', title: '🗑️ Start Fresh'    }
+                ]
+            );
+            return;
+        }
         let isRegistered = false;
         try {
             const profileRes = await axios.get(`${API_URL}/profiles/by_platform/whatsapp/${from}`);
@@ -1287,6 +1320,51 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
     } else if (interactiveId === 'SMART_TXN_CANCEL') {
         smartTxnSessions.delete(from);
         await sendButtons(from, '❌ Transaction cancelled.', [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]);
+
+    } else if (interactiveId === 'SMART_TXN_RESUME') {
+        const draft = smartTxnSessions.get(from);
+        if (!draft) { await sendText(from, '❌ Session expired. Please describe your transaction again.'); return; }
+        const required = !!(draft.product_name && draft.amount && draft.currency && draft.counterparty_safetag && draft.role && draft.fee_allocation);
+        if (required) {
+            let milestoneText = '';
+            if (draft.transaction_type === 'MILESTONE' && draft.milestones?.length) {
+                milestoneText = '\n\n🪜 *Milestones:*\n' + draft.milestones.map((m, i) => `   ${i+1}. ${m.title} (${m.amount} ${draft.currency})`).join('\n');
+            }
+            const draftText =
+                `✨ *Smart Transaction Draft*\n\nPlease review your transaction details:\n\n` +
+                `📦 Type: ${draft.transaction_type || 'ONE_TIME'}\n` +
+                `🛒 Product: ${draft.product_name}\n` +
+                `📝 Description: ${draft.description || 'No description'}${milestoneText}\n` +
+                `👤 Counterparty: @${draft.counterparty_safetag}\n` +
+                `💰 Amount: ${draft.amount} ${draft.currency}\n` +
+                `💵 Fee Allocation: ${draft.fee_allocation}\n` +
+                `💠 Your Role: ${draft.role}\n\n` +
+                `Does this look correct? Reply to edit or tap confirm.`;
+            await sendButtons(from, draftText, [
+                { id: 'SMART_TXN_CONFIRM', title: '✅ Confirm' },
+                { id: 'SMART_TXN_CANCEL',  title: '❌ Cancel'  }
+            ]);
+        } else {
+            const pd = draft;
+            const captured: string[] = [];
+            if (pd.product_name)         captured.push(`  📦 Product: ${pd.product_name}`);
+            if (pd.amount && pd.currency) captured.push(`  💰 Amount: ${pd.amount} ${pd.currency}`);
+            if (pd.role)                 captured.push(`  💠 Your Role: ${pd.role}`);
+            if (pd.counterparty_safetag)  captured.push(`  👤 Counterparty: @${pd.counterparty_safetag}`);
+            if (pd.fee_allocation)       captured.push(`  💵 Fee: ${pd.fee_allocation}`);
+            const capturedText = captured.length ? `✅ *Captured so far:*\n${captured.join('\n')}\n\n` : '';
+            await sendText(from, `${capturedText}Continue by sending a voice note or typing the missing details.`);
+        }
+
+    } else if (interactiveId === 'SMART_TXN_DISCARD') {
+        smartTxnSessions.delete(from);
+        await sendText(from, '🗑️ Draft discarded. Send a new voice note or message to start a transaction, or use the menu below.');
+        try {
+            const profileRes = await axios.get(`${API_URL}/profiles/by_platform/whatsapp/${from}`);
+            if (profileRes.data?.safetag && !profileRes.data?.is_deactivated) {
+                await sendMainMenu(from, `👋 Welcome back, ${profileRes.data.first_name || 'there'}!`);
+            }
+        } catch (_) {}
     }
 }
 
@@ -1415,6 +1493,24 @@ app.get('/webhook', (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
+    // Verify Meta X-Hub-Signature-256 before processing anything
+    const metaAppSecret = process.env.META_APP_SECRET;
+    if (!metaAppSecret) {
+        console.error('❌ META_APP_SECRET not configured — rejecting webhook');
+        return res.sendStatus(503);
+    }
+    const sigHeader = req.headers['x-hub-signature-256'] as string;
+    if (!sigHeader) {
+        console.error('❌ Missing X-Hub-Signature-256 header');
+        return res.sendStatus(401);
+    }
+    const rawBody = (req as any).rawBody as Buffer;
+    const expected = 'sha256=' + crypto.createHmac('sha256', metaAppSecret).update(rawBody).digest('hex');
+    if (!crypto.timingSafeEqual(Buffer.from(sigHeader), Buffer.from(expected))) {
+        console.error('❌ WhatsApp webhook signature mismatch');
+        return res.sendStatus(401);
+    }
+
     try {
         const body = req.body;
         if (body.object === 'whatsapp_business_account' && body.entry?.[0]?.changes) {
