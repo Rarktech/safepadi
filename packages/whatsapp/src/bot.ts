@@ -1517,13 +1517,26 @@ app.post('/webhook', async (req, res) => {
         return res.sendStatus(401);
     }
     const rawBody = (req as any).rawBody as Buffer;
-    if (!rawBody || !Buffer.isBuffer(rawBody)) {
-        console.error('❌ rawBody not captured — stream middleware did not run');
+    if (!rawBody || !Buffer.isBuffer(rawBody) || rawBody.length === 0) {
+        console.error('❌ rawBody empty or not captured');
         return res.sendStatus(500);
     }
+    // DIAGNOSTIC — remove after HMAC is confirmed working
+    const _diagSecret = metaAppSecret
+        ? `len=${metaAppSecret.length},start=${Buffer.from(metaAppSecret).slice(0,2).toString('hex')},end=${Buffer.from(metaAppSecret).slice(-2).toString('hex')}`
+        : 'MISSING';
+    const _diagBody = `len=${rawBody.length},hex=${rawBody.slice(0,32).toString('hex')}`;
+    console.error(`[HMAC-DIAG] secret=(${_diagSecret}) body=(${_diagBody})`);
     const expected = 'sha256=' + crypto.createHmac('sha256', metaAppSecret).update(rawBody).digest('hex');
-    if (!crypto.timingSafeEqual(Buffer.from(sigHeader), Buffer.from(expected))) {
-        console.error('❌ WhatsApp webhook signature mismatch');
+    let _hmacMatch = false;
+    try {
+        _hmacMatch = crypto.timingSafeEqual(Buffer.from(sigHeader), Buffer.from(expected));
+    } catch (e: any) {
+        console.error(`[HMAC-DIAG] timingSafeEqual threw: ${e.message} | sigHeader.len=${sigHeader.length} expected.len=${expected.length}`);
+        return res.sendStatus(401);
+    }
+    if (!_hmacMatch) {
+        console.error(`[HMAC-DIAG] MISMATCH | received=${sigHeader} | computed=${expected}`);
         return res.sendStatus(401);
     }
 
