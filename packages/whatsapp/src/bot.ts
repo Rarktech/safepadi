@@ -1494,6 +1494,23 @@ app.post('/flow', async (req, res) => {
     }
 });
 
+// ─── Health / diagnostic ──────────────────────────────────────────────────────
+
+app.get('/health', (_req, res) => {
+    const raw    = process.env.META_APP_SECRET?.trim() ?? '';
+    const clean  = raw.replace(/[^0-9a-fA-F]/g, '');
+    res.json({
+        ok: true,
+        meta_secret: {
+            configured: clean.length > 0,
+            length: clean.length,
+            expected_length: 32,
+            prefix: clean.substring(0, 6) || null,
+            has_invisible_chars: raw.length !== clean.length,
+        },
+    });
+});
+
 // ─── Webhook routes ───────────────────────────────────────────────────────────
 
 app.get('/webhook', (req, res) => {
