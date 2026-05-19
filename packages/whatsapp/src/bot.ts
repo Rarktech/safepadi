@@ -1583,4 +1583,15 @@ app.post('/webhook', async (req, res) => {
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || process.env.WHATSAPP_PORT || 10001;
-app.listen(PORT, () => console.log(`🌐 WhatsApp Webhook listener on port ${PORT}`));
+app.listen(PORT, () => {
+    console.log(`🌐 WhatsApp Webhook listener on port ${PORT}`);
+    // DIAG — log secret state at startup so it shows immediately in Railway logs
+    const _s = (process.env.META_APP_SECRET?.trim() ?? '').replace(/[^0-9a-fA-F]/g, '');
+    const _raw = process.env.META_APP_SECRET?.trim() ?? '';
+    if (!_s) {
+        console.error('[STARTUP-DIAG] ❌ META_APP_SECRET is MISSING or empty');
+    } else {
+        const stripped = _raw.length !== _s.length ? ` STRIPPED(${_raw.length}→${_s.length})` : '';
+        console.error(`[STARTUP-DIAG] META_APP_SECRET len=${_s.length}${stripped} prefix=${_s.substring(0, 8)} suffix=${_s.substring(_s.length - 4)}`);
+    }
+});
