@@ -1506,7 +1506,9 @@ app.get('/webhook', (req, res) => {
 
 app.post('/webhook', async (req, res) => {
     // Verify Meta X-Hub-Signature-256 before processing anything
-    const metaAppSecret = process.env.META_APP_SECRET?.trim();
+    // Strip any invisible/non-hex characters Railway env var injection might add
+    const _metaSecretRaw  = process.env.META_APP_SECRET?.trim() ?? '';
+    const metaAppSecret   = _metaSecretRaw.replace(/[^0-9a-fA-F]/g, '');
     if (!metaAppSecret) {
         console.error('❌ META_APP_SECRET not configured — rejecting webhook');
         return res.sendStatus(503);
@@ -1522,12 +1524,11 @@ app.post('/webhook', async (req, res) => {
         return res.sendStatus(500);
     }
     // ── DIAG (remove once confirmed) ──────────────────────────────────────────
-    const _secretLen  = metaAppSecret.length;
     const _secretPfx  = metaAppSecret.substring(0, 8);
-    const _secretHex  = /^[0-9a-fA-F]+$/.test(metaAppSecret) ? 'hex-ok' : 'NON-HEX';
     const _bodyLen    = rawBody.length;
     const _bodyHex    = rawBody.slice(0, 16).toString('hex');
-    console.error(`[WA-DIAG] secret=(len=${_secretLen},pfx=${_secretPfx},chars=${_secretHex}) body=(len=${_bodyLen},hex=${_bodyHex}) sig_hdr=${sigHeader.substring(0, 14)}...`);
+    const _stripped   = _metaSecretRaw.length !== metaAppSecret.length ? `STRIPPED(${_metaSecretRaw.length}→${metaAppSecret.length})` : `len=${metaAppSecret.length}`;
+    console.error(`[WA-DIAG] secret=(${_stripped},pfx=${_secretPfx}) body=(len=${_bodyLen},hex=${_bodyHex}) sig_hdr=${sigHeader.substring(0, 14)}...`);
     // ─────────────────────────────────────────────────────────────────────────
     const expected = 'sha256=' + crypto.createHmac('sha256', metaAppSecret).update(rawBody).digest('hex');
     let signaturesMatch = false;
