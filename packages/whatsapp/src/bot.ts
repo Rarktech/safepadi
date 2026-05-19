@@ -1521,22 +1521,15 @@ app.post('/webhook', async (req, res) => {
         console.error('❌ rawBody empty or not captured');
         return res.sendStatus(500);
     }
-    // DIAGNOSTIC — remove after HMAC is confirmed working
-    const _diagSecret = metaAppSecret
-        ? `len=${metaAppSecret.length},start=${Buffer.from(metaAppSecret).slice(0,2).toString('hex')},end=${Buffer.from(metaAppSecret).slice(-2).toString('hex')}`
-        : 'MISSING';
-    const _diagBody = `len=${rawBody.length},hex=${rawBody.slice(0,32).toString('hex')}`;
-    console.error(`[HMAC-DIAG] secret=(${_diagSecret}) body=(${_diagBody})`);
     const expected = 'sha256=' + crypto.createHmac('sha256', metaAppSecret).update(rawBody).digest('hex');
-    let _hmacMatch = false;
+    let signaturesMatch = false;
     try {
-        _hmacMatch = crypto.timingSafeEqual(Buffer.from(sigHeader), Buffer.from(expected));
-    } catch (e: any) {
-        console.error(`[HMAC-DIAG] timingSafeEqual threw: ${e.message} | sigHeader.len=${sigHeader.length} expected.len=${expected.length}`);
+        signaturesMatch = crypto.timingSafeEqual(Buffer.from(sigHeader), Buffer.from(expected));
+    } catch {
         return res.sendStatus(401);
     }
-    if (!_hmacMatch) {
-        console.error(`[HMAC-DIAG] MISMATCH | received=${sigHeader} | computed=${expected}`);
+    if (!signaturesMatch) {
+        console.error('❌ WhatsApp webhook signature mismatch');
         return res.sendStatus(401);
     }
 
