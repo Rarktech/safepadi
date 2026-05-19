@@ -16,14 +16,18 @@ import crypto from 'crypto';
 
 const app = express();
 
-// Capture raw body before JSON parsing (required for Meta X-Hub-Signature-256 verification)
-app.use(express.raw({ type: '*/*' }));
+// Raw stream capture — bypasses Content-Type matching entirely.
+// express.raw/json both require a Content-Type header; stream listeners do not.
 app.use((req: any, _res, next) => {
-    if (Buffer.isBuffer(req.body)) {
-        req.rawBody = req.body;
-        try { req.body = JSON.parse(req.body.toString('utf-8')); } catch { /* non-JSON — leave as Buffer */ }
-    }
-    next();
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => {
+        req.rawBody = Buffer.concat(chunks);
+        try { req.body = JSON.parse(req.rawBody.toString('utf-8')); }
+        catch { req.body = {}; }
+        next();
+    });
+    req.on('error', next);
 });
 
 const WHATSAPP_TOKEN   = process.env.WHATSAPP_TOKEN   || '';
@@ -1502,7 +1506,7 @@ app.get('/webhook', (req, res) => {
 
 app.post('/webhook', async (req, res) => {
     // Verify Meta X-Hub-Signature-256 before processing anything
-    const metaAppSecret = process.env.META_APP_SECRET;
+    const metaAppSecret = process.env.META_APP_SECRET?.trim();
     if (!metaAppSecret) {
         console.error('❌ META_APP_SECRET not configured — rejecting webhook');
         return res.sendStatus(503);
@@ -1513,6 +1517,10 @@ app.post('/webhook', async (req, res) => {
         return res.sendStatus(401);
     }
     const rawBody = (req as any).rawBody as Buffer;
+    if (!rawBody || !Buffer.isBuffer(rawBody)) {
+        console.error('❌ rawBody not captured — stream middleware did not run');
+        return res.sendStatus(500);
+    }
     const expected = 'sha256=' + crypto.createHmac('sha256', metaAppSecret).update(rawBody).digest('hex');
     if (!crypto.timingSafeEqual(Buffer.from(sigHeader), Buffer.from(expected))) {
         console.error('❌ WhatsApp webhook signature mismatch');
