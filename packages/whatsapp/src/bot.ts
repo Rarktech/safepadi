@@ -1521,6 +1521,14 @@ app.post('/webhook', async (req, res) => {
         console.error('❌ rawBody empty or not captured');
         return res.sendStatus(500);
     }
+    // ── DIAG (remove once confirmed) ──────────────────────────────────────────
+    const _secretLen  = metaAppSecret.length;
+    const _secretPfx  = metaAppSecret.substring(0, 8);
+    const _secretHex  = /^[0-9a-fA-F]+$/.test(metaAppSecret) ? 'hex-ok' : 'NON-HEX';
+    const _bodyLen    = rawBody.length;
+    const _bodyHex    = rawBody.slice(0, 16).toString('hex');
+    console.error(`[WA-DIAG] secret=(len=${_secretLen},pfx=${_secretPfx},chars=${_secretHex}) body=(len=${_bodyLen},hex=${_bodyHex}) sig_hdr=${sigHeader.substring(0, 14)}...`);
+    // ─────────────────────────────────────────────────────────────────────────
     const expected = 'sha256=' + crypto.createHmac('sha256', metaAppSecret).update(rawBody).digest('hex');
     let signaturesMatch = false;
     try {
@@ -1529,9 +1537,11 @@ app.post('/webhook', async (req, res) => {
         return res.sendStatus(401);
     }
     if (!signaturesMatch) {
+        console.error(`[WA-DIAG] MISMATCH received=${sigHeader.substring(0, 20)}... computed=${expected.substring(0, 20)}...`);
         console.error('❌ WhatsApp webhook signature mismatch');
         return res.sendStatus(401);
     }
+    console.log('[WA-DIAG] HMAC OK ✓');
 
     try {
         const body = req.body;
