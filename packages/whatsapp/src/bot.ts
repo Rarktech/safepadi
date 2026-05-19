@@ -1494,22 +1494,6 @@ app.post('/flow', async (req, res) => {
     }
 });
 
-// ─── Health / diagnostic ──────────────────────────────────────────────────────
-
-app.get('/health', (_req, res) => {
-    const raw    = process.env.META_APP_SECRET?.trim() ?? '';
-    const clean  = raw.replace(/[^0-9a-fA-F]/g, '');
-    res.json({
-        ok: true,
-        meta_secret: {
-            configured: clean.length > 0,
-            length: clean.length,
-            expected_length: 32,
-            prefix: clean.substring(0, 6) || null,
-            has_invisible_chars: raw.length !== clean.length,
-        },
-    });
-});
 
 // ─── Webhook routes ───────────────────────────────────────────────────────────
 
@@ -1522,53 +1506,28 @@ app.get('/webhook', (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
-    // Verify Meta X-Hub-Signature-256 before processing anything
-    // Strip any invisible/non-hex characters Railway env var injection might add
-    const _metaSecretRaw  = process.env.META_APP_SECRET?.trim() ?? '';
-    const metaAppSecret   = _metaSecretRaw.replace(/[^0-9a-fA-F]/g, '');
-    if (!metaAppSecret) {
-        console.error('❌ META_APP_SECRET not configured — rejecting webhook');
-        return res.sendStatus(503);
-    }
-    const sigHeader = req.headers['x-hub-signature-256'] as string;
-    if (!sigHeader) {
-        console.error('❌ Missing X-Hub-Signature-256 header');
-        return res.sendStatus(401);
-    }
-    const rawBody = (req as any).rawBody as Buffer;
-    if (!rawBody || !Buffer.isBuffer(rawBody) || rawBody.length === 0) {
-        console.error('❌ rawBody empty or not captured');
-        return res.sendStatus(500);
-    }
-    // Normalize to lowercase — Railway UI may preserve uppercase if user typed it
-    const secretNorm = metaAppSecret.toLowerCase();
-    const sig = sigHeader.trim();
+    const metaAppSecret = (process.env.META_APP_SECRET?.trim() ?? '').replace(/[^0-9a-fA-F]/g, '').toLowerCase();
+    if (!metaAppSecret) return res.sendStatus(503);
 
-    // Try HMAC with both the raw hex-string key AND the hex-decoded 16-byte key.
-    // Meta's documentation is ambiguous; some platform implementations decode the secret.
-    const hmacStr = 'sha256=' + crypto.createHmac('sha256', secretNorm).update(rawBody).digest('hex');
+    const sigHeader = req.headers['x-hub-signature-256'] as string;
+    if (!sigHeader) return res.sendStatus(401);
+
+    const rawBody = (req as any).rawBody as Buffer;
+    if (!rawBody || !Buffer.isBuffer(rawBody) || rawBody.length === 0) return res.sendStatus(500);
+
+    const sig = sigHeader.trim();
+    const hmacStr = 'sha256=' + crypto.createHmac('sha256', metaAppSecret).update(rawBody).digest('hex');
     let hmacHex = '';
-    try { hmacHex = 'sha256=' + crypto.createHmac('sha256', Buffer.from(secretNorm, 'hex')).update(rawBody).digest('hex'); }
-    catch { /* invalid hex length — skip */ }
+    try { hmacHex = 'sha256=' + crypto.createHmac('sha256', Buffer.from(metaAppSecret, 'hex')).update(rawBody).digest('hex'); }
+    catch { /* non-16-byte secret length — skip hex-decoded path */ }
 
     const matchStr = sig.length === hmacStr.length && (() => { try { return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(hmacStr)); } catch { return false; } })();
-    const matchHex = hmacHex && sig.length === hmacHex.length && (() => { try { return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(hmacHex)); } catch { return false; } })();
+    const matchHex = !!hmacHex && sig.length === hmacHex.length && (() => { try { return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(hmacHex)); } catch { return false; } })();
 
     if (!matchStr && !matchHex) {
-        // DIAG — full detail for diagnosis
-        const _stripped = _metaSecretRaw.length !== secretNorm.length ? `STRIPPED(${_metaSecretRaw.length}→${secretNorm.length})` : `len=${secretNorm.length}`;
-        console.log(`[WA-DIAG] secret=(${_stripped},pfx=${secretNorm.substring(0, 8)}) body=(len=${rawBody.length},hex=${rawBody.slice(0, 16).toString('hex')})`);
-        console.log(`[WA-DIAG] received : ${sig}`);
-        console.log(`[WA-DIAG] hmac-str : ${hmacStr}`);
-        if (hmacHex) console.log(`[WA-DIAG] hmac-hex : ${hmacHex}`);
         console.error('❌ WhatsApp webhook signature mismatch');
         return res.sendStatus(401);
     }
-
-    if (matchHex && !matchStr) {
-        console.warn('[WA-HMAC] Matched with hex-decoded key — update code to use Buffer.from(secret,"hex") permanently');
-    }
-    console.log(`[WA-DIAG] HMAC OK ✓ (key-format=${matchStr ? 'string' : 'hex-decoded'})`);
 
     try {
         const body = req.body;
@@ -1611,13 +1570,4 @@ app.post('/webhook', async (req, res) => {
 const PORT = process.env.PORT || process.env.WHATSAPP_PORT || 10001;
 app.listen(PORT, () => {
     console.log(`🌐 WhatsApp Webhook listener on port ${PORT}`);
-    // DIAG — log secret state at startup so it shows immediately in Railway logs
-    const _s = (process.env.META_APP_SECRET?.trim() ?? '').replace(/[^0-9a-fA-F]/g, '');
-    const _raw = process.env.META_APP_SECRET?.trim() ?? '';
-    if (!_s) {
-        console.error('[STARTUP-DIAG] ❌ META_APP_SECRET is MISSING or empty');
-    } else {
-        const stripped = _raw.length !== _s.length ? ` STRIPPED(${_raw.length}→${_s.length})` : '';
-        console.error(`[STARTUP-DIAG] META_APP_SECRET len=${_s.length}${stripped} prefix=${_s.substring(0, 8)} suffix=${_s.substring(_s.length - 4)}`);
-    }
 });
