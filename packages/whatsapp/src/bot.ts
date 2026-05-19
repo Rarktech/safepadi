@@ -53,6 +53,8 @@ try {
 }
 
 console.log(`🚀 Safeeely WhatsApp Bot Starting...`);
+const _startupSecret = (process.env.META_APP_SECRET ?? '').trim();
+console.log(`🔑 META_APP_SECRET: len=${_startupSecret.length} prefix=${_startupSecret.slice(0, 8)} is_hex=${/^[0-9a-fA-F]+$/.test(_startupSecret)}`);
 
 // ─── Session state ────────────────────────────────────────────────────────────
 const loginSessions:   Map<string, { step: string; safetag?: string }> = new Map();
@@ -1497,6 +1499,20 @@ app.post('/flow', async (req, res) => {
 
 // ─── Webhook routes ───────────────────────────────────────────────────────────
 
+app.get('/health', (_req, res) => {
+    const s = (process.env.META_APP_SECRET ?? '').trim();
+    res.json({
+        status: 'ok',
+        meta_secret: {
+            configured: s.length > 0,
+            length: s.length,
+            prefix: s.slice(0, 8),
+            suffix: s.slice(-4),
+            is_hex: /^[0-9a-fA-F]+$/.test(s),
+        },
+    });
+});
+
 app.get('/webhook', (req, res) => {
     const mode      = req.query['hub.mode'];
     const token     = req.query['hub.verify_token'];
@@ -1506,8 +1522,8 @@ app.get('/webhook', (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
-    const metaAppSecret = (process.env.META_APP_SECRET?.trim() ?? '').replace(/[^0-9a-fA-F]/g, '').toLowerCase();
-    if (!metaAppSecret) return res.sendStatus(503);
+    const rawSecret = (process.env.META_APP_SECRET ?? '').trim();
+    if (!rawSecret) return res.sendStatus(503);
 
     const sigHeader = req.headers['x-hub-signature-256'] as string;
     if (!sigHeader) return res.sendStatus(401);
@@ -1516,16 +1532,17 @@ app.post('/webhook', async (req, res) => {
     if (!rawBody || !Buffer.isBuffer(rawBody) || rawBody.length === 0) return res.sendStatus(500);
 
     const sig = sigHeader.trim();
-    const hmacStr = 'sha256=' + crypto.createHmac('sha256', metaAppSecret).update(rawBody).digest('hex');
+    const hmacRaw   = 'sha256=' + crypto.createHmac('sha256', rawSecret).update(rawBody).digest('hex');
+    const hmacLower = 'sha256=' + crypto.createHmac('sha256', rawSecret.toLowerCase()).update(rawBody).digest('hex');
     let hmacHex = '';
-    try { hmacHex = 'sha256=' + crypto.createHmac('sha256', Buffer.from(metaAppSecret, 'hex')).update(rawBody).digest('hex'); }
-    catch { /* non-16-byte secret length — skip hex-decoded path */ }
+    try { hmacHex = 'sha256=' + crypto.createHmac('sha256', Buffer.from(rawSecret, 'hex')).update(rawBody).digest('hex'); }
+    catch { /* non-32-hex-char secret — skip hex-decoded path */ }
 
-    const matchStr = sig.length === hmacStr.length && (() => { try { return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(hmacStr)); } catch { return false; } })();
-    const matchHex = !!hmacHex && sig.length === hmacHex.length && (() => { try { return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(hmacHex)); } catch { return false; } })();
+    const ts = (a: string, b: string) => { try { return a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b)); } catch { return false; } };
+    const matched = ts(sig, hmacRaw) || ts(sig, hmacLower) || (!!hmacHex && ts(sig, hmacHex));
 
-    if (!matchStr && !matchHex) {
-        console.error('❌ WhatsApp webhook signature mismatch');
+    if (!matched) {
+        console.error(`❌ HMAC mismatch | body=${rawBody.length}B | secret_len=${rawSecret.length} | secret_prefix=${rawSecret.slice(0, 8)} | got=${sig.slice(0, 24)} | want=${hmacRaw.slice(0, 24)}`);
         return res.sendStatus(401);
     }
 
