@@ -1540,28 +1540,35 @@ app.post('/webhook', async (req, res) => {
         console.error('❌ rawBody empty or not captured');
         return res.sendStatus(500);
     }
-    // ── DIAG (remove once confirmed) ──────────────────────────────────────────
-    const _secretPfx  = metaAppSecret.substring(0, 8);
-    const _bodyLen    = rawBody.length;
-    const _bodyHex    = rawBody.slice(0, 16).toString('hex');
-    const _stripped   = _metaSecretRaw.length !== metaAppSecret.length ? `STRIPPED(${_metaSecretRaw.length}→${metaAppSecret.length})` : `len=${metaAppSecret.length}`;
-    console.log(`[WA-DIAG] secret=(${_stripped},pfx=${_secretPfx}) body=(len=${_bodyLen},hex=${_bodyHex})`);
-    // ─────────────────────────────────────────────────────────────────────────
-    const expected = 'sha256=' + crypto.createHmac('sha256', metaAppSecret).update(rawBody).digest('hex');
-    let signaturesMatch = false;
-    try {
-        signaturesMatch = crypto.timingSafeEqual(Buffer.from(sigHeader.trim()), Buffer.from(expected));
-    } catch {
-        console.error(`[WA-DIAG] length mismatch: received(${sigHeader.trim().length}) vs expected(${expected.length})`);
-        return res.sendStatus(401);
-    }
-    if (!signaturesMatch) {
-        console.log(`[WA-DIAG] received  : ${sigHeader.trim()}`);
-        console.log(`[WA-DIAG] computed  : ${expected}`);
+    // Normalize to lowercase — Railway UI may preserve uppercase if user typed it
+    const secretNorm = metaAppSecret.toLowerCase();
+    const sig = sigHeader.trim();
+
+    // Try HMAC with both the raw hex-string key AND the hex-decoded 16-byte key.
+    // Meta's documentation is ambiguous; some platform implementations decode the secret.
+    const hmacStr = 'sha256=' + crypto.createHmac('sha256', secretNorm).update(rawBody).digest('hex');
+    let hmacHex = '';
+    try { hmacHex = 'sha256=' + crypto.createHmac('sha256', Buffer.from(secretNorm, 'hex')).update(rawBody).digest('hex'); }
+    catch { /* invalid hex length — skip */ }
+
+    const matchStr = sig.length === hmacStr.length && (() => { try { return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(hmacStr)); } catch { return false; } })();
+    const matchHex = hmacHex && sig.length === hmacHex.length && (() => { try { return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(hmacHex)); } catch { return false; } })();
+
+    if (!matchStr && !matchHex) {
+        // DIAG — full detail for diagnosis
+        const _stripped = _metaSecretRaw.length !== secretNorm.length ? `STRIPPED(${_metaSecretRaw.length}→${secretNorm.length})` : `len=${secretNorm.length}`;
+        console.log(`[WA-DIAG] secret=(${_stripped},pfx=${secretNorm.substring(0, 8)}) body=(len=${rawBody.length},hex=${rawBody.slice(0, 16).toString('hex')})`);
+        console.log(`[WA-DIAG] received : ${sig}`);
+        console.log(`[WA-DIAG] hmac-str : ${hmacStr}`);
+        if (hmacHex) console.log(`[WA-DIAG] hmac-hex : ${hmacHex}`);
         console.error('❌ WhatsApp webhook signature mismatch');
         return res.sendStatus(401);
     }
-    console.log('[WA-DIAG] HMAC OK ✓');
+
+    if (matchHex && !matchStr) {
+        console.warn('[WA-HMAC] Matched with hex-decoded key — update code to use Buffer.from(secret,"hex") permanently');
+    }
+    console.log(`[WA-DIAG] HMAC OK ✓ (key-format=${matchStr ? 'string' : 'hex-decoded'})`);
 
     try {
         const body = req.body;
