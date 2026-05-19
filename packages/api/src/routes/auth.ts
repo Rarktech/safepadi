@@ -5,7 +5,7 @@ import { sendNotification } from '../services/notifications';
 import { sendEmail } from '../services/email';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import { requireUser, AuthedRequest } from '../middleware/requireUser';
+import { requireUser, AuthedRequest, markJtiRevoked } from '../middleware/requireUser';
 
 const router = Router();
 
@@ -386,6 +386,76 @@ router.post('/email-otp/verify', async (req, res) => {
         res.json({ success: true });
     } catch (err: any) {
         res.status(400).json({ error: err.message });
+    }
+});
+
+/**
+ * GET /api/auth/me
+ * Returns the authenticated user's profile and session metadata.
+ */
+router.get('/me', async (req, res) => {
+    try {
+        const cookieToken = (req as any).cookies?.sf_session;
+        const bearerToken = req.headers.authorization?.replace(/^Bearer\s+/i, '');
+        const token = cookieToken || bearerToken;
+
+        if (!token) return res.status(401).json({ error: 'AUTH_REQUIRED' });
+
+        let decoded: any;
+        try {
+            decoded = jwt.verify(token, process.env.JWT_SECRET!, { algorithms: ['HS256'] });
+        } catch {
+            return res.status(401).json({ error: 'INVALID_TOKEN' });
+        }
+
+        if (decoded.typ !== 'user') return res.status(401).json({ error: 'INVALID_TOKEN_TYPE' });
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('id, safetag, first_name, last_name, email, kyc_status, is_blocked')
+            .eq('id', decoded.sub)
+            .single();
+
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+        res.json({
+            ...profile,
+            sub: profile.id,
+            session: {
+                platform: decoded.platform,
+                platform_id: decoded.platform_id,
+                elevated_scopes: decoded.elevated_scopes || [],
+                elevated_until: decoded.elev_exp ? new Date(decoded.elev_exp * 1000).toISOString() : null,
+                expires_at: new Date(decoded.exp * 1000).toISOString(),
+            }
+        });
+    } catch (err: any) {
+        res.status(500).json({ error: 'Internal error' });
+    }
+});
+
+/**
+ * POST /api/auth/logout
+ * Revokes the current user session.
+ */
+router.post('/logout', async (req, res) => {
+    try {
+        const cookieToken = (req as any).cookies?.sf_session;
+        const bearerToken = req.headers.authorization?.replace(/^Bearer\s+/i, '');
+        const token = cookieToken || bearerToken;
+
+        if (token) {
+            try {
+                const decoded: any = jwt.verify(token, process.env.JWT_SECRET!, { algorithms: ['HS256'] });
+                await supabase.from('user_sessions').update({ revoked_at: new Date().toISOString() }).eq('jti', decoded.jti);
+                markJtiRevoked(decoded.jti);
+            } catch { /* Token already invalid — that's fine */ }
+        }
+
+        res.clearCookie('sf_session', { path: '/' });
+        res.json({ ok: true });
+    } catch (err: any) {
+        res.status(500).json({ error: 'Internal error' });
     }
 });
 

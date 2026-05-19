@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { UserListings } from './UserListings';
 import { CreateListingForm } from './CreateListingForm';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
+
 export function MarketplaceManagement() {
     const [isAdding, setIsAdding] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -14,11 +16,11 @@ export function MarketplaceManagement() {
     useEffect(() => {
         const fetchStats = async () => {
             try {
-                const meRes = await fetch('http://127.0.0.1:3000/api/auth/me', { credentials: 'include' });
+                const meRes = await fetch(`${API_URL}/auth/me`, { credentials: 'include' });
                 const me = meRes.ok ? await meRes.json() : null;
                 const profileId = me?.sub;
                 if (!profileId) return;
-                const res = await fetch(`http://127.0.0.1:3000/api/marketplace/user/${profileId}`);
+                const res = await fetch(`${API_URL}/marketplace/user/${profileId}`);
                 if (!res.ok) return;
                 const data = await res.json();
                 

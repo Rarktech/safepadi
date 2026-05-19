@@ -26,6 +26,8 @@ interface UserListingsProps {
     onEdit?: (id: string) => void;
 }
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
+
 export function UserListings({ onEdit }: UserListingsProps) {
     const [myListings, setMyListings] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -34,11 +36,11 @@ export function UserListings({ onEdit }: UserListingsProps) {
     useEffect(() => {
         const fetchMyListings = async () => {
             try {
-                const meRes = await fetch('http://127.0.0.1:3000/api/auth/me', { credentials: 'include' });
+                const meRes = await fetch(`${API_URL}/auth/me`, { credentials: 'include' });
                 const me = meRes.ok ? await meRes.json() : null;
                 const profileId = me?.sub;
                 if (!profileId) { setIsLoading(false); return; }
-                const res = await fetch(`http://127.0.0.1:3000/api/marketplace/user/${profileId}`);
+                const res = await fetch(`${API_URL}/marketplace/user/${profileId}`);
                 if (!res.ok) throw new Error('API Sync Failed');
                 const data = await res.json();
                 setMyListings(data);

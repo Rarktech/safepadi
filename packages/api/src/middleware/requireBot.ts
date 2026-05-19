@@ -29,7 +29,8 @@ export function requireBot(req: Request, res: Response, next: NextFunction): voi
         return;
     }
 
-    const secretKey = process.env[`BOT_SHARED_SECRET_${platform.toUpperCase()}`];
+    const secretKey = process.env[`BOT_SHARED_SECRET_${platform.toUpperCase()}`]
+        || process.env.BOT_API_SECRET;
     if (!secretKey) {
         res.status(401).json({ error: `No shared secret configured for platform: ${platform}` });
         return;

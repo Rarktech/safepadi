@@ -24,6 +24,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 type ListingType = 'product' | 'service' | 'job';
 type FeeHandling = 'seller' | 'buyer' | 'split';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
+
 const ALL_CATEGORIES = [
     { label: "Electronics & Gadgets", group: "product" },
     { label: "Home & Garden", group: "product" },
@@ -113,7 +115,7 @@ export function CreateListingForm({ onCancel, editId }: { onCancel: () => void; 
     const [isHydrating, setIsHydrating] = useState(!!editId);
 
     React.useEffect(() => {
-        fetch('http://127.0.0.1:3000/api/auth/me', { credentials: 'include' })
+        fetch(`${API_URL}/auth/me`, { credentials: 'include' })
             .then(r => r.ok ? r.json() : null)
             .then(d => { if (d?.sub) setProfileId(d.sub); })
             .catch(() => {});
@@ -124,7 +126,7 @@ export function CreateListingForm({ onCancel, editId }: { onCancel: () => void; 
         if (!editId) return;
         
         setIsHydrating(true);
-        fetch(`http://127.0.0.1:3000/api/marketplace/${editId}`)
+        fetch(`${API_URL}/marketplace/${editId}`)
             .then(res => res.json())
             .then(data => {
                 if (data.id) {
@@ -209,9 +211,9 @@ export function CreateListingForm({ onCancel, editId }: { onCancel: () => void; 
 
             formData.append('payload', JSON.stringify(payload));
 
-            const targetUrl = editId 
-                ? `http://127.0.0.1:3000/api/marketplace/${editId}`
-                : 'http://127.0.0.1:3000/api/marketplace';
+            const targetUrl = editId
+                ? `${API_URL}/marketplace/${editId}`
+                : `${API_URL}/marketplace`;
 
             const res = await fetch(targetUrl, {
                 method: editId ? 'PUT' : 'POST',
