@@ -1528,17 +1528,19 @@ app.post('/webhook', async (req, res) => {
     const _bodyLen    = rawBody.length;
     const _bodyHex    = rawBody.slice(0, 16).toString('hex');
     const _stripped   = _metaSecretRaw.length !== metaAppSecret.length ? `STRIPPED(${_metaSecretRaw.length}→${metaAppSecret.length})` : `len=${metaAppSecret.length}`;
-    console.error(`[WA-DIAG] secret=(${_stripped},pfx=${_secretPfx}) body=(len=${_bodyLen},hex=${_bodyHex}) sig_hdr=${sigHeader.substring(0, 14)}...`);
+    console.log(`[WA-DIAG] secret=(${_stripped},pfx=${_secretPfx}) body=(len=${_bodyLen},hex=${_bodyHex})`);
     // ─────────────────────────────────────────────────────────────────────────
     const expected = 'sha256=' + crypto.createHmac('sha256', metaAppSecret).update(rawBody).digest('hex');
     let signaturesMatch = false;
     try {
-        signaturesMatch = crypto.timingSafeEqual(Buffer.from(sigHeader), Buffer.from(expected));
+        signaturesMatch = crypto.timingSafeEqual(Buffer.from(sigHeader.trim()), Buffer.from(expected));
     } catch {
+        console.error(`[WA-DIAG] length mismatch: received(${sigHeader.trim().length}) vs expected(${expected.length})`);
         return res.sendStatus(401);
     }
     if (!signaturesMatch) {
-        console.error(`[WA-DIAG] MISMATCH received=${sigHeader.substring(0, 20)}... computed=${expected.substring(0, 20)}...`);
+        console.log(`[WA-DIAG] received  : ${sigHeader.trim()}`);
+        console.log(`[WA-DIAG] computed  : ${expected}`);
         console.error('❌ WhatsApp webhook signature mismatch');
         return res.sendStatus(401);
     }
