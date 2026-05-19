@@ -15,9 +15,16 @@ if (process.env.NODE_ENV !== 'production') {
 import crypto from 'crypto';
 
 const app = express();
-app.use(express.json({
-    verify: (req: any, _res, buf) => { req.rawBody = buf; }
-}));
+
+// Capture raw body before JSON parsing (required for Meta X-Hub-Signature-256 verification)
+app.use(express.raw({ type: '*/*' }));
+app.use((req: any, _res, next) => {
+    if (Buffer.isBuffer(req.body)) {
+        req.rawBody = req.body;
+        try { req.body = JSON.parse(req.body.toString('utf-8')); } catch { /* non-JSON — leave as Buffer */ }
+    }
+    next();
+});
 
 const WHATSAPP_TOKEN   = process.env.WHATSAPP_TOKEN   || '';
 const PHONE_NUMBER_ID  = process.env.PHONE_NUMBER_ID  || '';
