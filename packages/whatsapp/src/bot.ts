@@ -12,32 +12,8 @@ if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 }
 
-import crypto from 'crypto';
-import zlib from 'zlib';
-
 const app = express();
-
-// Stage 1: capture raw bytes BEFORE any decompression — these are the exact bytes
-// Meta signed. inflate:false prevents body-parser from gunzip-stripping them.
-app.use(express.raw({ type: '*/*', inflate: false, limit: '10mb' } as any));
-
-// Stage 2: decompress (if Content-Encoding set) + JSON-parse for route handlers;
-// save raw (possibly compressed) bytes as req.rawBody for HMAC verification.
-app.use((req: any, _res, next) => {
-    const buf: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
-    req.rawBody = buf;
-    const enc = ((req.headers['content-encoding'] as string) ?? '').toLowerCase();
-    try {
-        const plain = enc === 'gzip'    ? zlib.gunzipSync(buf)
-                    : enc === 'deflate' ? zlib.inflateSync(buf)
-                    : enc === 'br'      ? zlib.brotliDecompressSync(buf)
-                    : buf;
-        req.body = JSON.parse(plain.toString('utf-8'));
-    } catch {
-        req.body = {};
-    }
-    next();
-});
+app.use(express.json());
 
 const WHATSAPP_TOKEN   = process.env.WHATSAPP_TOKEN   || '';
 const PHONE_NUMBER_ID  = process.env.PHONE_NUMBER_ID  || '';
@@ -62,8 +38,6 @@ try {
 }
 
 console.log(`🚀 Safeeely WhatsApp Bot Starting...`);
-const _startupSecret = (process.env.META_APP_SECRET ?? '').trim();
-console.log(`🔑 META_APP_SECRET: len=${_startupSecret.length} prefix=${_startupSecret.slice(0, 8)} is_hex=${/^[0-9a-fA-F]+$/.test(_startupSecret)}`);
 
 // ─── Session state ────────────────────────────────────────────────────────────
 const loginSessions:   Map<string, { step: string; safetag?: string }> = new Map();
@@ -1516,20 +1490,6 @@ app.post('/flow', async (req, res) => {
 
 // ─── Webhook routes ───────────────────────────────────────────────────────────
 
-app.get('/health', (_req, res) => {
-    const s = (process.env.META_APP_SECRET ?? '').trim();
-    res.json({
-        status: 'ok',
-        meta_secret: {
-            configured: s.length > 0,
-            length: s.length,
-            prefix: s.slice(0, 8),
-            suffix: s.slice(-4),
-            is_hex: /^[0-9a-fA-F]+$/.test(s),
-        },
-    });
-});
-
 app.get('/webhook', (req, res) => {
     const mode      = req.query['hub.mode'];
     const token     = req.query['hub.verify_token'];
@@ -1539,31 +1499,8 @@ app.get('/webhook', (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
-    const rawSecret = (process.env.META_APP_SECRET ?? '').trim();
-    if (!rawSecret) return res.sendStatus(503);
-
-    const sigHeader = req.headers['x-hub-signature-256'] as string;
-    if (!sigHeader) return res.sendStatus(401);
-
-    const rawBody = (req as any).rawBody as Buffer;
-    if (!rawBody || !Buffer.isBuffer(rawBody) || rawBody.length === 0) return res.sendStatus(500);
-
-    const sig = sigHeader.trim();
-    const hmacRaw   = 'sha256=' + crypto.createHmac('sha256', rawSecret).update(rawBody).digest('hex');
-    const hmacLower = 'sha256=' + crypto.createHmac('sha256', rawSecret.toLowerCase()).update(rawBody).digest('hex');
-    let hmacHex = '';
-    try { hmacHex = 'sha256=' + crypto.createHmac('sha256', Buffer.from(rawSecret, 'hex')).update(rawBody).digest('hex'); }
-    catch { /* non-32-hex-char secret — skip hex-decoded path */ }
-
-    const ts = (a: string, b: string) => { try { return a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b)); } catch { return false; } };
-    const matched = ts(sig, hmacRaw) || ts(sig, hmacLower) || (!!hmacHex && ts(sig, hmacHex));
-
-    if (!matched) {
-        console.error(`❌ HMAC mismatch | body=${rawBody.length}B | enc=${(req as any).headers['content-encoding'] ?? 'none'} | secret_len=${rawSecret.length} | secret_prefix=${rawSecret.slice(0, 8)} | got=${sig.slice(0, 24)} | want=${hmacRaw.slice(0, 24)}`);
-        console.error(`🔍 BODY_DUMP b64=${rawBody.toString('base64')}`);
-        console.error(`🔍 SIGS got=${sig} want_raw=${hmacRaw} want_lower=${hmacLower} want_hex=${hmacHex ?? 'N/A'}`);
-        return res.sendStatus(401);
-    }
+    const webhookToken = (process.env.WEBHOOK_SECRET_TOKEN ?? '').trim();
+    if (!webhookToken || req.query.token !== webhookToken) return res.sendStatus(401);
 
     try {
         const body = req.body;
