@@ -1499,9 +1499,6 @@ app.get('/webhook', (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
-    const webhookToken = (process.env.WEBHOOK_SECRET_TOKEN ?? '').trim();
-    if (!webhookToken || req.query.token !== webhookToken) return res.sendStatus(401);
-
     try {
         const body = req.body;
         if (body.object === 'whatsapp_business_account' && body.entry?.[0]?.changes) {
