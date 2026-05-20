@@ -7,7 +7,7 @@ import crypto from 'crypto';
 import axios from 'axios';
 import multer from 'multer';
 import { maybeSendFeedbackPrompt } from './feedback';
-import { requireUser, AuthedRequest } from '../middleware/requireUser';
+import { requireUser, requireUserOrBot, AuthedRequest, BotOrUserRequest } from '../middleware/requireUser';
 import { buildInternalMagicLink } from '../services/magicLinkInternal';
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -407,11 +407,12 @@ router.get('/:id/proofs', async (req, res) => {
     }
 });
 
-router.patch('/:id/status', requireUser, async (req, res) => {
+router.patch('/:id/status', requireUserOrBot, async (req, res) => {
     let newStatus: string = '';
     let txn: any, fetchError: any;
     try {
-        const user = (req as AuthedRequest).user;
+        const isBot = (req as BotOrUserRequest).isBot;
+        const user = isBot ? null : (req as AuthedRequest).user;
         const id = String(req.params.id);
         const status: string = req.body.status;
         const updater_safetag = req.body.updater_safetag;
@@ -444,10 +445,21 @@ router.patch('/:id/status', requireUser, async (req, res) => {
 
         if (fetchError || !txn) return res.status(404).json({ error: 'Transaction not found' });
 
+        // Resolve actor's profile ID — user JWT supplies it directly; bots resolve via updater_safetag
+        let actorId: string | null = user?.sub ?? null;
+        if (isBot) {
+            if (!updater_safetag) return res.status(400).json({ error: 'updater_safetag required' });
+            const raw = updater_safetag.startsWith('@') ? updater_safetag : `@${updater_safetag}`;
+            const without = raw.slice(1);
+            const { data: botProfile } = await supabase.from('profiles').select('id').or(`safetag.ilike.${raw},safetag.ilike.${without}`).maybeSingle();
+            if (!botProfile) return res.status(403).json({ error: 'Profile not found' });
+            actorId = botProfile.id;
+        }
+
         // Role-based guard for real state changes
         if (!status.endsWith('_prompt') && status !== 'pay_prompt') {
-            const isBuyer = user.sub === txn.buyer_id;
-            const isSeller = user.sub === txn.seller_id;
+            const isBuyer = actorId === txn.buyer_id;
+            const isSeller = actorId === txn.seller_id;
             if (!isBuyer && !isSeller) {
                 return res.status(403).json({ error: 'FORBIDDEN' });
             }
@@ -965,11 +977,12 @@ router.patch('/:id/status', requireUser, async (req, res) => {
     }
 });
 
-router.patch('/:id/milestones/:mId/status', requireUser, async (req, res) => {
+router.patch('/:id/milestones/:mId/status', requireUserOrBot, async (req, res) => {
     try {
-        const user = (req as AuthedRequest).user;
+        const isBot = (req as BotOrUserRequest).isBot;
+        const user = isBot ? null : (req as AuthedRequest).user;
         const { id, mId } = req.params;
-        const { status, proof_url } = req.body; // status can be COMPLETED, RELEASED
+        const { status, proof_url, updater_safetag } = req.body;
 
         const { data: txn } = await supabase
             .from('transactions')
@@ -979,8 +992,18 @@ router.patch('/:id/milestones/:mId/status', requireUser, async (req, res) => {
 
         if (!txn) return res.status(404).json({ error: 'Transaction not found' });
 
-        const isBuyer = user.sub === txn.buyer_id;
-        const isSeller = user.sub === txn.seller_id;
+        let actorId: string | null = user?.sub ?? null;
+        if (isBot) {
+            if (!updater_safetag) return res.status(400).json({ error: 'updater_safetag required' });
+            const raw = updater_safetag.startsWith('@') ? updater_safetag : `@${updater_safetag}`;
+            const without = raw.slice(1);
+            const { data: botProfile } = await supabase.from('profiles').select('id').or(`safetag.ilike.${raw},safetag.ilike.${without}`).maybeSingle();
+            if (!botProfile) return res.status(403).json({ error: 'Profile not found' });
+            actorId = botProfile.id;
+        }
+
+        const isBuyer = actorId === txn.buyer_id;
+        const isSeller = actorId === txn.seller_id;
         if (!isBuyer && !isSeller) return res.status(403).json({ error: 'FORBIDDEN' });
         if (status === 'COMPLETED' && !isSeller) return res.status(403).json({ error: 'Only seller can complete a milestone' });
         if (status === 'RELEASED' && !isBuyer) return res.status(403).json({ error: 'Only buyer can release a milestone' });

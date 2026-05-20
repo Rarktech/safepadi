@@ -19,6 +19,9 @@ const API_URL                = process.env.INTERNAL_API_URL || process.env.API_U
 const PUBLIC_API_URL         = process.env.API_URL || 'http://localhost:3000/api';
 const REVIEWS_URL            = process.env.REVIEWS_URL || 'http://localhost:3001';
 const BASE                   = 'https://graph.facebook.com/v18.0';
+const BOT_AUTH_HEADERS       = process.env.BOT_API_SECRET
+    ? { 'Authorization': `Bearer ${process.env.BOT_API_SECRET}`, 'x-bot-platform': 'messenger' }
+    : {};
 
 console.log(`💬 Safeeely Messenger Bot Starting...`);
 
@@ -1134,7 +1137,7 @@ async function handlePostback(psid: string, payload: string) {
         const txnId = payload.startsWith('ACCEPT_TXN_') ? payload.replace('ACCEPT_TXN_', '') : payload.replace('txn_action_accept|', '');
         try {
             const p = await getProfile(psid);
-            await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'accept', updater_safetag: p.safetag });
+            await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'accept', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             await sendMsg(psid, { text: '✅ Transaction accepted! The buyer will be notified to make payment.' });
             await sendNextOptions(psid, [{ title: '📋 My Txns', payload: 'MY_TXNS' }]);
         } catch (err: any) {
@@ -1145,7 +1148,7 @@ async function handlePostback(psid: string, payload: string) {
         const txnId = payload.startsWith('DECLINE_TXN_') ? payload.replace('DECLINE_TXN_', '') : payload.replace('txn_action_decline|', '');
         try {
             const p = await getProfile(psid);
-            await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'decline', updater_safetag: p.safetag });
+            await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'decline', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             await sendMsg(psid, { text: '❌ Transaction declined.' });
             await sendNextOptions(psid);
         } catch (err: any) {
@@ -1156,7 +1159,7 @@ async function handlePostback(psid: string, payload: string) {
         const txnId = payload.replace('COMPLETE_TXN_', '');
         try {
             const p = await getProfile(psid);
-            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_prompt', updater_safetag: p.safetag });
+            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_prompt', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             const opts: any[] = res.data.follow_up_options || [];
             const msg = (res.data.follow_up_msg || 'Mark delivery as completed?').replace(/<[^>]*>/g, '');
             const replyOpts = opts.filter((o: any) => !o.url);
@@ -1173,7 +1176,7 @@ async function handlePostback(psid: string, payload: string) {
         const txnId = payload.replace('RECEIVED_TXN_', '');
         try {
             const p = await getProfile(psid);
-            await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'confirm_receipt', updater_safetag: p.safetag });
+            await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'confirm_receipt', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             await sendMsg(psid, { text: '✅ Transaction completed! Funds will be released to the seller.' });
             await sendNextOptions(psid);
         } catch (err: any) {
@@ -1184,7 +1187,7 @@ async function handlePostback(psid: string, payload: string) {
         const txnId = payload.replace('txn_action_complete_prompt|', '');
         try {
             const p = await getProfile(psid);
-            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_prompt', updater_safetag: p.safetag });
+            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_prompt', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             const opts: any[] = res.data.follow_up_options || [];
             const msg = (res.data.follow_up_msg || 'Mark delivery as completed?').replace(/<[^>]*>/g, '');
             const replyOpts = opts.filter((o: any) => !o.url);
@@ -1199,7 +1202,7 @@ async function handlePostback(psid: string, payload: string) {
         const txnId = payload.replace('txn_action_complete_yes|', '');
         try {
             const p = await getProfile(psid);
-            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_yes', updater_safetag: p.safetag });
+            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_yes', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             const opts: any[] = res.data.follow_up_options || [];
             const msg = (res.data.follow_up_msg || '📎 Please upload proof of delivery.').replace(/<[^>]*>/g, '');
             const replyOpts = opts.filter((o: any) => !o.url);
@@ -1216,7 +1219,7 @@ async function handlePostback(psid: string, payload: string) {
         const txnId = payload.replace('txn_action_complete_skip|', '');
         try {
             const p = await getProfile(psid);
-            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_skip', updater_safetag: p.safetag });
+            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_skip', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             await sendMsg(psid, { text: res.data.follow_up_msg?.replace(/<[^>]*>/g, '') || '📦 Marked as complete! The buyer will be notified to confirm receipt.' });
             await sendNextOptions(psid);
         } catch (err: any) { await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed.'}` }); }
@@ -1225,7 +1228,7 @@ async function handlePostback(psid: string, payload: string) {
         const txnId = payload.replace('txn_action_confirm_receipt|', '');
         try {
             const p = await getProfile(psid);
-            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'confirm_receipt', updater_safetag: p.safetag });
+            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'confirm_receipt', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             const msg = (res.data.follow_up_msg || '✅ Transaction completed! Funds will be released to the seller.').replace(/<[^>]*>/g, '');
             await sendMsg(psid, { text: msg });
             await sendNextOptions(psid);

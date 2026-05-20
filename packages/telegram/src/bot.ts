@@ -41,6 +41,9 @@ import axios from 'axios';
 
 const API_URL = process.env.API_URL || process.env.INTERNAL_API_URL || 'http://localhost:3000/api';
 let REVIEWS_URL = process.env.REVIEWS_URL || 'http://localhost:3001';
+const BOT_AUTH_HEADERS = process.env.BOT_API_SECRET
+    ? { 'Authorization': `Bearer ${process.env.BOT_API_SECRET}`, 'x-bot-platform': 'telegram' }
+    : {};
 
 // Telegram API rejects 'localhost' in inline keyboard URLs
 if (REVIEWS_URL.includes('localhost')) {
@@ -210,7 +213,7 @@ bot.start(async (ctx) => {
                     const statusRes = await axios.patch(`${API_URL}/transactions/${txnId}/status`, {
                         status: nextAction,
                         updater_safetag: myTag
-                    });
+                    }, { headers: BOT_AUTH_HEADERS });
                     const content = statusRes.data.follow_up_msg || '✅ Continuing transaction...';
                     const markup = {
                         inline_keyboard: (statusRes.data.follow_up_options || []).map((opt: any) => ([{
@@ -632,7 +635,7 @@ bot.action(/^txn_resume\|(.+)$/, async (ctx) => {
             const statusRes = await axios.patch(`${API_URL}/transactions/${txnId}/status`, {
                 status: nextAction,
                 updater_safetag: myTag
-            });
+            }, { headers: BOT_AUTH_HEADERS });
 
             let content = statusRes.data.follow_up_msg || '✅ Continuing transaction...';
             // Convert any Discord-style markdown to HTML if needed?
@@ -667,7 +670,7 @@ bot.action(/^txn_action_(.+)$/, async (ctx) => {
         const statusRes = await axios.patch(`${API_URL}/transactions/${txnId}/status`, {
             status: action,
             updater_safetag: mySafetag
-        });
+        }, { headers: BOT_AUTH_HEADERS });
 
         try { await ctx.answerCbQuery(); } catch (e) { console.error('Answer CB Error:', e); }
 
@@ -726,7 +729,8 @@ bot.action(/^txn_action_(.+)$/, async (ctx) => {
 bot.action(/^m_status\|(.+)$/, async (ctx) => {
     try {
         const [txnId, mId, status] = ctx.match[1].split('|');
-        await axios.patch(`${API_URL}/transactions/${txnId}/milestones/${mId}/status`, { status });
+        const tgProfile = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
+        await axios.patch(`${API_URL}/transactions/${txnId}/milestones/${mId}/status`, { status, updater_safetag: tgProfile.data.safetag }, { headers: BOT_AUTH_HEADERS });
         
         await ctx.answerCbQuery(`✅ Milestone marked as ${status.toLowerCase()}!`);
         

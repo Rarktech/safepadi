@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { supabase } from '@safepal/shared';
 
 export interface UserPayload {
@@ -82,6 +83,42 @@ export async function requireUser(req: Request, res: Response, next: NextFunctio
     } catch (err) {
         res.status(401).json({ error: 'AUTH_ERROR' });
     }
+}
+
+const BOT_ALLOWED_PLATFORMS = new Set(['telegram', 'discord', 'whatsapp', 'instagram', 'apple', 'messenger']);
+
+export interface BotOrUserRequest extends Request {
+    user?: UserPayload;
+    isBot?: boolean;
+    botPlatform?: string;
+}
+
+export async function requireUserOrBot(req: Request, res: Response, next: NextFunction) {
+    const platform = (req.headers['x-bot-platform'] as string | undefined)?.toLowerCase();
+    const authHeader = req.headers.authorization;
+    const bearerToken = authHeader?.replace(/^Bearer\s+/i, '');
+
+    if (platform && bearerToken) {
+        if (!BOT_ALLOWED_PLATFORMS.has(platform)) {
+            return res.status(401).json({ error: `Unknown platform: ${platform}` });
+        }
+        const secretKey = process.env[`BOT_SHARED_SECRET_${platform.toUpperCase()}`] || process.env.BOT_API_SECRET;
+        if (!secretKey) {
+            return res.status(401).json({ error: `No shared secret for platform: ${platform}` });
+        }
+        let matches = false;
+        try {
+            matches = crypto.timingSafeEqual(Buffer.from(bearerToken), Buffer.from(secretKey));
+        } catch {}
+        if (!matches) {
+            return res.status(401).json({ error: 'Invalid bot token' });
+        }
+        (req as BotOrUserRequest).isBot = true;
+        (req as BotOrUserRequest).botPlatform = platform;
+        return next();
+    }
+
+    return requireUser(req, res, next);
 }
 
 export function requireElevation(scope: string) {

@@ -14,6 +14,9 @@ if (process.env.NODE_ENV !== 'production') {
 const API_URL = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
 const REVIEWS_URL = process.env.REVIEWS_URL || 'http://localhost:3001';
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
+const BOT_AUTH_HEADERS = process.env.BOT_API_SECRET
+    ? { 'Authorization': `Bearer ${process.env.BOT_API_SECRET}`, 'x-bot-platform': 'discord' }
+    : {};
 
 console.log(`🤖 Bot Startup Configuration:`);
 console.log(`📡 API_URL: ${API_URL}`);
@@ -565,7 +568,7 @@ client.on('interactionCreate', async (interaction) => {
                 const txnId = parts[1];
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
-                    const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: act, updater_safetag: profileRes.data.safetag });
+                    const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: act, updater_safetag: profileRes.data.safetag }, { headers: BOT_AUTH_HEADERS });
                     const dat = res.data;
 
                     const payload: any = {
@@ -664,7 +667,7 @@ client.on('interactionCreate', async (interaction) => {
                 const status = parts[3];
 
                 try {
-                    await axios.patch(`${API_URL}/transactions/${txnId}/milestones/${mId}/status`, { status });
+                    await axios.patch(`${API_URL}/transactions/${txnId}/milestones/${mId}/status`, { status, updater_safetag: (await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`)).data.safetag }, { headers: BOT_AUTH_HEADERS });
                     
                     // Refresh view
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
@@ -1284,7 +1287,7 @@ client.on('interactionCreate', async (interaction) => {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
-                    const statusRes = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'resume', updater_safetag: profileRes.data.safetag });
+                    const statusRes = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'resume', updater_safetag: profileRes.data.safetag }, { headers: BOT_AUTH_HEADERS });
                     const dat = statusRes.data;
                     await interaction.editReply({
                         content: formatMessageForDiscord(dat.follow_up_msg),

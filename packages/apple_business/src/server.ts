@@ -16,8 +16,10 @@ app.use(express.json());
 
 const PORT = process.env.PORT || process.env.APPLE_PORT || 10003;
 const API_URL = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
-// The frontend URL where the Magic Link modal will be hosted
 const FRONTEND_URL = process.env.REVIEWS_URL || 'http://localhost:3001';
+const BOT_AUTH_HEADERS = process.env.BOT_API_SECRET
+    ? { 'Authorization': `Bearer ${process.env.BOT_API_SECRET}`, 'x-bot-platform': 'apple' }
+    : {};
 
 console.log(`🚀 Safeeely Apple Messages for Business Bot (via JivoChat) Starting...`);
 
@@ -573,7 +575,7 @@ app.post('/webhook/:token', (req, res) => {
                 if (messageText.startsWith('txn_action_accept|')) {
                     const txnId = messageText.replace('txn_action_accept|', '');
                     try {
-                        await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'accept', updater_safetag: safetag });
+                        await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'accept', updater_safetag: safetag }, { headers: BOT_AUTH_HEADERS });
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '✅ Transaction accepted! The buyer will be notified to make payment.' });
                     } catch (err: any) {
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to accept.'}` });
@@ -584,7 +586,7 @@ app.post('/webhook/:token', (req, res) => {
                 if (messageText.startsWith('txn_action_decline|')) {
                     const txnId = messageText.replace('txn_action_decline|', '');
                     try {
-                        await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'decline', updater_safetag: safetag });
+                        await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'decline', updater_safetag: safetag }, { headers: BOT_AUTH_HEADERS });
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '❌ Transaction declined.' });
                     } catch (err: any) {
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to decline.'}` });
@@ -613,7 +615,7 @@ app.post('/webhook/:token', (req, res) => {
                     const isSkip = messageText.startsWith('txn_action_complete_skip|');
                     const txnId = messageText.replace(isSkip ? 'txn_action_complete_skip|' : 'txn_action_complete_yes|', '');
                     try {
-                        await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: isSkip ? 'complete_skip' : 'complete_confirmed', updater_safetag: safetag });
+                        await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: isSkip ? 'complete_skip' : 'complete_confirmed', updater_safetag: safetag }, { headers: BOT_AUTH_HEADERS });
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '✅ Delivery marked! The buyer has been notified to confirm receipt.' });
                     } catch (err: any) {
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to mark complete.'}` });
@@ -624,7 +626,7 @@ app.post('/webhook/:token', (req, res) => {
                 if (messageText.startsWith('txn_action_confirm_receipt|')) {
                     const txnId = messageText.replace('txn_action_confirm_receipt|', '');
                     try {
-                        const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'confirm_receipt', updater_safetag: safetag });
+                        const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'confirm_receipt', updater_safetag: safetag }, { headers: BOT_AUTH_HEADERS });
                         const msg = (res.data.follow_up_msg || '🎉 Receipt confirmed! Funds have been released to the seller.').replace(/<[^>]*>/g, '');
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: msg });
                     } catch (err: any) {

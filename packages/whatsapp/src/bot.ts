@@ -22,6 +22,9 @@ const VERSION          = 'v17.0';
 const API_URL          = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
 const PUBLIC_API_URL   = process.env.API_URL || 'http://localhost:3000/api';
 const REVIEWS_URL      = process.env.REVIEWS_URL || 'https://safeeely.com';
+const BOT_AUTH_HEADERS = process.env.BOT_API_SECRET
+    ? { 'Authorization': `Bearer ${process.env.BOT_API_SECRET}`, 'x-bot-platform': 'whatsapp' }
+    : {};
 
 // ─── Flow security (RSA for WhatsApp Flows) ───────────────────────────────────
 const PRIVATE_KEY_PATH = path.resolve(__dirname, '../private.pem');
@@ -42,6 +45,7 @@ console.log(`🚀 Safeeely WhatsApp Bot Starting...`);
 // ─── Session state ────────────────────────────────────────────────────────────
 const loginSessions:   Map<string, { step: string; safetag?: string }> = new Map();
 const flowRegSessions: Map<string, { first_name: string; last_name: string; email: string; safetag: string }> = new Map();
+const regSessions:     Map<string, { step: string; formData: any }>                                             = new Map();
 const smartTxnSessions: Map<string, SmartTransactionDraft>              = new Map();
 const txnSessions:     Map<string, { step: string; formData: any }>    = new Map();
 const reviewSessions:    Map<string, { step: string; formData: any }>    = new Map();
@@ -637,6 +641,98 @@ async function submitFeedback(from: string, comment?: string) {
     }
 }
 
+// ─── Prompt-based registration handler ───────────────────────────────────────
+
+async function handleRegText(from: string, rawText: string) {
+    const session = regSessions.get(from)!;
+    const { step, formData } = session;
+
+    if (step === 'ASK_FIRST_NAME') {
+        const name = rawText.trim();
+        if (!name) { await sendText(from, '❌ Please enter your first name:'); return; }
+        formData.first_name = name;
+        session.step = 'ASK_LAST_NAME';
+        await sendText(from, '📝 *Registration Step 2/5*\n\nPlease enter your last name:');
+
+    } else if (step === 'ASK_LAST_NAME') {
+        const name = rawText.trim();
+        if (!name) { await sendText(from, '❌ Please enter your last name:'); return; }
+        formData.last_name = name;
+        session.step = 'ASK_EMAIL';
+        await sendText(from, '📝 *Registration Step 3/5*\n\nPlease enter your email address:\n📧 We\'ll use this to verify your account.');
+
+    } else if (step === 'ASK_EMAIL') {
+        const email = rawText.trim();
+        if (!email.includes('@')) {
+            await sendText(from, '❌ Please enter a valid email address:');
+            return;
+        }
+        formData.email = email;
+        try {
+            await axios.post(`${API_URL}/auth/email-otp/send`, { email });
+            session.step = 'VERIFY_EMAIL_OTP';
+            await sendButtons(from,
+                `📝 *Registration Step 4/5*\n\n📧 A 6-digit verification code was sent to: *${email}*\n\nPlease type the code below:`,
+                [{ id: 'RESEND_REG_OTP', title: '🔄 Resend Code' }]
+            );
+        } catch (err: any) {
+            await sendText(from, `❌ ${err.response?.data?.error || 'Failed to send verification email. Please try again.'}`);
+        }
+
+    } else if (step === 'VERIFY_EMAIL_OTP') {
+        const code = rawText.trim();
+        try {
+            await axios.post(`${API_URL}/auth/email-otp/verify`, { email: formData.email, code });
+            session.step = 'ASK_SAFETAG';
+            await sendText(from, '📝 *Registration Step 5/5*\n\n✏️ *Choose Your Safetag*\n\nPlease enter your preferred Safetag (e.g. @john_doe):\n\n• Must start with @\n• No spaces allowed\n• Must be unique');
+        } catch (err: any) {
+            await sendButtons(from,
+                `❌ ${err.response?.data?.error || 'Invalid code. Please try again:'}\n\nEnter the 6-digit code from your email:`,
+                [{ id: 'RESEND_REG_OTP', title: '🔄 Resend Code' }]
+            );
+        }
+
+    } else if (step === 'ASK_SAFETAG') {
+        const safetag = rawText.trim().startsWith('@') ? rawText.trim() : `@${rawText.trim()}`;
+        try {
+            await axios.get(`${API_URL}/profiles/by_safetag/${encodeURIComponent(safetag)}`);
+            // 200 = taken
+            await sendText(from, `❌ Safetag *${safetag}* is already taken.\n\nPlease choose a different Safetag:`);
+            return;
+        } catch (err: any) {
+            if (err.response?.status !== 404) {
+                await sendText(from, '❌ Could not verify safetag availability. Please try again:');
+                return;
+            }
+            // 404 = available, proceed
+        }
+
+        formData.safetag = safetag;
+        try {
+            const response = await axios.post(`${API_URL}/profiles/register`, {
+                first_name: formData.first_name,
+                last_name:  formData.last_name,
+                email:      formData.email,
+                safetag:    formData.safetag,
+                primary_platform: 'whatsapp',
+                platform_id: from,
+                ...(formData.referral_code ? { referral_code: formData.referral_code } : {})
+            });
+            regSessions.delete(from);
+            refSessions.delete(from);
+            const profile = response.data;
+            await sendText(from,
+                `🎉 *Registration Complete!*\n\n✅ You're all set!\n\n👤 Safetag: *${profile.safetag}*\n📧 Email: ${profile.email}\n\n🔐 Your account is secure and ready to use.`
+            );
+            await sendMainMenu(from, '🏠 Welcome to Safeeely!');
+        } catch (err: any) {
+            regSessions.delete(from);
+            refSessions.delete(from);
+            await sendText(from, `❌ Registration failed: ${err.response?.data?.error || err.message}\n\nType 'Hi' to try again.`);
+        }
+    }
+}
+
 // ─── Main incoming handler ────────────────────────────────────────────────────
 
 async function handleIncoming(from: string, msgType: string, rawText: string, textBody: string, interactiveId: string, message: any) {
@@ -683,6 +779,12 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
                 await sendText(from, `❌ ${err.response?.data?.error || 'Invalid code. Please try again.'}`);
             }
         }
+        return;
+    }
+
+    // ── Registration flow (prompt-based, replaces WhatsApp Flows) ────────────
+    if (msgType === 'text' && regSessions.has(from)) {
+        await handleRegText(from, rawText);
         return;
     }
 
@@ -879,26 +981,11 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         );
 
     } else if (interactiveId === 'CHOICE_REGISTER') {
-        await sendMsg(from, {
-            type: 'interactive',
-            interactive: {
-                type: 'flow',
-                header: { type: 'text', text: 'Safeeely Registration' },
-                body:   { text: 'Please click below to securely register your account.' },
-                footer: { text: 'End-to-end encrypted' },
-                action: {
-                    name: 'flow',
-                    parameters: {
-                        flow_message_version: '3',
-                        flow_token:           `reg_session_${from}`,
-                        flow_id:              process.env.REGISTRATION_FLOW_ID || 'PLACEHOLDER_ID',
-                        flow_cta:             'Open Form',
-                        flow_action:          'navigate',
-                        flow_action_payload:  { screen: 'REGISTRATION_SCREEN' }
-                    }
-                }
-            }
-        });
+        const formData: any = {};
+        const referralCode = refSessions.get(from);
+        if (referralCode) formData.referral_code = referralCode;
+        regSessions.set(from, { step: 'ASK_FIRST_NAME', formData });
+        await sendText(from, '📝 *Registration Step 1/5*\n\nPlease enter your first name:');
 
     } else if (interactiveId === 'CHOICE_LOGIN') {
         loginSessions.set(from, { step: 'ASK_SAFETAG' });
@@ -914,11 +1001,25 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
             await sendText(from, `❌ ${err.response?.data?.error || 'Failed to resend.'}`);
         }
 
+    } else if (interactiveId === 'RESEND_REG_OTP') {
+        const regState = regSessions.get(from);
+        if (!regState?.formData.email) { await sendText(from, "❌ Session expired. Type 'Hi' to start over."); return; }
+        try {
+            await axios.post(`${API_URL}/auth/email-otp/send`, { email: regState.formData.email });
+            await sendButtons(from,
+                '✅ New verification code sent to your email.\n\nPlease type the 6-digit code below:',
+                [{ id: 'RESEND_REG_OTP', title: '🔄 Resend Code' }]
+            );
+        } catch (err: any) {
+            await sendText(from, `❌ ${err.response?.data?.error || 'Failed to resend.'}`);
+        }
+
     // Navigation
     } else if (interactiveId === 'MAIN_MENU') {
         txnSessions.delete(from);
         reviewSessions.delete(from);
         disputeSessions.delete(from);
+        regSessions.delete(from);
         await sendMainMenu(from, '🏠 Main Menu');
 
     // Balance, referral, settings
@@ -982,7 +1083,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         const txnId = interactiveId.startsWith('ACCEPT_TXN_') ? interactiveId.replace('ACCEPT_TXN_', '') : interactiveId.replace('txn_action_accept|', '');
         try {
             const p = await getProfile(from);
-            await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'accept', updater_safetag: p.safetag });
+            await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'accept', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             await sendButtons(from, '✅ Transaction accepted! The buyer will be notified to make payment.', [{ id: 'MY_TXNS', title: '📋 My Txns' }, { id: 'MAIN_MENU', title: '🏠 Main Menu' }]);
         } catch (err: any) { await sendText(from, `❌ ${err.response?.data?.error || 'Failed to accept.'}`); }
 
@@ -990,7 +1091,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         const txnId = interactiveId.startsWith('DECLINE_TXN_') ? interactiveId.replace('DECLINE_TXN_', '') : interactiveId.replace('txn_action_decline|', '');
         try {
             const p = await getProfile(from);
-            await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'decline', updater_safetag: p.safetag });
+            await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'decline', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             await sendButtons(from, '❌ Transaction declined.', [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]);
         } catch (err: any) { await sendText(from, `❌ ${err.response?.data?.error || 'Failed.'}`); }
 
@@ -998,7 +1099,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         const txnId = interactiveId.replace('COMPLETE_TXN_', '');
         try {
             const p = await getProfile(from);
-            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_prompt', updater_safetag: p.safetag });
+            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_prompt', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             const opts: any[] = res.data.follow_up_options || [];
             const replyOpts = opts.filter((o: any) => !o.url);
             const urlOpts = opts.filter((o: any) => o.url);
@@ -1010,7 +1111,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         const txnId = interactiveId.replace('RECEIVED_TXN_', '');
         try {
             const p = await getProfile(from);
-            await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'confirm_receipt', updater_safetag: p.safetag });
+            await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'confirm_receipt', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             await sendButtons(from, '✅ Transaction completed! Funds will be released to the seller.', [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]);
         } catch (err: any) { await sendText(from, `❌ ${err.response?.data?.error || 'Failed.'}`); }
 
@@ -1018,7 +1119,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         const txnId = interactiveId.replace('txn_action_complete_prompt|', '');
         try {
             const p = await getProfile(from);
-            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_prompt', updater_safetag: p.safetag });
+            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_prompt', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             const opts: any[] = res.data.follow_up_options || [];
             const replyOpts = opts.filter((o: any) => !o.url);
             const urlOpts = opts.filter((o: any) => o.url);
@@ -1030,7 +1131,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         const txnId = interactiveId.replace('txn_action_complete_yes|', '');
         try {
             const p = await getProfile(from);
-            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_yes', updater_safetag: p.safetag });
+            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_yes', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             const opts: any[] = res.data.follow_up_options || [];
             const replyOpts = opts.filter((o: any) => !o.url);
             const urlOpts = opts.filter((o: any) => o.url);
@@ -1044,7 +1145,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         const txnId = interactiveId.replace('txn_action_complete_skip|', '');
         try {
             const p = await getProfile(from);
-            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_skip', updater_safetag: p.safetag });
+            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_skip', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             await sendButtons(from, res.data.follow_up_msg?.replace(/<[^>]*>/g, '') || '📦 Marked as complete! The buyer will be notified to confirm receipt.', [{ id: 'MY_TXNS', title: '📋 My Txns' }, { id: 'MAIN_MENU', title: '🏠 Main Menu' }]);
         } catch (err: any) { await sendText(from, `❌ ${err.response?.data?.error || 'Failed.'}`); }
 
@@ -1052,7 +1153,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         const txnId = interactiveId.replace('txn_action_confirm_receipt|', '');
         try {
             const p = await getProfile(from);
-            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'confirm_receipt', updater_safetag: p.safetag });
+            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'confirm_receipt', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             const msg = (res.data.follow_up_msg || '✅ Transaction completed! Funds will be released to the seller.').replace(/<[^>]*>/g, '');
             await sendButtons(from, msg, [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]);
         } catch (err: any) { await sendText(from, `❌ ${err.response?.data?.error || 'Failed.'}`); }
