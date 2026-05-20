@@ -1,14 +1,12 @@
 import axios from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
-
 const api = axios.create({
-    baseURL: API_URL,
-    withCredentials: true,  // sends sf_session cookie on every request
+    baseURL: '/api',
+    withCredentials: true,
     headers: {
         'Content-Type': 'application/json',
         'ngrok-skip-browser-warning': 'true',
-        'X-Requested-With': 'XMLHttpRequest',  // CSRF guard
+        'X-Requested-With': 'XMLHttpRequest',
     }
 });
 
@@ -34,7 +32,7 @@ api.interceptors.response.use(
             isRefreshing = true;
 
             try {
-                await axios.post(`${API_URL}/auth/magic-link/session/refresh`, {}, { withCredentials: true });
+                await axios.post('/api/auth/magic-link/session/refresh', {}, { withCredentials: true });
                 refreshQueue.forEach(cb => cb(''));
                 refreshQueue = [];
                 return api.request(original);

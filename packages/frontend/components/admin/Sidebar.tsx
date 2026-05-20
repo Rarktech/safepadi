@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import axios from "axios";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api";
+const API_URL = "/api";
 
 const menuItems = [
     { name: "Dashboard", icon: LayoutDashboard, href: "/admin/dashboard" },

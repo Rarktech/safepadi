@@ -35,9 +35,31 @@ export async function buildMagicLink(opts: {
             },
             timeout: 5000,
         });
-        return res.data.url as string;
+        // Telegram rejects 'localhost' in inline button URLs — replace with 127.0.0.1
+        return (res.data.url as string).replace('localhost', '127.0.0.1');
     } catch (err: any) {
         console.error('Failed to generate magic link:', err.response?.data || err.message);
-        return opts.fallbackUrl || '#';
+        return (opts.fallbackUrl || '#').replace('localhost', '127.0.0.1');
+    }
+}
+
+export async function fetchBotBalance(opts: { platform_id: string }): Promise<any | null> {
+    if (!BOT_SECRET) return null;
+    const ts = Date.now().toString();
+    const body = JSON.stringify({ platform_id: opts.platform_id });
+    const sig = crypto.createHmac('sha256', BOT_SECRET).update(ts + body).digest('hex');
+    try {
+        const res = await axios.post(`${API_URL}/profiles/bot-balance`, JSON.parse(body), {
+            headers: {
+                'X-Bot-Platform': PLATFORM,
+                'X-Bot-Timestamp': ts,
+                'X-Bot-Signature': sig,
+                'Content-Type': 'application/json',
+            },
+            timeout: 5000,
+        });
+        return res.data;
+    } catch {
+        return null;
     }
 }

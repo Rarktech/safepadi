@@ -12,7 +12,7 @@ import { reviewScene } from './scenes/review';
 import { feedbackScene } from './scenes/feedback';
 import { disputeScene } from './scenes/dispute';
 import { accountDeletionScene } from './scenes/account_deletion';
-import { buildMagicLink } from './utils/magicLink';
+import { buildMagicLink, fetchBotBalance } from './utils/magicLink';
 import { communityLicensingScene } from './scenes/community_licensing';
 import { communityWithdrawScene } from './scenes/community_withdraw';
 import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
@@ -399,11 +399,11 @@ bot.action('balance', async (ctx) => {
         // Generate magic link FIRST — independent of balance fetch
         const withdrawUrl = await buildMagicLink({ platform_id: String(ctx.from!.id), scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}` });
 
-        // Attempt balance fetch — failure shows fallback text, never aborts the button
+        // Attempt balance fetch via bot-authenticated endpoint
         let msg = '💰 <b>Balance & Withdrawals</b>\n\n';
         try {
-            const balRes = await axios.get(`${API_URL}/profiles/${safetag}/balance`);
-            const { balances } = balRes.data;
+            const balData = await fetchBotBalance({ platform_id: String(ctx.from!.id) });
+            const balances = balData?.balances;
             if (!balances?.length) {
                 msg += 'You have no available balance yet. Complete transactions to earn!';
             } else {

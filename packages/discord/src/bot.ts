@@ -1,7 +1,7 @@
 import { Client, GatewayIntentBits, Partials, Collection, InteractionReplyOptions, MessageFlags } from 'discord.js';
 import * as dotenv from 'dotenv';
 import axios from 'axios';
-import { buildMagicLink } from './utils/magicLink';
+import { buildMagicLink, fetchBotBalance } from './utils/magicLink';
 import path from 'path';
 import http from 'http';
 import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
@@ -1322,11 +1322,11 @@ client.on('interactionCreate', async (interaction) => {
                     // Generate magic link FIRST — independent of balance fetch
                     const withdrawUrl = await buildMagicLink({ platform_id: interaction.user.id, scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}` });
 
-                    // Attempt balance fetch — failure shows fallback text, never aborts the button
+                    // Attempt balance fetch via bot-authenticated endpoint
                     let msg = '💰 **Balance & Withdrawals**\n\n';
                     try {
-                        const bRes = await axios.get(`${API_URL}/profiles/${safetag}/balance`);
-                        const { balances } = bRes.data;
+                        const balData = await fetchBotBalance({ platform_id: interaction.user.id });
+                        const balances = balData?.balances;
                         if (!balances || balances.length === 0) {
                             msg += 'You have no available balance yet. Complete transactions to earn!';
                         } else {

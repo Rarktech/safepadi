@@ -5,6 +5,7 @@ import { sendNotification, sendReferralNotification, recordNotification } from '
 import { sendEmail } from '../services/email';
 import multer from 'multer';
 import { requireUser, requireSafetagOwner, requireElevation, AuthedRequest } from '../middleware/requireUser';
+import { requireBot, BotAuthedRequest } from '../middleware/requireBot';
 const upload = multer({ storage: multer.memoryStorage() });
 
 const router = Router();
@@ -426,6 +427,156 @@ router.get('/:safetag/balance', requireUser, requireSafetagOwner, async (req, re
         });
 
         // Buyer pending refunds: amounts owed back to this profile as a buyer
+        const pendingRefundsMap: Record<string, number> = {};
+        (refundCreditResult.data || []).forEach((rc: any) => {
+            pendingRefundsMap[rc.currency] = (pendingRefundsMap[rc.currency] || 0) + Number(rc.amount);
+        });
+
+        const fmt = (map: Record<string, number>) =>
+            Object.entries(map).map(([currency, amount]) => ({
+                currency,
+                amount: Number(Math.max(0, amount).toFixed(2)),
+            }));
+
+        res.json({
+            balances: fmt(balances),
+            pending_escrow: fmt(pendingEscrowMap),
+            in_withdrawal: fmt(inWithdrawalMap),
+            total_earned: fmt(total_earned),
+            pending_refunds: fmt(pendingRefundsMap),
+        });
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// Bot-authenticated balance endpoint — same calculation as /:safetag/balance but uses HMAC bot auth
+router.post('/bot-balance', requireBot, async (req, res) => {
+    try {
+        const platform = (req as BotAuthedRequest).botPlatform;
+        const { platform_id } = req.body;
+        if (!platform_id) return res.status(400).json({ error: 'platform_id is required' });
+
+        const { data: linked } = await supabase
+            .from('linked_accounts')
+            .select('profile_id')
+            .eq('platform', platform)
+            .eq('platform_id', String(platform_id))
+            .maybeSingle();
+
+        if (!linked) return res.status(404).json({ error: 'No account linked for this platform_id' });
+
+        const profileId = linked.profile_id;
+
+        const [txnResult, splitTxnResult, pendingTxnResult, withdrawalResult, refundCreditResult] = await Promise.all([
+            supabase
+                .from('transactions')
+                .select('id, amount, currency, fee_amount, fee_allocation, transaction_type, status, milestones:transaction_milestones(*)')
+                .eq('seller_id', profileId)
+                .or('status.eq.FINALIZED,transaction_type.eq.MILESTONE'),
+            supabase
+                .from('transactions')
+                .select('id, amount, currency, fee_amount, fee_allocation, transaction_type, metadata')
+                .eq('seller_id', profileId)
+                .eq('status', 'RESOLVED_SPLIT')
+                .eq('transaction_type', 'ONE_TIME'),
+            supabase
+                .from('transactions')
+                .select('amount, currency, fee_amount, fee_allocation, transaction_type')
+                .eq('seller_id', profileId)
+                .in('status', ['ACCEPTED', 'PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER']),
+            supabase
+                .from('withdrawals')
+                .select('amount, currency, status')
+                .eq('profile_id', profileId)
+                .neq('status', 'REJECTED'),
+            supabase
+                .from('buyer_refund_credits')
+                .select('amount, currency, status')
+                .eq('buyer_id', profileId)
+                .in('status', ['PENDING', 'PROCESSING']),
+        ]);
+
+        if (txnResult.error) throw txnResult.error;
+        if (withdrawalResult.error) throw withdrawalResult.error;
+
+        const txns = txnResult.data || [];
+        const splitTxns = splitTxnResult.data || [];
+        const withdrawals = withdrawalResult.data || [];
+
+        const balances: Record<string, number> = {};
+        const total_earned: Record<string, number> = {};
+
+        txns.forEach(t => {
+            let amountToCredit = 0;
+            if (t.transaction_type === 'ONE_TIME' && t.status === 'FINALIZED') {
+                amountToCredit = Number(t.amount);
+                if (t.fee_allocation === 'seller') amountToCredit -= Number(t.fee_amount);
+                else if (t.fee_allocation === 'split') amountToCredit -= (Number(t.fee_amount) / 2);
+            } else if (t.transaction_type === 'MILESTONE') {
+                const releasedMilestones = t.milestones?.filter((m: any) => m.status === 'RELEASED') || [];
+                const releasedTotal = releasedMilestones.reduce((sum: number, m: any) => sum + Number(m.amount), 0);
+                if (releasedTotal > 0) {
+                    amountToCredit = releasedTotal;
+                    const totalFee = Number(t.fee_amount);
+                    const feeToDeduct = t.fee_allocation === 'seller' ? totalFee : (t.fee_allocation === 'split' ? totalFee / 2 : 0);
+                    if (feeToDeduct > 0 && Number(t.amount) > 0) {
+                        amountToCredit -= (feeToDeduct * (releasedTotal / Number(t.amount)));
+                    }
+                }
+            }
+            if (amountToCredit > 0) {
+                balances[t.currency] = (balances[t.currency] || 0) + amountToCredit;
+                total_earned[t.currency] = (total_earned[t.currency] || 0) + amountToCredit;
+            }
+        });
+
+        splitTxns.forEach(t => {
+            const meta = (t as any).metadata || {};
+            const sellerAmount = Number(meta.seller_amount || 0);
+            if (sellerAmount > 0) {
+                let credit = sellerAmount;
+                const sellerPct = Number(meta.seller_pct || 50) / 100;
+                const fee = Number(t.fee_amount) * sellerPct;
+                if (t.fee_allocation === 'seller') credit -= fee;
+                else if (t.fee_allocation === 'split') credit -= fee / 2;
+                if (credit > 0) {
+                    balances[t.currency] = (balances[t.currency] || 0) + credit;
+                    total_earned[t.currency] = (total_earned[t.currency] || 0) + credit;
+                }
+            }
+        });
+
+        const { data: referralCommissions } = await supabase
+            .from('referral_commissions')
+            .select('amount, currency')
+            .eq('referrer_id', profileId)
+            .eq('status', 'COMPLETED');
+
+        referralCommissions?.forEach((rc: any) => {
+            balances[rc.currency] = (balances[rc.currency] || 0) + Number(rc.amount);
+            total_earned[rc.currency] = (total_earned[rc.currency] || 0) + Number(rc.amount);
+        });
+
+        withdrawals.forEach(w => {
+            if (balances[w.currency] !== undefined) balances[w.currency] -= Number(w.amount);
+        });
+
+        const pendingEscrowMap: Record<string, number> = {};
+        (pendingTxnResult.data || []).forEach(t => {
+            let net = Number(t.amount);
+            if (t.fee_allocation === 'seller') net -= Number(t.fee_amount);
+            else if (t.fee_allocation === 'split') net -= Number(t.fee_amount) / 2;
+            if (net > 0) pendingEscrowMap[t.currency] = (pendingEscrowMap[t.currency] || 0) + net;
+        });
+
+        const inWithdrawalMap: Record<string, number> = {};
+        withdrawals.forEach(w => {
+            if (w.status === 'PENDING' || w.status === 'PROCESSING') {
+                inWithdrawalMap[w.currency] = (inWithdrawalMap[w.currency] || 0) + Number(w.amount);
+            }
+        });
+
         const pendingRefundsMap: Record<string, number> = {};
         (refundCreditResult.data || []).forEach((rc: any) => {
             pendingRefundsMap[rc.currency] = (pendingRefundsMap[rc.currency] || 0) + Number(rc.amount);

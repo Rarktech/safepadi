@@ -47,8 +47,13 @@ import { runDisputeEnforcement } from './cron/disputeEnforcement';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:3001,http://127.0.0.1:3001')
-    .split(',').map(o => o.trim()).filter(Boolean);
+const corsBase = process.env.CORS_ORIGINS || 'http://localhost:3001,http://127.0.0.1:3001';
+const extraOrigins: string[] = [];
+if (process.env.REVIEWS_URL) extraOrigins.push(process.env.REVIEWS_URL.replace(/\/$/, ''));
+const CORS_ORIGINS = [...new Set([
+    ...corsBase.split(',').map(o => o.trim()).filter(Boolean),
+    ...extraOrigins,
+])];
 app.use(cors({
     origin: (origin, callback) => {
         // Allow server-to-server calls (no origin) and whitelisted origins

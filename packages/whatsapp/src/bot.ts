@@ -4,7 +4,7 @@ import * as dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import { FlowCrypto } from './utils/crypto';
-import { buildMagicLink } from './utils/magicLink';
+import { buildMagicLink, fetchBotBalance } from './utils/magicLink';
 import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
 import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../shared/src/feedbackPrompts';
 
@@ -213,11 +213,11 @@ async function showBalance(from: string) {
         // Generate magic link FIRST — independent of balance fetch
         const withdrawUrl = await buildMagicLink({ platform_id: from, scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(p.safetag)}` });
 
-        // Attempt balance fetch — failure shows fallback text, never aborts the button
+        // Attempt balance fetch via bot-authenticated endpoint
         let msg = '💰 *Balance & Withdrawals*\n\n';
         try {
-            const balRes = await axios.get(`${API_URL}/profiles/${p.safetag}/balance`);
-            const { balances } = balRes.data;
+            const balData = await fetchBotBalance({ platform_id: from });
+            const balances = balData?.balances;
             if (!balances?.length) {
                 msg += 'You have no available balance yet. Complete transactions to earn!';
             } else {

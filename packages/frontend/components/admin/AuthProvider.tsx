@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import axios from "axios";
 import { Loader2 } from "lucide-react";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api";
+const API_URL = "/api";
 
 export default function AdminAuthProvider({ children }: { children: React.ReactNode }) {
     const router = useRouter();
