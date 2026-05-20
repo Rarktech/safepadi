@@ -1602,7 +1602,11 @@ app.get('/webhook', (req, res) => {
     else res.sendStatus(403);
 });
 
-app.post('/webhook', async (req, res) => {
+app.post('/webhook', (req, res) => {
+    // Acknowledge immediately — WhatsApp retries if we don't respond within ~20s,
+    // which causes duplicate messages when handleIncoming is slow.
+    res.sendStatus(200);
+
     try {
         const body = req.body;
         if (body.object === 'whatsapp_business_account' && body.entry?.[0]?.changes) {
@@ -1629,13 +1633,13 @@ app.post('/webhook', async (req, res) => {
                 }
 
                 console.log(`📩 WA from ${from}: [${msgType}] text="${textBody}" id="${interactiveId}"`);
-                await handleIncoming(from, msgType, rawText, textBody, interactiveId, message);
+                handleIncoming(from, msgType, rawText, textBody, interactiveId, message).catch((err: any) => {
+                    console.error('🔥 handleIncoming Error:', err.message);
+                });
             }
         }
-        res.sendStatus(200);
     } catch (error: any) {
         console.error('🔥 Webhook Error:', error.response?.data || error.message);
-        res.sendStatus(200);
     }
 });
 
