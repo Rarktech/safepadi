@@ -1,5 +1,4 @@
 import axios from 'axios';
-import crypto from 'crypto';
 
 const API_URL = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
 const BOT_SECRET = process.env.BOT_API_SECRET || '';
@@ -13,24 +12,21 @@ export async function buildMagicLink(opts: {
 }): Promise<string> {
     if (!BOT_SECRET) {
         console.warn('⚠️ BOT_API_SECRET not set — magic link will use fallback URL');
-        return opts.fallbackUrl || '#';
+        return (opts.fallbackUrl || '#').replace('localhost', '127.0.0.1');
     }
 
-    const ts = Date.now().toString();
     const body = JSON.stringify({
         platform: PLATFORM,
         platform_id: opts.platform_id,
         scope: opts.scope,
         ...(opts.txn_id ? { txn_id: opts.txn_id } : {}),
     });
-    const sig = crypto.createHmac('sha256', BOT_SECRET).update(ts + body).digest('hex');
 
     try {
         const res = await axios.post(`${API_URL}/auth/magic-link`, body, {
             headers: {
                 'X-Bot-Platform': PLATFORM,
-                'X-Bot-Timestamp': ts,
-                'X-Bot-Signature': sig,
+                'Authorization': `Bearer ${BOT_SECRET}`,
                 'Content-Type': 'application/json',
             },
             timeout: 5000,
@@ -45,15 +41,12 @@ export async function buildMagicLink(opts: {
 
 export async function fetchBotBalance(opts: { platform_id: string }): Promise<any | null> {
     if (!BOT_SECRET) return null;
-    const ts = Date.now().toString();
     const body = JSON.stringify({ platform_id: opts.platform_id });
-    const sig = crypto.createHmac('sha256', BOT_SECRET).update(ts + body).digest('hex');
     try {
         const res = await axios.post(`${API_URL}/profiles/bot-balance`, body, {
             headers: {
                 'X-Bot-Platform': PLATFORM,
-                'X-Bot-Timestamp': ts,
-                'X-Bot-Signature': sig,
+                'Authorization': `Bearer ${BOT_SECRET}`,
                 'Content-Type': 'application/json',
             },
             timeout: 5000,
