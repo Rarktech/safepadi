@@ -528,6 +528,16 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
 
         if (updateError) throw updateError;
 
+        // Cascade milestone rows to RELEASED when a milestone transaction is finalized via confirm_receipt
+        // (WhatsApp/Instagram/Messenger/Apple have no per-milestone UI; buyer confirms the whole job at once)
+        if (newStatus === 'FINALIZED' && txn.transaction_type === 'MILESTONE' && txn.milestones?.length) {
+            await supabase
+                .from('transaction_milestones')
+                .update({ status: 'RELEASED', updated_at: new Date().toISOString() })
+                .eq('transaction_id', txn.id)
+                .in('status', ['PENDING', 'COMPLETED']);
+        }
+
         // --- REFERRAL COMMISSION DISTRIBUTION ENGINE ---
         if (newStatus === 'FINALIZED') {
             try {
