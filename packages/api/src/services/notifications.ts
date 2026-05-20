@@ -416,29 +416,29 @@ export async function sendReferralNotification(
             .single();
         if (!referrer) return;
 
-        const { data: primary } = await supabase
+        const { data: accounts } = await supabase
             .from('linked_accounts')
             .select('platform, platform_id, last_message_at')
-            .eq('profile_id', referrerId)
-            .eq('is_primary', true)
-            .single();
+            .eq('profile_id', referrerId);
 
-        if (!primary) {
+        if (!accounts?.length) {
             sendEmail({ to: referrer.email, subject: emailSubject, html: emailHtml }).catch(() => {});
             return;
         }
 
-        if (META_PLATFORMS.includes(primary.platform)) {
-            const windowOpen = primary.last_message_at
-                ? (Date.now() - new Date(primary.last_message_at).getTime()) < WINDOW_24H_MS
-                : false;
-            if (windowOpen) {
-                await sendNotification(primary.platform, primary.platform_id, platformMessage);
-            } else {
-                sendEmail({ to: referrer.email, subject: emailSubject, html: emailHtml }).catch(() => {});
+        let notified = false;
+        for (const acct of accounts) {
+            if (META_PLATFORMS.includes(acct.platform)) {
+                const windowOpen = acct.last_message_at
+                    ? (Date.now() - new Date(acct.last_message_at).getTime()) < WINDOW_24H_MS
+                    : false;
+                if (!windowOpen) continue;
             }
-        } else {
-            await sendNotification(primary.platform, primary.platform_id, platformMessage);
+            await sendNotification(acct.platform, acct.platform_id, platformMessage);
+            notified = true;
+        }
+        if (!notified) {
+            sendEmail({ to: referrer.email, subject: emailSubject, html: emailHtml }).catch(() => {});
         }
     } catch (err: any) {
         log(`❌ sendReferralNotification error for referrer ${referrerId}: ${err.message}`);
@@ -453,33 +453,31 @@ export async function routeNotification(
     emailFallback?: () => void | Promise<void>
 ): Promise<void> {
     try {
-        const { data: linked } = await supabase
+        const { data: accounts } = await supabase
             .from('linked_accounts')
             .select('platform, platform_id, last_message_at')
-            .eq('profile_id', profileId)
-            .eq('is_primary', true)
-            .single();
+            .eq('profile_id', profileId);
 
-        if (!linked) {
+        if (!accounts?.length) {
             if (emailFallback) emailFallback();
             return;
         }
 
-        if (!META_PLATFORMS.includes(linked.platform)) {
-            await sendNotification(linked.platform, linked.platform_id, message, options ?? [], imageUrl ?? undefined);
-            return;
+        let notified = false;
+        for (const acct of accounts) {
+            if (META_PLATFORMS.includes(acct.platform)) {
+                const windowOpen = acct.last_message_at
+                    ? (Date.now() - new Date(acct.last_message_at).getTime()) < WINDOW_24H_MS
+                    : false;
+                if (!windowOpen) continue;
+            }
+            await sendNotification(acct.platform, acct.platform_id, message, options ?? [], imageUrl ?? undefined);
+            notified = true;
         }
-
-        const windowOpen = linked.last_message_at
-            ? (Date.now() - new Date(linked.last_message_at).getTime()) < WINDOW_24H_MS
-            : false;
-
-        if (windowOpen) {
-            await sendNotification(linked.platform, linked.platform_id, message, options ?? [], imageUrl ?? undefined);
-        } else if (emailFallback) {
+        if (!notified && emailFallback) {
             emailFallback();
-        } else {
-            log(`⚠️ [routeNotification] Meta window closed for ${profileId}, no email fallback provided — notification skipped`);
+        } else if (!notified) {
+            log(`⚠️ [routeNotification] No active platform windows for ${profileId} — notification skipped`);
         }
     } catch (err: any) {
         log(`❌ routeNotification error for profile ${profileId}: ${err.message}`);

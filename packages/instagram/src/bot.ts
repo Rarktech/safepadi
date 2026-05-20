@@ -1058,9 +1058,10 @@ async function handlePostback(psid: string, payload: string) {
     } else if (payload === 'LINKED_ACCOUNTS') {
         try {
             const p = await getProfile(psid);
-            const linked = p.linked_platforms || [];
+            const linkedRes = await axios.get(`${API_URL}/profiles/${encodeURIComponent(p.safetag)}/linked-accounts`);
+            const linked: any[] = linkedRes.data || [];
             const list = linked.length
-                ? linked.map((l: any) => `• ${l.platform}: ${l.platform_id}`).join('\n')
+                ? linked.map((l: any) => `• ${l.platform}${l.is_primary ? ' ⭐ (primary)' : ''}`).join('\n')
                 : 'No linked accounts yet.';
             await sendMsg(psid, btnTemplate(
                 `🔗 Linked Accounts\n\n${list}\n\nLink more accounts by logging in from other platforms (Telegram, Discord, WhatsApp).`,
