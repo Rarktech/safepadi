@@ -16,19 +16,14 @@ import crypto from 'crypto';
 
 const app = express();
 
-// Raw stream capture — bypasses Content-Type matching entirely.
-// express.raw/json both require a Content-Type header; stream listeners do not.
-app.use((req: any, _res, next) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
-    req.on('end', () => {
-        req.rawBody = Buffer.concat(chunks);
-        try { req.body = JSON.parse(req.rawBody.toString('utf-8')); }
-        catch { req.body = {}; }
-        next();
-    });
-    req.on('error', next);
-});
+// Same approach as Instagram bot: verify callback receives the exact raw Buffer
+// that body-parser read from the stream — guaranteed to match what Meta signed.
+// type:'*/*' accepts any Content-Type so non-standard headers don't block it.
+app.use(express.json({
+    verify: (req: any, _res, buf: Buffer) => { req.rawBody = buf; },
+    type: '*/*',
+    limit: '10mb'
+} as any));
 
 const WHATSAPP_TOKEN   = process.env.WHATSAPP_TOKEN   || '';
 const PHONE_NUMBER_ID  = process.env.PHONE_NUMBER_ID  || '';
