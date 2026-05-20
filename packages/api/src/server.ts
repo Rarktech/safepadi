@@ -115,6 +115,17 @@ app.get('/api/ping', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/auth/magic-link', magicLinkRoutes);
 
+// Warn at startup if no bot secrets are configured — magic link generation will fail silently
+const BOT_PLATFORMS = ['TELEGRAM', 'DISCORD', 'WHATSAPP', 'INSTAGRAM', 'APPLE', 'MESSENGER'];
+const missingPlatformSecrets = BOT_PLATFORMS.filter(p => !process.env[`BOT_SHARED_SECRET_${p}`]);
+if (!process.env.BOT_API_SECRET && missingPlatformSecrets.length === BOT_PLATFORMS.length) {
+    console.warn('⚠️  WARNING: No bot secrets configured. Magic link generation will fail for all bots.');
+    console.warn('   Set BOT_API_SECRET in this service\'s environment variables (same value as in bot services).');
+    console.warn('   Diagnose at: GET /api/auth/magic-link/health');
+} else if (!process.env.BOT_API_SECRET) {
+    console.log(`ℹ️  BOT_API_SECRET not set — using platform-specific secrets. Missing: ${missingPlatformSecrets.join(', ') || 'none'}`);
+}
+
 // Global error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error('🔥 [Critical Server Error]:', err);

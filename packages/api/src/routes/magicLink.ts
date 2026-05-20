@@ -59,6 +59,21 @@ function issueSessionJwt(opts: {
 }
 
 /**
+ * GET /api/auth/magic-link/health
+ * Public diagnostic — shows which bot secrets are configured (boolean only, never values).
+ */
+router.get('/health', (_req: Request, res: Response) => {
+    const PLATFORMS = ['telegram', 'discord', 'whatsapp', 'instagram', 'apple', 'messenger'];
+    const platforms: Record<string, boolean> = {};
+    for (const p of PLATFORMS) {
+        platforms[p] = !!process.env[`BOT_SHARED_SECRET_${p.toUpperCase()}`];
+    }
+    const botApiSecret = !!process.env.BOT_API_SECRET;
+    const anyConfigured = botApiSecret || Object.values(platforms).some(Boolean);
+    res.json({ bot_api_secret: botApiSecret, platforms, any_secret_configured: anyConfigured });
+});
+
+/**
  * POST /api/auth/magic-link
  * Called by bots (server-to-server) to generate a one-time URL for a user.
  * Requires X-Bot-Platform + X-Bot-Signature (HMAC-SHA256 of timestamp+body).

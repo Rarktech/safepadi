@@ -225,21 +225,28 @@ async function showOtherSettings(psid: string) {
 async function showBalance(psid: string) {
     try {
         const p = await getProfile(psid);
-        const balRes = await axios.get(`${API_URL}/profiles/${p.safetag}/balance`);
-        const { balances } = balRes.data;
 
-        let msg = '💰 Available Balance\n\n';
-        if (!balances || balances.length === 0) {
-            msg += 'You currently have no available balance. Complete transactions to earn!';
-        } else {
-            balances.forEach((b: any) => {
-                const flag = b.currency === 'NGN' ? '🇳🇬' : b.currency === 'USD' ? '🇺🇸' : '🪙';
-                msg += `${flag} ${b.amount.toLocaleString()} ${b.currency}\n`;
-            });
-            msg += '\nBalances are calculated from your completed (finalized) sales.';
+        // Generate magic link FIRST — independent of balance fetch
+        const withdrawUrl = await buildMagicLink({ platform_id: psid, scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(p.safetag)}` });
+
+        // Attempt balance fetch — failure shows fallback text, never aborts the button
+        let msg = '💰 Balance & Withdrawals\n\n';
+        try {
+            const balRes = await axios.get(`${API_URL}/profiles/${p.safetag}/balance`);
+            const { balances } = balRes.data;
+            if (!balances || balances.length === 0) {
+                msg += 'You have no available balance yet. Complete transactions to earn!';
+            } else {
+                balances.forEach((b: any) => {
+                    const flag = b.currency === 'NGN' ? '🇳🇬' : b.currency === 'USD' ? '🇺🇸' : '🪙';
+                    msg += `${flag} ${b.amount.toLocaleString()} ${b.currency}\n`;
+                });
+                msg += '\nBalances are from your completed (finalized) sales.';
+            }
+        } catch {
+            msg += 'Tap below to view your full balance breakdown.';
         }
 
-        const withdrawUrl = await buildMagicLink({ platform_id: psid, scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(p.safetag)}` });
         await sendMsg(psid, btnTemplate(msg, [
             { type: 'web_url',  url: withdrawUrl,  title: '💸 Withdraw Funds'  },
             { type: 'postback', payload: 'MAIN_MENU', title: '🔙 Main Menu'    }

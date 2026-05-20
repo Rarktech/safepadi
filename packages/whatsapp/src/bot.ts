@@ -195,21 +195,28 @@ async function getProfile(from: string) {
 async function showBalance(from: string) {
     try {
         const p = await getProfile(from);
-        const balRes = await axios.get(`${API_URL}/profiles/${p.safetag}/balance`);
-        const { balances } = balRes.data;
 
-        let msg = '💰 *Available Balance*\n\n';
-        if (!balances?.length) {
-            msg += 'You currently have no available balance. Complete transactions to earn!';
-        } else {
-            balances.forEach((b: any) => {
-                const flag = b.currency === 'NGN' ? '🇳🇬' : b.currency === 'USD' ? '🇺🇸' : '🪙';
-                msg += `${flag} *${b.amount.toLocaleString()} ${b.currency}*\n`;
-            });
-            msg += '\n_Balances are calculated from your completed (finalized) sales._';
+        // Generate magic link FIRST — independent of balance fetch
+        const withdrawUrl = await buildMagicLink({ platform_id: from, scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(p.safetag)}` });
+
+        // Attempt balance fetch — failure shows fallback text, never aborts the button
+        let msg = '💰 *Balance & Withdrawals*\n\n';
+        try {
+            const balRes = await axios.get(`${API_URL}/profiles/${p.safetag}/balance`);
+            const { balances } = balRes.data;
+            if (!balances?.length) {
+                msg += 'You have no available balance yet. Complete transactions to earn!';
+            } else {
+                balances.forEach((b: any) => {
+                    const flag = b.currency === 'NGN' ? '🇳🇬' : b.currency === 'USD' ? '🇺🇸' : '🪙';
+                    msg += `${flag} *${b.amount.toLocaleString()} ${b.currency}*\n`;
+                });
+                msg += '\n_Balances are from your completed (finalized) sales._';
+            }
+        } catch {
+            msg += 'Tap below to view your full balance breakdown.';
         }
 
-        const withdrawUrl = await buildMagicLink({ platform_id: from, scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(p.safetag)}` });
         await sendText(from, msg);
         await sendCTAUrl(from, 'Withdraw your earnings securely:', '💸 Withdraw Funds', withdrawUrl);
         await sendButtons(from, 'Need anything else?', [{ id: 'MAIN_MENU', title: '🔙 Main Menu' }]);

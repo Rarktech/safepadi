@@ -395,21 +395,28 @@ bot.action('balance', async (ctx) => {
     try {
         const profileRes = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
         const safetag = profileRes.data.safetag;
-        const balRes = await axios.get(`${API_URL}/profiles/${safetag}/balance`);
-        const { balances } = balRes.data;
 
-        let msg = '💰 <b>Available Balance</b>\n\n';
-        if (balances.length === 0) {
-            msg += 'You currently have no available balance. Complete transactions to earn!';
-        } else {
-            balances.forEach((b: any) => {
-                const emoji = b.currency === 'NGN' ? '🇳🇬' : (b.currency === 'USD' ? '🇺🇸' : '🪙');
-                msg += `${emoji} <b>${b.amount.toLocaleString()} ${b.currency}</b>\n`;
-            });
-            msg += '\n<i>Balances are calculated from your completed (finalized) sales.</i>';
+        // Generate magic link FIRST — independent of balance fetch
+        const withdrawUrl = await buildMagicLink({ platform_id: String(ctx.from!.id), scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}` });
+
+        // Attempt balance fetch — failure shows fallback text, never aborts the button
+        let msg = '💰 <b>Balance & Withdrawals</b>\n\n';
+        try {
+            const balRes = await axios.get(`${API_URL}/profiles/${safetag}/balance`);
+            const { balances } = balRes.data;
+            if (!balances?.length) {
+                msg += 'You have no available balance yet. Complete transactions to earn!';
+            } else {
+                balances.forEach((b: any) => {
+                    const emoji = b.currency === 'NGN' ? '🇳🇬' : (b.currency === 'USD' ? '🇺🇸' : '🪙');
+                    msg += `${emoji} <b>${b.amount.toLocaleString()} ${b.currency}</b>\n`;
+                });
+                msg += '\n<i>Balances are from your completed (finalized) sales.</i>';
+            }
+        } catch {
+            msg += 'Tap below to view your full balance breakdown.';
         }
 
-        const withdrawUrl = await buildMagicLink({ platform_id: String(ctx.from!.id), scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}` });
         return ctx.reply(msg, {
             parse_mode: 'HTML',
             reply_markup: {
@@ -420,7 +427,7 @@ bot.action('balance', async (ctx) => {
             }
         });
     } catch (err: any) {
-        ctx.reply(`❌ Balance Error: ${err.message}`);
+        ctx.reply(`❌ Error: ${err.message}`);
     }
 });
 

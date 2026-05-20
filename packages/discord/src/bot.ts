@@ -1318,21 +1318,28 @@ client.on('interactionCreate', async (interaction) => {
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
                     const safetag = profileRes.data.safetag;
-                    const bRes = await axios.get(`${API_URL}/profiles/${safetag}/balance`);
-                    const { balances } = bRes.data;
 
-                    let msg = '💰 **Available Balance**\n\n';
-                    if (!balances || balances.length === 0) {
-                        msg += 'You currently have no available balance. Complete transactions to earn!';
-                    } else {
-                        balances.forEach((b: any) => {
-                            const emoji = b.currency === 'NGN' ? '🇳🇬' : (b.currency === 'USD' ? '🇺🇸' : '🪙');
-                            msg += `${emoji} **${b.amount.toLocaleString()} ${b.currency}**\n`;
-                        });
-                        msg += '\n_Balances are calculated from your completed (finalized) sales._';
+                    // Generate magic link FIRST — independent of balance fetch
+                    const withdrawUrl = await buildMagicLink({ platform_id: interaction.user.id, scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}` });
+
+                    // Attempt balance fetch — failure shows fallback text, never aborts the button
+                    let msg = '💰 **Balance & Withdrawals**\n\n';
+                    try {
+                        const bRes = await axios.get(`${API_URL}/profiles/${safetag}/balance`);
+                        const { balances } = bRes.data;
+                        if (!balances || balances.length === 0) {
+                            msg += 'You have no available balance yet. Complete transactions to earn!';
+                        } else {
+                            balances.forEach((b: any) => {
+                                const emoji = b.currency === 'NGN' ? '🇳🇬' : (b.currency === 'USD' ? '🇺🇸' : '🪙');
+                                msg += `${emoji} **${b.amount.toLocaleString()} ${b.currency}**\n`;
+                            });
+                            msg += '\n_Balances are from your completed (finalized) sales._';
+                        }
+                    } catch {
+                        msg += 'Tap below to view your full balance breakdown.';
                     }
 
-                    const withdrawUrl = await buildMagicLink({ platform_id: interaction.user.id, scope: 'withdraw', fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}` });
                     await interaction.editReply({
                         content: msg,
                         components: [{
@@ -1342,7 +1349,7 @@ client.on('interactionCreate', async (interaction) => {
                             ]
                         }]
                     });
-                } catch (err: any) { await interaction.editReply(`❌ Balance Error: ${err.message}`); }
+                } catch (err: any) { await interaction.editReply(`❌ Error: ${err.message}`); }
             } else if (customId === 'referral') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
