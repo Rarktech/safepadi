@@ -50,6 +50,7 @@ if (REVIEWS_URL.includes('localhost')) {
 console.log(`🚀 Telegram Bot Starting:`);
 console.log(`📡 API_URL: ${API_URL}`);
 console.log(`🔗 REVIEWS_URL: ${REVIEWS_URL}`);
+console.log(`🔑 BOT_API_SECRET: ${process.env.BOT_API_SECRET ? process.env.BOT_API_SECRET.substring(0, 8) + '...' : 'NOT SET — magic links will fail'}`);
 
 // Per-group cooldown — prevents bot flooding when many members trigger commands at once
 const groupTradeCooldown = new Map<number, number>();
@@ -403,11 +404,12 @@ bot.action('balance', async (ctx) => {
         let msg = '💰 <b>Balance & Withdrawals</b>\n\n';
         try {
             const balData = await fetchBotBalance({ platform_id: String(ctx.from!.id) });
-            const balances = balData?.balances;
-            if (!balances?.length) {
+            if (balData === null) {
+                msg += 'Tap below to view your full balance breakdown.';
+            } else if (!balData.balances?.length) {
                 msg += 'You have no available balance yet. Complete transactions to earn!';
             } else {
-                balances.forEach((b: any) => {
+                balData.balances.forEach((b: any) => {
                     const emoji = b.currency === 'NGN' ? '🇳🇬' : (b.currency === 'USD' ? '🇺🇸' : '🪙');
                     msg += `${emoji} <b>${b.amount.toLocaleString()} ${b.currency}</b>\n`;
                 });

@@ -14,6 +14,7 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 console.log(`📡 API Starting up...`);
 console.log(`🔗 API_URL: ${process.env.API_URL || 'Not Set'}`);
 console.log(`🔗 DATABASE_URL: ${process.env.SUPABASE_URL || 'Not Set'}`);
+console.log(`🔑 BOT_API_SECRET: ${process.env.BOT_API_SECRET ? process.env.BOT_API_SECRET.substring(0, 8) + '...' : 'NOT SET — magic links will fail'}`);
 
 import express from 'express';
 import cors from 'cors';

@@ -26,7 +26,7 @@ export async function buildMagicLink(opts: {
     const sig = crypto.createHmac('sha256', BOT_SECRET).update(ts + body).digest('hex');
 
     try {
-        const res = await axios.post(`${API_URL}/auth/magic-link`, JSON.parse(body), {
+        const res = await axios.post(`${API_URL}/auth/magic-link`, body, {
             headers: {
                 'X-Bot-Platform': PLATFORM,
                 'X-Bot-Timestamp': ts,
@@ -48,7 +48,7 @@ export async function fetchBotBalance(opts: { platform_id: string }): Promise<an
     const body = JSON.stringify({ platform_id: opts.platform_id });
     const sig = crypto.createHmac('sha256', BOT_SECRET).update(ts + body).digest('hex');
     try {
-        const res = await axios.post(`${API_URL}/profiles/bot-balance`, JSON.parse(body), {
+        const res = await axios.post(`${API_URL}/profiles/bot-balance`, body, {
             headers: {
                 'X-Bot-Platform': PLATFORM,
                 'X-Bot-Timestamp': ts,

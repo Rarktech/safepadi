@@ -1326,11 +1326,12 @@ client.on('interactionCreate', async (interaction) => {
                     let msg = '💰 **Balance & Withdrawals**\n\n';
                     try {
                         const balData = await fetchBotBalance({ platform_id: interaction.user.id });
-                        const balances = balData?.balances;
-                        if (!balances || balances.length === 0) {
+                        if (balData === null) {
+                            msg += 'Tap below to view your full balance breakdown.';
+                        } else if (!balData.balances?.length) {
                             msg += 'You have no available balance yet. Complete transactions to earn!';
                         } else {
-                            balances.forEach((b: any) => {
+                            balData.balances.forEach((b: any) => {
                                 const emoji = b.currency === 'NGN' ? '🇳🇬' : (b.currency === 'USD' ? '🇺🇸' : '🪙');
                                 msg += `${emoji} **${b.amount.toLocaleString()} ${b.currency}**\n`;
                             });

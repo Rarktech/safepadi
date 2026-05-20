@@ -235,11 +235,12 @@ async function showBalance(psid: string) {
         let msg = '💰 Balance & Withdrawals\n\n';
         try {
             const balData = await fetchBotBalance({ platform_id: psid });
-            const balances = balData?.balances;
-            if (!balances || balances.length === 0) {
+            if (balData === null) {
+                msg += 'Tap below to view your full balance breakdown.';
+            } else if (!balData.balances?.length) {
                 msg += 'You have no available balance yet. Complete transactions to earn!';
             } else {
-                balances.forEach((b: any) => {
+                balData.balances.forEach((b: any) => {
                     const flag = b.currency === 'NGN' ? '🇳🇬' : b.currency === 'USD' ? '🇺🇸' : '🪙';
                     msg += `${flag} ${b.amount.toLocaleString()} ${b.currency}\n`;
                 });
