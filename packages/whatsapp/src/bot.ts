@@ -13,17 +13,31 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 import crypto from 'crypto';
+import zlib from 'zlib';
 
 const app = express();
 
-// Same approach as Instagram bot: verify callback receives the exact raw Buffer
-// that body-parser read from the stream — guaranteed to match what Meta signed.
-// type:'*/*' accepts any Content-Type so non-standard headers don't block it.
-app.use(express.json({
-    verify: (req: any, _res, buf: Buffer) => { req.rawBody = buf; },
-    type: '*/*',
-    limit: '10mb'
-} as any));
+// Stage 1: capture raw bytes BEFORE any decompression — these are the exact bytes
+// Meta signed. inflate:false prevents body-parser from gunzip-stripping them.
+app.use(express.raw({ type: '*/*', inflate: false, limit: '10mb' } as any));
+
+// Stage 2: decompress (if Content-Encoding set) + JSON-parse for route handlers;
+// save raw (possibly compressed) bytes as req.rawBody for HMAC verification.
+app.use((req: any, _res, next) => {
+    const buf: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    req.rawBody = buf;
+    const enc = ((req.headers['content-encoding'] as string) ?? '').toLowerCase();
+    try {
+        const plain = enc === 'gzip'    ? zlib.gunzipSync(buf)
+                    : enc === 'deflate' ? zlib.inflateSync(buf)
+                    : enc === 'br'      ? zlib.brotliDecompressSync(buf)
+                    : buf;
+        req.body = JSON.parse(plain.toString('utf-8'));
+    } catch {
+        req.body = {};
+    }
+    next();
+});
 
 const WHATSAPP_TOKEN   = process.env.WHATSAPP_TOKEN   || '';
 const PHONE_NUMBER_ID  = process.env.PHONE_NUMBER_ID  || '';
@@ -1544,7 +1558,7 @@ app.post('/webhook', async (req, res) => {
     const matched = ts(sig, hmacRaw) || ts(sig, hmacLower) || (!!hmacHex && ts(sig, hmacHex));
 
     if (!matched) {
-        console.error(`❌ HMAC mismatch | body=${rawBody.length}B | secret_len=${rawSecret.length} | secret_prefix=${rawSecret.slice(0, 8)} | got=${sig.slice(0, 24)} | want=${hmacRaw.slice(0, 24)}`);
+        console.error(`❌ HMAC mismatch | body=${rawBody.length}B | enc=${(req as any).headers['content-encoding'] ?? 'none'} | secret_len=${rawSecret.length} | secret_prefix=${rawSecret.slice(0, 8)} | got=${sig.slice(0, 24)} | want=${hmacRaw.slice(0, 24)}`);
         return res.sendStatus(401);
     }
 
