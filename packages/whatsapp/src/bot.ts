@@ -1559,6 +1559,8 @@ app.post('/webhook', async (req, res) => {
 
     if (!matched) {
         console.error(`❌ HMAC mismatch | body=${rawBody.length}B | enc=${(req as any).headers['content-encoding'] ?? 'none'} | secret_len=${rawSecret.length} | secret_prefix=${rawSecret.slice(0, 8)} | got=${sig.slice(0, 24)} | want=${hmacRaw.slice(0, 24)}`);
+        console.error(`🔍 BODY_DUMP b64=${rawBody.toString('base64')}`);
+        console.error(`🔍 SIGS got=${sig} want_raw=${hmacRaw} want_lower=${hmacLower} want_hex=${hmacHex ?? 'N/A'}`);
         return res.sendStatus(401);
     }
 
