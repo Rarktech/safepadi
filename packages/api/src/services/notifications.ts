@@ -106,6 +106,7 @@ export async function sendNotification(platform: string, platformId: string, mes
                 .replace(/<em>([\s\S]*?)<\/em>/gi, '_$1_')
                 .replace(/<code>([\s\S]*?)<\/code>/gi, '`$1`')
                 .replace(/<br\s*\/?>/gi, '\n')
+                .replace(/<a\s+href="([^"]+)">([^<]+)<\/a>/gi, '[$2]($1)')
                 .replace(/<[^>]*>/g, '')
                 .trim()
                 .substring(0, 4096);

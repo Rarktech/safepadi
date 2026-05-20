@@ -608,12 +608,10 @@ client.on('interactionCreate', async (interaction) => {
             if (customId.startsWith('txn_pay_')) {
                 const txnId = customId.replace('txn_pay_', '');
                 if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-                try {
-                    await axios.post(`${API_URL}/transactions/${txnId}/pay`);
-                    await interaction.editReply({ content: '⏳ **Payment Processing...**\n\nWe\'re verifying your payment. This may take a few minutes.\n\nPlease wait while we confirm...' });
-                } catch (err: any) {
-                    await interaction.editReply({ content: `❌ Payment failed: ${err.response?.data?.error || err.message}` });
-                }
+                await interaction.editReply({
+                    content: '💳 **Ready to Pay**\n\nClick the button below to complete your secure payment on Safeeely.',
+                    components: [{ type: 1, components: [{ type: 2, label: '💳 Pay Now', style: 5, url: `${REVIEWS_URL}/pay/${txnId}` }] }]
+                });
                 return;
             }
 
