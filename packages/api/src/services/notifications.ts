@@ -334,7 +334,12 @@ export async function sendNotification(platform: string, platformId: string, mes
             }
             log(`✅ [WhatsApp Notification] Sent to ${platformId}`);
         } catch (err: any) {
-            log(`❌ WhatsApp Notification Error for ${platformId}: ${err.response?.data?.error?.message || err.message}`);
+            const metaErr = err.response?.data?.error;
+            if (metaErr) {
+                log(`❌ WhatsApp Notification Error for ${platformId}: [${metaErr.code}/${metaErr.type}] ${metaErr.message}`);
+            } else {
+                log(`❌ WhatsApp Notification Error for ${platformId}: ${err.message}`);
+            }
         }
     } else if (platform === 'messenger') {
         const MSG_TOKEN = process.env.MESSENGER_ACCESS_TOKEN;

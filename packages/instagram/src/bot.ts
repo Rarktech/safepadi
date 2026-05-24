@@ -2,6 +2,7 @@ import express from 'express';
 import axios from 'axios';
 import * as dotenv from 'dotenv';
 import path from 'path';
+import * as Sentry from '@sentry/node';
 import { buildMagicLink, fetchBotBalance } from './utils/magicLink';
 import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
 import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../shared/src/feedbackPrompts';
@@ -9,6 +10,12 @@ import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../s
 if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 }
+
+Sentry.init({
+    dsn: process.env.SENTRY_DSN_API,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: 0.1,
+});
 
 import crypto from 'crypto';
 
@@ -1213,12 +1220,35 @@ async function handlePostback(psid: string, payload: string) {
             for (const u of urlOpts) await sendMsg(psid, btnTemplate(u.label, [{ type: 'web_url', url: u.url, title: u.label.substring(0, 20) }]));
         } catch (err: any) { await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed.'}` }); }
 
-    } else if (payload.startsWith('txn_action_complete_skip|')) {
-        const txnId = payload.replace('txn_action_complete_skip|', '');
+    } else if (payload.startsWith('txn_refund_initiate|')) {
+        const txnId = payload.replace('txn_refund_initiate|', '');
+        await sendMsg(psid, qr('💸 Why are you cancelling?\n\nThe buyer will receive a full refund. Your cancellation count will increase.', [
+            { content_type: 'text', title: '📦 Out of stock', payload: `txn_refund_reason|${txnId}|out_of_stock` },
+            { content_type: 'text', title: '🚫 Cannot fulfil', payload: `txn_refund_reason|${txnId}|cannot_fulfil` },
+            { content_type: 'text', title: '🤝 Mutual cancel', payload: `txn_refund_reason|${txnId}|mutual_cancel` },
+        ]));
+
+    } else if (payload.startsWith('txn_refund_reason|')) {
+        const parts = payload.split('|');
+        const txnId = parts[1];
+        const reason = parts[2] || 'No reason provided';
+        try {
+            const txnRes = await axios.get(`${API_URL}/transactions/${txnId}`, { headers: BOT_AUTH_HEADERS });
+            const t = txnRes.data;
+            await sendMsg(psid, qr(`⚠️ Confirm Cancellation\n\nYou are about to return ${t.amount} ${t.currency} to the buyer. This cannot be undone.`, [
+                { content_type: 'text', title: '✅ Yes, Refund', payload: `txn_refund_confirm|${txnId}|${reason}` },
+                { content_type: 'text', title: '❌ Cancel',      payload: 'MAIN_MENU' },
+            ]));
+        } catch (err: any) { await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed.'}` }); }
+
+    } else if (payload.startsWith('txn_refund_confirm|')) {
+        const parts = payload.split('|');
+        const txnId = parts[1];
+        const reason = parts[2] || 'No reason provided';
         try {
             const p = await getProfile(psid);
-            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_skip', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
-            await sendMsg(psid, { text: res.data.follow_up_msg?.replace(/<[^>]*>/g, '') || '📦 Marked as complete! The buyer will be notified to confirm receipt.' });
+            await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'seller_cancel', updater_safetag: p.safetag, cancellation_reason: reason }, { headers: BOT_AUTH_HEADERS });
+            await sendMsg(psid, { text: '✅ Transaction cancelled. A full refund has been issued to the buyer.' });
             await sendNextOptions(psid);
         } catch (err: any) { await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed.'}` }); }
 

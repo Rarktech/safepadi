@@ -1,6 +1,7 @@
 import { supabase } from '@safepal/shared';
 import { routeNotification } from '../services/notifications';
 import { sendPaymentReminderEmail, sendSellerAcceptanceReminderEmail, sendSellerDeliveryReminderEmail, sendReceiptConfirmationReminderEmail } from '../services/email';
+import axios from 'axios';
 
 const log = (msg: string) => console.log(`[TransactionReminders] ${msg}`);
 
@@ -131,7 +132,7 @@ export async function runTransactionReminders(): Promise<void> {
             .gt('updated_at', new Date(Date.now() - 50 * 60 * 60 * 1000).toISOString());
 
         for (const txn of b6 || []) {
-            const msg = `📬 <b>Please Confirm Receipt</b>\n\nThe seller has marked <b>"${txn.product_name}"</b> as delivered. Have you received it?\n\nConfirm receipt to release the payment to the seller, or open a dispute if there's a problem.`;
+            const msg = `📬 <b>Please Confirm Receipt</b>\n\nThe seller has marked <b>"${txn.product_name}"</b> as delivered. Have you received it?\n\nConfirm receipt to release the payment to the seller, or open a dispute if there's a problem.\n\n⏳ <b>5 days remaining</b> before funds are automatically released to the seller.`;
             await routeNotification(txn.buyer_id, msg,
                 [
                     { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
@@ -154,7 +155,7 @@ export async function runTransactionReminders(): Promise<void> {
             .gt('updated_at', new Date(Date.now() - 5 * 24 * 60 * 60 * 1000 - 2 * 60 * 60 * 1000).toISOString());
 
         for (const txn of b7 || []) {
-            const msg = `🚨 <b>Final Reminder: Confirm or Dispute</b>\n\n<b>"${txn.product_name}"</b> has been marked as delivered for 5 days without confirmation.\n\nPlease confirm receipt to release funds to the seller, or open a dispute if you have not received your item.`;
+            const msg = `🚨 <b>Final Warning — Funds Auto-Release in 48 Hours</b>\n\n<b>"${txn.product_name}"</b> has been marked as delivered for 5 days without your confirmation.\n\nIf you do not confirm receipt or raise a dispute within <b>2 days</b>, funds will be automatically released to the seller.\n\nPlease act now — confirm receipt or open a dispute immediately.`;
             await routeNotification(txn.buyer_id, msg,
                 [
                     { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
@@ -166,6 +167,38 @@ export async function runTransactionReminders(): Promise<void> {
         }
         log(`Bucket 7 (receipt 5d): ${(b7 || []).length} transactions`);
     } catch (e: any) { log(`Bucket 7 error: ${e.message}`); }
+
+    // Bucket 8: Auto-finalization — COMPLETED_BY_SELLER for 7+ days with no buyer action
+    try {
+        const { data: b8 } = await supabase
+            .from('transactions')
+            .select(joinSelect)
+            .eq('status', 'COMPLETED_BY_SELLER')
+            .lt('updated_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
+
+        for (const txn of b8 || []) {
+            try {
+                const internalUrl = process.env.INTERNAL_API_URL || 'http://localhost:3000/api';
+                // Use buyer's safetag as updater so the API routes "funds released" to the SELLER
+                await axios.patch(
+                    `${internalUrl}/transactions/${txn.id}/status`,
+                    { status: 'confirm_receipt', updater_safetag: txn.buyer?.safetag, auto_resolved: true },
+                    { headers: { 'x-bot-secret': process.env.BOT_API_SECRET || '' } }
+                );
+
+                // API already notifies the seller ("funds released") — only explicitly notify the buyer
+                await routeNotification(
+                    txn.buyer_id,
+                    `⚠️ <b>Transaction Auto-Completed</b>\n\nTransaction <b>${txn.txn_code}</b> for <b>"${txn.product_name}"</b> was automatically finalized and funds released to the seller because you did not confirm receipt or raise a dispute within 7 days.\n\nIf you believe this is an error, please contact support immediately.`
+                ).catch(() => {});
+
+                log(`Bucket 8: Auto-finalized ${txn.txn_code}`);
+            } catch (e: any) {
+                log(`Bucket 8: Auto-finalize failed for ${txn.txn_code}: ${e.message}`);
+            }
+        }
+        log(`Bucket 8 (auto-finalize 7d): ${(b8 || []).length} transactions`);
+    } catch (e: any) { log(`Bucket 8 error: ${e.message}`); }
 
     log('Done.');
 }

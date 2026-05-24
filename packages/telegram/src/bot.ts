@@ -1,9 +1,16 @@
 import * as dotenv from 'dotenv';
 import path from 'path';
+import * as Sentry from '@sentry/node';
 
 if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 }
+
+Sentry.init({
+    dsn: process.env.SENTRY_DSN_API,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: 0.1,
+});
 
 import { Telegraf, Scenes, session, Context } from 'telegraf';
 import { registrationScene } from './scenes/registration';
@@ -726,6 +733,78 @@ bot.action(/^txn_action_(.+)$/, async (ctx) => {
     }
 });
 
+bot.action(/^txn_refund_initiate\|(.+)$/, async (ctx) => {
+    const txnId = ctx.match[1];
+    try { await ctx.answerCbQuery(); } catch {}
+    return ctx.reply(
+        '💸 <b>Refund Buyer — Select a Reason</b>\n\nWhy are you cancelling this transaction?\n\nThe buyer will receive a <b>full refund</b>. Your seller cancellation count will increase.',
+        {
+            parse_mode: 'HTML',
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '📦 Item no longer available / out of stock', callback_data: `txn_refund_reason|${txnId}|out_of_stock` }],
+                    [{ text: '🚫 Unable to fulfil this order',             callback_data: `txn_refund_reason|${txnId}|cannot_fulfil` }],
+                    [{ text: '🤝 Mutually agreed to cancel with buyer',    callback_data: `txn_refund_reason|${txnId}|mutual_cancel` }],
+                    [{ text: '🔙 Back',                                    callback_data: 'main_menu' }],
+                ]
+            }
+        }
+    );
+});
+
+bot.action(/^txn_refund_reason\|(.+)\|(.+)$/, async (ctx) => {
+    const txnId = ctx.match[1];
+    const reason = ctx.match[2];
+    try { await ctx.answerCbQuery(); } catch {}
+    try {
+        const res = await axios.get(`${API_URL}/transactions/${txnId}`);
+        const txn = res.data;
+        const reasonLabels: Record<string, string> = {
+            out_of_stock: 'Item no longer available / out of stock',
+            cannot_fulfil: 'Unable to fulfil this order',
+            mutual_cancel: 'Mutually agreed to cancel with buyer',
+        };
+        const reasonLabel = reasonLabels[reason] || reason;
+        return ctx.reply(
+            `⚠️ <b>Confirm Cancellation</b>\n\nYou are about to return <b>${txn.amount} ${txn.currency}</b> to <b>${txn.buyer?.safetag}</b>.\n\nReason: ${reasonLabel}\n\nThis will cancel the transaction and <b>cannot be undone</b>. Your seller cancellation count will increase.`,
+            {
+                parse_mode: 'HTML',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '✅ Yes, Refund Buyer', callback_data: `txn_refund_confirm|${txnId}|${reason}` }],
+                        [{ text: '❌ Cancel',            callback_data: 'main_menu' }],
+                    ]
+                }
+            }
+        );
+    } catch (err: any) {
+        console.error('Refund reason fetch error:', err.message);
+        return ctx.reply('❌ Could not load transaction details. Please try again.');
+    }
+});
+
+bot.action(/^txn_refund_confirm\|(.+)\|(.+)$/, async (ctx) => {
+    const txnId = ctx.match[1];
+    const reason = ctx.match[2];
+    try { await ctx.answerCbQuery(); } catch {}
+    try {
+        const tgProfile = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
+        await axios.patch(
+            `${API_URL}/transactions/${txnId}/status`,
+            { status: 'seller_cancel', updater_safetag: tgProfile.data.safetag, cancellation_reason: reason },
+            { headers: BOT_AUTH_HEADERS }
+        );
+        return ctx.reply(
+            '✅ <b>Cancellation Confirmed</b>\n\nA full refund has been issued to the buyer. The transaction has been cancelled.',
+            { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
+        );
+    } catch (err: any) {
+        const msg = err.response?.data?.error || err.message || 'Unknown error';
+        console.error('Refund confirm error:', msg);
+        return ctx.reply(`❌ Refund failed: ${msg}`);
+    }
+});
+
 bot.action(/^m_status\|(.+)$/, async (ctx) => {
     try {
         const [txnId, mId, status] = ctx.match[1].split('|');
@@ -1191,21 +1270,22 @@ bot.on('message', async (ctx) => {
     let textBody = '';
     let audioBuffer: Buffer | undefined;
     let mimeType: string | undefined;
+    const m = msg as any;
 
-    if (msg.voice || msg.audio) {
+    if (m.voice || m.audio) {
         await ctx.reply("🎙️ Processing your request...");
         try {
-            const fileId = msg.voice ? msg.voice.file_id : msg.audio.file_id;
+            const fileId = m.voice ? m.voice.file_id : m.audio.file_id;
             const fileLink = await ctx.telegram.getFileLink(fileId);
             const response = await axios.get(fileLink.href, { responseType: 'arraybuffer' });
             audioBuffer = Buffer.from(response.data);
-            mimeType = msg.voice ? msg.voice.mime_type || 'audio/ogg' : msg.audio.mime_type || 'audio/mp3';
+            mimeType = m.voice ? m.voice.mime_type || 'audio/ogg' : m.audio.mime_type || 'audio/mp3';
         } catch (e: any) {
             console.error('Audio fetch error:', e.message);
             return ctx.reply("❌ Could not process your audio. Please try again.");
         }
-    } else if (msg.text && !msg.text.startsWith('/')) {
-        textBody = msg.text;
+    } else if (m.text && !m.text.startsWith('/')) {
+        textBody = m.text;
         // don't process short simple messages if there is no session
         if (!ctx.session?.smartTxnDraft && textBody.split(' ').length < 3) {
             return ctx.reply('👋 Type /start to access the main menu or continue where you left off.');

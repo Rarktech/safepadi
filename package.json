@@ -35,6 +35,7 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@niyogi/render-mcp": "^1.0.1",
+    "@sentry/node": "^10.53.1",
     "@supabase/supabase-js": "^2.97.0",
     "@types/body-parser": "^1.19.6",
     "@types/cors": "^2.8.19",

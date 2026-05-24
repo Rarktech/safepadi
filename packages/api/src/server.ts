@@ -1,9 +1,16 @@
 import * as dotenv from 'dotenv';
 import path from 'path';
+import * as Sentry from '@sentry/node';
 
 if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 }
+
+Sentry.init({
+    dsn: process.env.SENTRY_DSN_API,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: 0.1,
+});
 
 // Fail fast on missing secrets — never allow the server to start insecurely
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
@@ -131,6 +138,8 @@ if (!process.env.BOT_API_SECRET && missingPlatformSecrets.length === BOT_PLATFOR
 } else if (!process.env.BOT_API_SECRET) {
     console.log(`ℹ️  BOT_API_SECRET not set — using platform-specific secrets. Missing: ${missingPlatformSecrets.join(', ') || 'none'}`);
 }
+
+Sentry.setupExpressErrorHandler(app);
 
 // Global error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

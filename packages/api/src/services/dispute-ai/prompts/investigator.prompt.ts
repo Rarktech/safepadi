@@ -80,6 +80,12 @@ ${lines}
 Completion: ${completionPct}% by value (${ctx.transaction.currency} ${completedValue} of ${totalAmount} delivered)`;
 }
 
+function buildSellerProofBlock(ctx: DisputeContext): string {
+    const proofCtx = (ctx as any).sellerProofContext;
+    if (!proofCtx) return '';
+    return proofCtx;
+}
+
 export function buildInvestigatorPrompt(ctx: DisputeContext): string {
     const totalMessages = ctx.history.length;
     const isFirstMessage = totalMessages <= 1;
@@ -105,6 +111,8 @@ DISPUTE REASON: ${ctx.dispute.reason}
 AI ROUNDS COMPLETED: ${aiRounds} (evidence requests sent so far)
 ${sellerIsGhost && aiRounds >= 1 ? `⚠️ SELLER GHOST: Seller has sent zero messages despite ${aiRounds} round(s) of requests.` : ''}
 ${buyerIsGhost && aiRounds >= 1 ? `⚠️ BUYER GHOST: Buyer has sent zero messages despite ${aiRounds} round(s) of requests.` : ''}
+
+${buildSellerProofBlock(ctx)}
 
 ${buildMilestoneBlock(ctx)}
 

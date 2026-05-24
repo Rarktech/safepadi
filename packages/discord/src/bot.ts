@@ -4,12 +4,19 @@ import axios from 'axios';
 import { buildMagicLink, fetchBotBalance } from './utils/magicLink';
 import path from 'path';
 import http from 'http';
+import * as Sentry from '@sentry/node';
 import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
 import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../shared/src/feedbackPrompts';
 
 if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 }
+
+Sentry.init({
+    dsn: process.env.SENTRY_DSN_API,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: 0.1,
+});
 
 const API_URL = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
 const REVIEWS_URL = process.env.REVIEWS_URL || 'http://localhost:3001';
@@ -697,6 +704,75 @@ client.on('interactionCreate', async (interaction) => {
                     await interaction.followUp({ content: '❌ Failed to update milestone.', flags: MessageFlags.Ephemeral }).catch(() => {});
                     return;
                 }
+            }
+
+            if (customId.startsWith('txn_refund_initiate|')) {
+                const txnId = customId.split('|')[1];
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                await interaction.editReply({
+                    content: '💸 **Refund Buyer — Select a Reason**\n\nWhy are you cancelling this transaction?\n\nThe buyer will receive a **full refund**. Your seller cancellation count will increase.',
+                    components: [{
+                        type: 1,
+                        components: [
+                            { type: 2, label: '📦 Out of stock',      style: 2, custom_id: `txn_refund_reason|${txnId}|out_of_stock` },
+                            { type: 2, label: '🚫 Cannot fulfil',     style: 2, custom_id: `txn_refund_reason|${txnId}|cannot_fulfil` },
+                            { type: 2, label: '🤝 Mutual cancel',     style: 2, custom_id: `txn_refund_reason|${txnId}|mutual_cancel` },
+                        ]
+                    }]
+                });
+                return;
+            }
+
+            if (customId.startsWith('txn_refund_reason|')) {
+                const parts = customId.split('|');
+                const txnId = parts[1];
+                const reason = parts[2];
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                try {
+                    const res = await axios.get(`${API_URL}/transactions/${txnId}`);
+                    const txn = res.data;
+                    const reasonLabels: Record<string, string> = {
+                        out_of_stock: 'Item no longer available / out of stock',
+                        cannot_fulfil: 'Unable to fulfil this order',
+                        mutual_cancel: 'Mutually agreed to cancel with buyer',
+                    };
+                    await interaction.editReply({
+                        content: `⚠️ **Confirm Cancellation**\n\nYou are about to return **${txn.amount} ${txn.currency}** to **${txn.buyer?.safetag}**.\n\nReason: ${reasonLabels[reason] || reason}\n\nThis will cancel the transaction and **cannot be undone**. Your seller cancellation count will increase.`,
+                        components: [{
+                            type: 1,
+                            components: [
+                                { type: 2, label: '✅ Yes, Refund Buyer', style: 4, custom_id: `txn_refund_confirm|${txnId}|${reason}` },
+                                { type: 2, label: '❌ Cancel',            style: 2, custom_id: 'my_txns' },
+                            ]
+                        }]
+                    });
+                } catch (err: any) {
+                    await interaction.editReply({ content: `❌ Could not load transaction: ${err.message}` });
+                }
+                return;
+            }
+
+            if (customId.startsWith('txn_refund_confirm|')) {
+                const parts = customId.split('|');
+                const txnId = parts[1];
+                const reason = parts[2];
+                if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
+                try {
+                    const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
+                    await axios.patch(
+                        `${API_URL}/transactions/${txnId}/status`,
+                        { status: 'seller_cancel', updater_safetag: profileRes.data.safetag, cancellation_reason: reason },
+                        { headers: BOT_AUTH_HEADERS }
+                    );
+                    await interaction.followUp({
+                        content: '✅ **Cancellation Confirmed**\n\nA full refund has been issued to the buyer. The transaction has been cancelled.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                } catch (err: any) {
+                    const msg = err.response?.data?.error || err.message;
+                    await interaction.followUp({ content: `❌ Refund failed: ${msg}`, flags: MessageFlags.Ephemeral }).catch(() => {});
+                }
+                return;
             }
 
             if (interaction.replied || interaction.deferred) return;
@@ -2126,8 +2202,8 @@ client.on('interactionCreate', async (interaction) => {
                 } else {
                     await interaction.reply({ content: `❌ Error: ${err.message}`, flags: MessageFlags.Ephemeral }).catch(() => {});
                 }
-            } catch (e) { 
-                console.error('Failed to send error message to user:', e.message);
+            } catch (e) {
+                console.error('Failed to send error message to user:', (e as any).message);
             }
         }
     }

@@ -3,6 +3,7 @@ import axios from 'axios';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import crypto from 'crypto';
+import * as Sentry from '@sentry/node';
 import { buildMagicLink } from './utils/magicLink';
 import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../shared/src/feedbackPrompts';
 
@@ -10,6 +11,12 @@ import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../s
 if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 }
+
+Sentry.init({
+    dsn: process.env.SENTRY_DSN_API,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: 0.1,
+});
 
 const app = express();
 app.use(express.json());
@@ -30,7 +37,7 @@ app.get('/health', (req, res) => {
 
 // --- SESSION MANAGEMENT ---
 interface UserState {
-    state: 'IDLE' | 'ROLE_SELECTION' | 'PRODUCT_NAME' | 'PRODUCT_DESCRIPTION' | 'ATTACHMENTS' | 'CURRENCY_SELECTION' | 'PRICE_INPUT' | 'FEE_ALLOCATION' | 'COUNTERPARTY_SAFETAG' | 'CONFIRMATION' | 'DISPUTE_CATEGORY' | 'DISPUTE_REASON' | 'REVIEW_RATING' | 'REVIEW_COMMENT' | 'FEEDBACK_RATING' | 'FEEDBACK_COMMENT';
+    state: 'IDLE' | 'ROLE_SELECTION' | 'PRODUCT_NAME' | 'PRODUCT_DESCRIPTION' | 'ATTACHMENTS' | 'CURRENCY_SELECTION' | 'PRICE_INPUT' | 'FEE_ALLOCATION' | 'COUNTERPARTY_SAFETAG' | 'CONFIRMATION' | 'INVOICE_PROMPT' | 'DISPUTE_CATEGORY' | 'DISPUTE_REASON' | 'REVIEW_RATING' | 'REVIEW_COMMENT' | 'FEEDBACK_RATING' | 'FEEDBACK_COMMENT';
     formData: {
         role?: 'buyer' | 'seller';
         product_name?: string;
@@ -49,6 +56,7 @@ interface UserState {
         feedback_source?: string;
         feedback_ref_id?: string;
         feedback_rating?: number;
+        send_invoice?: boolean;
     };
 }
 
@@ -600,22 +608,21 @@ app.post('/webhook/:token', (req, res) => {
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'BUTTONS',
                         title: '📦 Mark as Delivered',
-                        text: 'Have you completed your part of the agreement?',
+                        text: 'Have you uploaded proof of delivery? Tap the link below to upload, then confirm.',
                         force_reply: true,
                         buttons: [
-                            { text: '✅ Yes, Mark Complete', id: `txn_action_complete_yes|${txnId}`, description: 'Mark delivery as done', subtitle: 'Mark delivery as done' },
-                            { text: '⏭️ Skip Proof Upload', id: `txn_action_complete_skip|${txnId}`, description: 'Mark done without documents', subtitle: 'Mark done without documents' }
+                            { text: '✅ Yes, Mark as Delivered', id: `txn_action_complete_yes|${txnId}`, description: 'Mark delivery as done', subtitle: 'Mark delivery as done' },
+                            { text: '📎 Upload via Web',         id: `noop`, description: uploadUrl, subtitle: uploadUrl }
                         ]
                     });
-                    await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `📎 Upload proof of delivery:\n${uploadUrl}` });
+                    await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `📎 Upload proof of delivery here:\n${uploadUrl}` });
                     return;
                 }
 
-                if (messageText.startsWith('txn_action_complete_yes|') || messageText.startsWith('txn_action_complete_skip|')) {
-                    const isSkip = messageText.startsWith('txn_action_complete_skip|');
-                    const txnId = messageText.replace(isSkip ? 'txn_action_complete_skip|' : 'txn_action_complete_yes|', '');
+                if (messageText.startsWith('txn_action_complete_yes|')) {
+                    const txnId = messageText.replace('txn_action_complete_yes|', '');
                     try {
-                        await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: isSkip ? 'complete_skip' : 'complete_confirmed', updater_safetag: safetag }, { headers: BOT_AUTH_HEADERS });
+                        await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_confirmed', updater_safetag: safetag }, { headers: BOT_AUTH_HEADERS });
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '✅ Delivery marked! The buyer has been notified to confirm receipt.' });
                     } catch (err: any) {
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to mark complete.'}` });
@@ -631,6 +638,67 @@ app.post('/webhook/:token', (req, res) => {
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: msg });
                     } catch (err: any) {
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to confirm receipt.'}` });
+                    }
+                    return;
+                }
+
+                if (messageText.startsWith('txn_refund_initiate|')) {
+                    const txnId = messageText.replace('txn_refund_initiate|', '');
+                    await sendJivoChatMessage(clientId, chatId, {
+                        type: 'BUTTONS',
+                        title: '💸 Refund Buyer',
+                        text: 'Why are you cancelling this transaction? The buyer will receive a full refund. Your seller cancellation count will increase.',
+                        force_reply: true,
+                        buttons: [
+                            { text: '📦 Out of stock',      id: `txn_refund_reason|${txnId}|out_of_stock`,  description: 'Item no longer available', subtitle: 'Item no longer available' },
+                            { text: '🚫 Cannot fulfil',     id: `txn_refund_reason|${txnId}|cannot_fulfil`, description: 'Unable to fulfil order',    subtitle: 'Unable to fulfil order' },
+                            { text: '🤝 Mutual cancel',     id: `txn_refund_reason|${txnId}|mutual_cancel`, description: 'Agreed to cancel',          subtitle: 'Agreed to cancel' },
+                        ]
+                    });
+                    return;
+                }
+
+                if (messageText.startsWith('txn_refund_reason|')) {
+                    const parts = messageText.split('|');
+                    const txnId = parts[1];
+                    const reason = parts[2];
+                    try {
+                        const res = await axios.get(`${API_URL}/transactions/${txnId}`);
+                        const txn = res.data;
+                        const reasonLabels: Record<string, string> = {
+                            out_of_stock: 'Item no longer available / out of stock',
+                            cannot_fulfil: 'Unable to fulfil this order',
+                            mutual_cancel: 'Mutually agreed to cancel with buyer',
+                        };
+                        await sendJivoChatMessage(clientId, chatId, {
+                            type: 'BUTTONS',
+                            title: '⚠️ Confirm Cancellation',
+                            text: `You are about to return ${txn.amount} ${txn.currency} to ${txn.buyer?.safetag}.\n\nReason: ${reasonLabels[reason] || reason}\n\nThis cannot be undone. Your seller cancellation count will increase.`,
+                            force_reply: true,
+                            buttons: [
+                                { text: '✅ Yes, Refund Buyer', id: `txn_refund_confirm|${txnId}|${reason}`, description: 'Issue full refund', subtitle: 'Issue full refund' },
+                                { text: '❌ Cancel',            id: 'menu_main',                              description: 'Go back',           subtitle: 'Go back' },
+                            ]
+                        });
+                    } catch (err: any) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ Could not load transaction: ${err.response?.data?.error || err.message}` });
+                    }
+                    return;
+                }
+
+                if (messageText.startsWith('txn_refund_confirm|')) {
+                    const parts = messageText.split('|');
+                    const txnId = parts[1];
+                    const reason = parts[2];
+                    try {
+                        await axios.patch(
+                            `${API_URL}/transactions/${txnId}/status`,
+                            { status: 'seller_cancel', updater_safetag: safetag, cancellation_reason: reason },
+                            { headers: BOT_AUTH_HEADERS }
+                        );
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '✅ Cancellation confirmed. A full refund has been issued to the buyer. The transaction has been cancelled.' });
+                    } catch (err: any) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ Refund failed: ${err.response?.data?.error || err.message}` });
                     }
                     return;
                 }
@@ -664,8 +732,9 @@ app.post('/webhook/:token', (req, res) => {
                         } else if (t.status === 'ACCEPTED' && isBuyer) {
                             await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `💳 Make your payment here:\n${FRONTEND_URL}/pay/${txnId}` });
                         } else if (t.status === 'PAID' && !isBuyer) {
-                            await sendJivoChatMessage(clientId, chatId, { type: 'BUTTONS', title: 'Actions', text: 'Ready to mark as delivered?', force_reply: true, buttons: [
-                                { text: '📦 Mark as Delivered', id: `txn_action_complete_prompt|${txnId}`, description: 'Mark order as complete', subtitle: 'Mark order as complete' }
+                            await sendJivoChatMessage(clientId, chatId, { type: 'BUTTONS', title: 'Actions', text: 'Ready to deliver? You can also refund the buyer if you cannot fulfil.', force_reply: true, buttons: [
+                                { text: '📦 Mark as Delivered', id: `txn_action_complete_prompt|${txnId}`, description: 'Mark order as complete', subtitle: 'Mark order as complete' },
+                                { text: '💸 Refund Buyer',      id: `txn_refund_initiate|${txnId}`,        description: 'Cancel and refund',      subtitle: 'Cancel and refund' }
                             ]});
                         } else if (t.status === 'COMPLETED_BY_SELLER' && isBuyer) {
                             await sendJivoChatMessage(clientId, chatId, { type: 'BUTTONS', title: 'Actions', text: 'Have you received the delivery?', force_reply: true, buttons: [

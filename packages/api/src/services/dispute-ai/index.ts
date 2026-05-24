@@ -90,6 +90,18 @@ export async function processAIDispute(disputeId: string): Promise<AIDisputeResu
         const tier = ctx.dispute.pipeline_tier;
         console.log(`🔍 [dispute-ai] Tier=${tier}, Type=${ctx.dispute.dispute_type}`);
 
+        // ── Fetch seller proof files and attach to context ─────────────────
+        const { data: proofFiles } = await supabase
+            .from('transaction_proofs')
+            .select('file_name, file_url, created_at')
+            .eq('transaction_id', ctx.transaction.id);
+
+        if (proofFiles && proofFiles.length > 0) {
+            (ctx as any).sellerProofContext = `SELLER EVIDENCE ON FILE:\nThe seller uploaded ${proofFiles.length} proof file(s) before this dispute was raised:\n${proofFiles.map((p: any) => `• ${p.file_name || 'File'} — ${p.file_url}`).join('\n')}\nThese files are part of the official record and should be weighed as documented delivery evidence.`;
+        } else {
+            (ctx as any).sellerProofContext = `NOTE: The seller marked delivery complete without uploading any proof files to the system.`;
+        }
+
         // ── Investigator ───────────────────────────────────────────────────
         const invOut = await runInvestigator(ctx);
         console.log(`🔎 [dispute-ai] Investigator: facts_complete=${invOut.facts_complete}, score=${invOut.self_score}`);

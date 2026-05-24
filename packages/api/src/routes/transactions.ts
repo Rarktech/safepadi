@@ -463,7 +463,7 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
             if (!isBuyer && !isSeller) {
                 return res.status(403).json({ error: 'FORBIDDEN' });
             }
-            const sellerOnlyActions = ['accept', 'decline', 'complete_yes', 'complete_confirmed', 'complete_skip'];
+            const sellerOnlyActions = ['accept', 'decline', 'complete_yes', 'complete_confirmed', 'seller_cancel'];
             const buyerOnlyActions = ['confirm_receipt'];
             if (sellerOnlyActions.includes(status) && !isSeller) {
                 return res.status(403).json({ error: 'Only the seller can perform this action' });
@@ -514,11 +514,59 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
             });
         }
 
+        // Reject skip-proof — proof is now mandatory
+        if (status === 'complete_skip') {
+            return res.status(400).json({ error: 'Proof of delivery is required. Please upload at least one proof document via the web portal before marking delivery as complete.' });
+        }
+
+        // Seller-initiated cancellation — early return with full refund
+        if (status === 'seller_cancel') {
+            if (txn.status !== 'PAID') {
+                return res.status(400).json({ error: 'Cancellation is only available while the transaction is in PAID status. Once delivery has started, please use the dispute process.' });
+            }
+            const cancellation_reason = req.body.cancellation_reason || 'No reason provided';
+
+            await supabase.from('transactions').update({
+                status: 'CANCELLED',
+                metadata: { ...(txn.metadata || {}), cancellation_reason, cancelled_by: 'SELLER', cancelled_at: new Date().toISOString() }
+            }).eq('id', txn.id);
+
+            await supabase.from('buyer_refund_credits').insert({
+                transaction_id: txn.id,
+                buyer_id: txn.buyer_id,
+                amount: txn.amount,
+                currency: txn.currency,
+                refund_type: 'FULL',
+                status: 'PENDING',
+                resolution_source: 'SELLER_CANCELLED'
+            });
+
+            try {
+                const { data: repRow } = await supabase.from('profile_reputation').select('cancellation_count').eq('profile_id', txn.seller_id).maybeSingle();
+                const currentCount = repRow?.cancellation_count ?? 0;
+                await supabase.from('profile_reputation').upsert({ profile_id: txn.seller_id, cancellation_count: currentCount + 1 }, { onConflict: 'profile_id' });
+            } catch { /* non-critical */ }
+
+            routeNotification(
+                txn.buyer_id,
+                `💸 <b>Refund Issued</b>\n\n<code>${txn.seller?.safetag}</code> has cancelled the transaction for <b>"${txn.product_name}"</b> and issued a full refund.\n\n💰 Refund Amount: <b>${txn.amount} ${txn.currency}</b>\n📋 Transaction: <b>${txn.txn_code}</b>\n\nYour funds will be returned to your balance shortly.`,
+                [{ label: '🏠 Main Menu', customId: 'main_menu' }]
+            ).catch(() => {});
+
+            routeNotification(
+                txn.seller_id,
+                `✅ <b>Cancellation Confirmed</b>\n\nYou have cancelled the transaction for <b>"${txn.product_name}"</b>.\n\n💰 A full refund of <b>${txn.amount} ${txn.currency}</b> has been issued to <code>${txn.buyer?.safetag}</code>.\n📋 Transaction: <b>${txn.txn_code}</b>`,
+                [{ label: '🏠 Main Menu', customId: 'main_menu' }]
+            ).catch(() => {});
+
+            return res.json({ success: true, message: 'Transaction cancelled and buyer refunded' });
+        }
+
         newStatus = txn.status;
         if (status === 'accept') newStatus = 'ACCEPTED';
         else if (status === 'decline') newStatus = 'DECLINED';
         else if (status === 'complete_yes') newStatus = 'AWAITING_PROOF';
-        else if (status === 'complete_confirmed' || status === 'complete_skip') newStatus = 'COMPLETED_BY_SELLER';
+        else if (status === 'complete_confirmed') newStatus = 'COMPLETED_BY_SELLER';
         else if (status === 'confirm_receipt') newStatus = 'FINALIZED';
 
         const { error: updateError } = await supabase
@@ -820,9 +868,9 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
                     { label: '🛒 Create New Transaction', customId: 'create_txn' },
                     { label: '🔙 Main Menu', customId: 'main_menu' }
                 ];
-            } else if (status === 'complete_confirmed' || status === 'complete_skip') {
+            } else if (status === 'complete_confirmed') {
                 const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
-                msg = `📦 <b>Delivery Update!</b>\n\n<code>${initiatorTag}</code> has marked your order as completed.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product/Service: <b>${txn.product_name}</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n${status === 'complete_skip' ? '⚠️ <i>Seller skipped formal proof upload, but marked as delivered.</i>' : '📎 Delivery documents are available for review.'}\n\n🔗 View Delivery Documents: <a href="${reviewsUrl}/delivery/${txn.id}">DOCS_LINK</a>\n\nPlease review the delivery and confirm if you've received everything as expected.`;
+                msg = `📦 <b>Delivery Update!</b>\n\n<code>${initiatorTag}</code> has marked your order as completed.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product/Service: <b>${txn.product_name}</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📎 Delivery documents are available for review.\n\n🔗 View Delivery Documents: <a href="${reviewsUrl}/delivery/${txn.id}">DOCS_LINK</a>\n\nPlease review the delivery and confirm if you've received everything as expected.\n\n⚠️ You have <b>7 days</b> to confirm receipt or raise a dispute. After that, funds are automatically released to the seller.`;
                 options = [
                     { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
                     { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
@@ -864,7 +912,7 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
                         emailFn = () => sendTransactionAcceptedEmail(recipientEmail, { safetag: recipient.safetag, product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnId: txn.id, txnCode: txn.txn_code });
                     } else if (status === 'decline') {
                         emailFn = () => sendTransactionDeclinedEmail(recipientEmail, { safetag: recipient.safetag, declinerTag: initiatorTag, product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code });
-                    } else if (status === 'complete_confirmed' || status === 'complete_skip') {
+                    } else if (status === 'complete_confirmed') {
                         emailFn = () => sendDeliverySubmittedEmail(recipientEmail, { safetag: recipient.safetag, sellerTag: initiatorTag, product: txn.product_name, txnCode: txn.txn_code, txnId: txn.id });
                     } else if (status === 'confirm_receipt') {
                         emailFn = () => sendTransactionCompletedEmail(recipientEmail, { safetag: recipient.safetag, product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code });
@@ -877,12 +925,11 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
                     accept: '✅ Transaction Accepted',
                     decline: '❌ Transaction Declined',
                     complete_confirmed: '📦 Delivery Submitted',
-                    complete_skip: '📦 Delivery Submitted',
                     confirm_receipt: '🎉 Transaction Complete — Funds Released',
                 };
                 const notifTypes: Record<string, string> = {
                     accept: 'transaction', decline: 'transaction',
-                    complete_confirmed: 'transaction', complete_skip: 'transaction',
+                    complete_confirmed: 'transaction',
                     confirm_receipt: 'payment',
                 };
                 const notifTitle = notifTitles[status] || '🔔 Transaction Update';
@@ -930,12 +977,11 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
             ];
         } else if (status === 'complete_yes') {
             const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
-            followUpMsg = `📎 <b>Upload Proof of Delivery</b>\n\nPlease upload any proof of delivery or confirmation documents now (directly in this chat).\n\nFor multiple or large sized documents, please use our secure external link:\n🔗 <a href="${reviewsUrl}/upload/${txn.id}">SECURE_UPLOAD_LINK</a>\n\n⏱️ Link expires in 2 hours.`;
+            followUpMsg = `📎 <b>Upload Proof of Delivery</b>\n\nPlease upload any proof of delivery or confirmation documents now (directly in this chat).\n\nFor multiple or large sized documents, please use our secure upload portal:\n🔗 <a href="${reviewsUrl}/upload/${txn.id}">SECURE_UPLOAD_LINK</a>\n\n⚠️ Uploading proof protects you in case of disputes. Do not skip this step.`;
             followUpOptions = [
-                { label: '📎 External Upload', url: `${reviewsUrl}/upload/${txn.id}` },
-                { label: 'Skip (not recommended)', customId: `txn_action_complete_skip|${txn.id}` }
+                { label: '📎 Upload via Web', url: `${reviewsUrl}/upload/${txn.id}` }
             ];
-        } else if (status === 'complete_confirmed' || status === 'complete_skip') {
+        } else if (status === 'complete_confirmed') {
             followUpMsg = `✅ <b>Delivery Marked as Completed!</b>\n\nYou've successfully marked the transaction as completed.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n👤 Buyer: <code>${txn.buyer.safetag}</code>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📬 The buyer has been notified and can now confirm receipt.\n\n⏳ Waiting for buyer confirmation...\n\nOnce confirmed, funds will be released to your account.`;
             followUpOptions = [
                 { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` },
@@ -1162,7 +1208,7 @@ router.post('/:id/upload-proof-files', requireUser, upload.array('files', 10), a
 
         // Notify buyer
         const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
-        const buyerProofMsg = `📦 <b>Delivery Update!</b>\n\n<code>${txn.seller.safetag}</code> has uploaded <b>${files.length} proof file(s)</b> for your order.\n\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n\n🔗 <a href="${reviewsUrl}/delivery/${txn.id}">View Documents Portal</a>`;
+        const buyerProofMsg = `📦 <b>Delivery Update!</b>\n\n<code>${txn.seller.safetag}</code> has uploaded <b>${files.length} proof file(s)</b> for your order.\n\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n\n🔗 <a href="${reviewsUrl}/delivery/${txn.id}">View Documents Portal</a>\n\n⚠️ You have <b>7 days</b> to confirm receipt or raise a dispute. If no action is taken, funds will be automatically released to the seller.`;
         routeNotification(txn.buyer_id, buyerProofMsg, [
             { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
             { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
@@ -1248,7 +1294,7 @@ router.post('/:id/upload-proofs', async (req, res) => {
 
         // Notify Buyer
         const reviewsUrlUp = process.env.REVIEWS_URL || 'http://localhost:3001';
-        const buyerUploadMsg = `📦 <b>Delivery Update!</b>\n\n<code>${txn.seller.safetag}</code> has marked your order as completed and uploaded <b>${proofs?.length || 0} proof document(s)</b>.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📁 <b>Uploaded Files:</b>\n${proofs?.map((p: any) => `• <a href="${p.url}">${p.name || 'View File'}</a>`).join('\n') || '<i>No specific files attached</i>'}\n\n🔗 Full Documents Portal: <a href="${reviewsUrlUp}/delivery/${txn.id}">VIEW_PORTAL</a>\n\nPlease review the delivery carefully before confirming receipt.`;
+        const buyerUploadMsg = `📦 <b>Delivery Update!</b>\n\n<code>${txn.seller.safetag}</code> has marked your order as completed and uploaded <b>${proofs?.length || 0} proof document(s)</b>.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📁 <b>Uploaded Files:</b>\n${proofs?.map((p: any) => `• <a href="${p.url}">${p.name || 'View File'}</a>`).join('\n') || '<i>No specific files attached</i>'}\n\n🔗 Full Documents Portal: <a href="${reviewsUrlUp}/delivery/${txn.id}">VIEW_PORTAL</a>\n\nPlease review the delivery carefully before confirming receipt.\n\n⚠️ You have <b>7 days</b> to confirm receipt or raise a dispute. If no action is taken, funds will be automatically released to the seller.`;
         routeNotification(txn.buyer_id, buyerUploadMsg, [
             { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
             { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
@@ -1327,7 +1373,7 @@ router.post('/:id/upload-proof', async (req, res) => {
 
         // Notify Buyer
         const reviewsUrlSingle = process.env.REVIEWS_URL || 'http://localhost:3001';
-        const singleProofMsg = `📦 <b>Delivery Update with Proof!</b>\n\n<code>${txn.seller.safetag}</code> has delivered your order and uploaded proof.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n📎 Proof Attached Below\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nPlease review the delivery and confirm receipt.\n\n🖼️ <b>Proof Image:</b> ${proof_url}\n\n🔗 View All Documents: <a href="${reviewsUrlSingle}/delivery/${txn.id}">DOCS_LINK</a>`;
+        const singleProofMsg = `📦 <b>Delivery Update with Proof!</b>\n\n<code>${txn.seller.safetag}</code> has delivered your order and uploaded proof.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n📎 Proof Attached Below\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nPlease review the delivery and confirm receipt.\n\n🖼️ <b>Proof Image:</b> ${proof_url}\n\n🔗 View All Documents: <a href="${reviewsUrlSingle}/delivery/${txn.id}">DOCS_LINK</a>\n\n⚠️ You have <b>7 days</b> to confirm receipt or raise a dispute. If no action is taken, funds will be automatically released to the seller.`;
         routeNotification(txn.buyer_id, singleProofMsg, [
             { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
             { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
