@@ -50,7 +50,7 @@ export async function sendTransactionInvoiceEmail(data: InvoiceData) {
     try {
         const browser = await getBrowser();
         const page = await browser.newPage();
-        await page.setContent(html, { waitUntil: 'networkidle0' });
+        await page.setContent(html, { waitUntil: 'networkidle0' as any });
         const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
         await page.close();
         pdfBase64 = Buffer.from(pdfBuffer).toString('base64');

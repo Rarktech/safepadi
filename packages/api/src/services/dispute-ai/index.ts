@@ -186,11 +186,13 @@ export async function processAIDispute(disputeId: string): Promise<AIDisputeResu
 
                 // Log low-confidence approval as a system message for transparency
                 if (lowConfidenceApproval) {
-                    await supabase.from('dispute_messages').insert({
-                        dispute_id: disputeId,
-                        sender_type: 'AI',
-                        content: '[SYSTEM] Mediator reached a verdict with reduced confidence. This case has been flagged for post-resolution quality review.'
-                    }).then(null, () => {});
+                    void (async () => {
+                        await supabase.from('dispute_messages').insert({
+                            dispute_id: disputeId,
+                            sender_type: 'AI',
+                            content: '[SYSTEM] Mediator reached a verdict with reduced confidence. This case has been flagged for post-resolution quality review.'
+                        });
+                    })().catch(() => {});
                 }
 
                 return {
