@@ -5,7 +5,7 @@ import path from 'path';
 import crypto from 'crypto';
 import * as Sentry from '@sentry/node';
 import { buildMagicLink } from './utils/magicLink';
-import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../shared/src/feedbackPrompts';
+import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '@safepal/shared';
 
 // Handle Environment Variables relative to the root .env
 if (process.env.NODE_ENV !== 'production') {

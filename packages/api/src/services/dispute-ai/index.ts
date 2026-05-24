@@ -190,7 +190,7 @@ export async function processAIDispute(disputeId: string): Promise<AIDisputeResu
                         dispute_id: disputeId,
                         sender_type: 'AI',
                         content: '[SYSTEM] Mediator reached a verdict with reduced confidence. This case has been flagged for post-resolution quality review.'
-                    }).catch(() => {});
+                    }).then(null, () => {});
                 }
 
                 return {

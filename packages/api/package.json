@@ -3,7 +3,7 @@
     "version": "1.0.0",
     "main": "dist/server.js",
     "scripts": {
-        "start": "npx ts-node --transpile-only -r tsconfig-paths/register src/server.ts",
+        "start": "node dist/server.js",
         "dev": "npx ts-node-dev -r tsconfig-paths/register src/server.ts",
         "build": "tsc",
         "postinstall": "npx puppeteer browsers install chrome"

@@ -22,7 +22,7 @@ import { accountDeletionScene } from './scenes/account_deletion';
 import { buildMagicLink, fetchBotBalance } from './utils/magicLink';
 import { communityLicensingScene } from './scenes/community_licensing';
 import { communityWithdrawScene } from './scenes/community_withdraw';
-import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
+import { processSmartTransaction, SmartTransactionDraft } from '@safepal/shared';
 
 interface SafeeelyWizardSession extends Scenes.WizardSessionData {
     // This is for data persistent within a specific wizard scene

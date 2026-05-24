@@ -5,7 +5,7 @@ services:
     env: node
     plan: free
     rootDir: .
-    buildCommand: npm install && npm run build -w packages/api
+    buildCommand: npm install && npm run build -w packages/shared && npm run build -w packages/api && npx puppeteer browsers install chrome
     startCommand: npm start -w packages/api
     healthCheckPath: /api/ping
     envVars:
@@ -17,7 +17,7 @@ services:
     env: node
     plan: free
     rootDir: .
-    buildCommand: npm install
+    buildCommand: npm install && npm run build -w packages/shared && npm run build -w packages/telegram
     startCommand: npm start -w packages/telegram
     envVars:
       - key: TELEGRAM_BOT_TOKEN
@@ -30,7 +30,7 @@ services:
     env: node
     plan: free
     rootDir: .
-    buildCommand: npm install
+    buildCommand: npm install && npm run build -w packages/shared && npm run build -w packages/discord
     startCommand: npm start -w packages/discord
     envVars:
       - key: DISCORD_BOT_TOKEN
@@ -41,7 +41,7 @@ services:
     env: node
     plan: free
     rootDir: .
-    buildCommand: npm install
+    buildCommand: npm install && npm run build -w packages/shared && npm run build -w packages/apple_business
     startCommand: npm start -w packages/apple_business
     healthCheckPath: /health
     envVars:

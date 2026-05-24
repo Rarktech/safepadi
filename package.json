@@ -24,7 +24,7 @@
     "tunnel:instagram": "ssh -p 443 -R0:localhost:10002 qr@a.pinggy.io",
     "tunnel:messenger": "ssh -p 443 -R0:localhost:10004 qr@a.pinggy.io",
     "tunnel:apple": "ssh -p 443 -R0:localhost:10003 qr@a.pinggy.io",
-    "build:all": "npm run build -w packages/shared && npm run build -w packages/api && npm run build -w packages/telegram && npm run build -w packages/discord",
+    "build:all": "npm run build -w packages/shared && npm run build -w packages/api && npm run build -w packages/telegram && npm run build -w packages/discord && npm run build -w packages/whatsapp && npm run build -w packages/apple_business && npm run build -w packages/instagram && npm run build -w packages/messenger",
     "build:render": "chmod +x render-build.sh && ./render-build.sh",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

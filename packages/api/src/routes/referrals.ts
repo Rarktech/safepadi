@@ -11,9 +11,6 @@ dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 const router = Router();
 const supabase = createClient(process.env.SUPABASE_URL || '', process.env.SUPABASE_SERVICE_ROLE_KEY || '');
 
-const referralCardCache = new Map<string, Buffer>();
-
-// Browser instance manager
 // Browser instance manager removed - handled by service
 
 // Public endpoint: returns current referral commission rates (no auth required)
@@ -169,19 +166,11 @@ router.get('/:safetag/card', async (req, res) => {
         const { safetag } = req.params;
         const cleanSafetag = safetag.replace(/^@/, '');
 
-        // Layer 1: in-memory cache
-        if (referralCardCache.has(cleanSafetag)) {
-            res.setHeader('Content-Type', 'image/png');
-            res.setHeader('Cache-Control', 'public, max-age=86400');
-            return res.send(referralCardCache.get(cleanSafetag));
-        }
-
-        // Layer 2: Supabase Storage (persists across restarts)
+        // Supabase Storage (persistent CDN-backed cache)
         const sKey = `referral_${cleanSafetag}.png`;
         const { data: stored } = await supabase.storage.from('receipts').download(sKey);
         if (stored) {
             const buf = Buffer.from(await stored.arrayBuffer());
-            referralCardCache.set(cleanSafetag, buf);
             res.setHeader('Content-Type', 'image/png');
             res.setHeader('Cache-Control', 'public, max-age=86400');
             return res.send(buf);
@@ -214,8 +203,7 @@ router.get('/:safetag/card', async (req, res) => {
             const screenshot = await element.screenshot({ type: 'png' }) as Buffer;
             await page.close();
 
-            // Populate both cache layers (fire-and-forget the storage upload)
-            referralCardCache.set(cleanSafetag, screenshot);
+            // Persist to Supabase Storage (fire-and-forget)
             supabase.storage.from('receipts').upload(sKey, screenshot, { contentType: 'image/png', upsert: true })
                 .catch(e => console.error('[Referral Card] Storage upload error:', e));
 

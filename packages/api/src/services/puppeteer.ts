@@ -1,44 +1,52 @@
 import puppeteer, { Browser } from 'puppeteer';
-import path from 'path';
 
 let browserPromise: Promise<Browser> | null = null;
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
-export async function getBrowser() {
+// Close Chrome 60 seconds after last use — saves ~300 MB of idle RAM
+const IDLE_CLOSE_MS = 60_000;
+
+const LAUNCH_ARGS = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--font-render-hinting=none',
+    '--single-process',
+];
+
+async function closeBrowser() {
+    if (!browserPromise) return;
+    const p = browserPromise;
+    browserPromise = null;
+    try { await (await p).close(); } catch { /* already gone */ }
+}
+
+function resetIdleTimer() {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(closeBrowser, IDLE_CLOSE_MS);
+}
+
+export async function getBrowser(): Promise<Browser> {
     if (!browserPromise) {
-        const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
-        
-        const launchOptions: any = {
-            headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--font-render-hinting=none'
-            ]
-        };
-
-        // On Render, we might need a specific executable path if it's not in the PATH
-        if (isProduction) {
-            // Puppeteer installed via postinstall into .cache/puppeteer
-            // npx puppeteer browsers install chrome downloads to a specific nested path
-            // But usually just 'chrome' works if installed via 'npx puppeteer browsers install'
-            console.log('[Puppeteer] Launching in production mode...');
-        }
-
-        browserPromise = puppeteer.launch(launchOptions);
+        if (process.env.NODE_ENV === 'production') console.log('[Puppeteer] Launching browser...');
+        browserPromise = puppeteer.launch({ headless: true, args: LAUNCH_ARGS });
     }
 
+    let browser: Browser;
     try {
-        const browser = await browserPromise;
-        if (!browser.isConnected()) {
-            browserPromise = null;
-            return getBrowser();
-        }
-        return browser;
+        browser = await browserPromise;
     } catch (e) {
         browserPromise = null;
-        console.error('[Puppeteer] Failed to launch browser:', e);
+        console.error('[Puppeteer] Launch failed:', e);
         throw e;
     }
+
+    if (!browser.isConnected()) {
+        browserPromise = null;
+        return getBrowser();
+    }
+
+    resetIdleTimer();
+    return browser;
 }

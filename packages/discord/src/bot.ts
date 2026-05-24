@@ -5,8 +5,7 @@ import { buildMagicLink, fetchBotBalance } from './utils/magicLink';
 import path from 'path';
 import http from 'http';
 import * as Sentry from '@sentry/node';
-import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
-import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../shared/src/feedbackPrompts';
+import { processSmartTransaction, SmartTransactionDraft, getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '@safepal/shared';
 
 if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });

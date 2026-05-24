@@ -6,8 +6,7 @@ import fs from 'fs';
 import * as Sentry from '@sentry/node';
 import { FlowCrypto } from './utils/crypto';
 import { buildMagicLink, fetchBotBalance } from './utils/magicLink';
-import { processSmartTransaction, SmartTransactionDraft } from '../../shared/src/ai/smartTransaction';
-import { getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '../../shared/src/feedbackPrompts';
+import { processSmartTransaction, SmartTransactionDraft, getCommentPrompt, pickRandom, FEEDBACK_SUCCESS_MESSAGES } from '@safepal/shared';
 
 if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });

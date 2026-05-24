@@ -5,8 +5,6 @@ import { generateReceiptTemplate } from '../templates/receiptTemplate';
 
 const router = Router();
 
-const receiptCache = new Map<string, Buffer>();
-
 function storageKey(txnCode: string, type: string, role: string) {
     return `${txnCode}_${type || 'default'}_${role || 'none'}.png`;
 }
@@ -18,20 +16,11 @@ router.get('/:txnCode.png', async (req, res) => {
         const role = (req.query.role as string) || '';
         console.log(`[Receipt Service] Request for: ${txnCode}.png`);
 
-        // Layer 1: in-memory cache
-        const cacheKey = `${txnCode}:${type}:${role}`;
-        if (receiptCache.has(cacheKey)) {
-            res.setHeader('Content-Type', 'image/png');
-            res.setHeader('Cache-Control', 'public, max-age=31536000');
-            return res.send(receiptCache.get(cacheKey));
-        }
-
-        // Layer 2: Supabase Storage (persists across restarts)
+        // Supabase Storage (persistent CDN-backed cache)
         const sKey = storageKey(txnCode, type, role);
         const { data: stored } = await supabase.storage.from('receipts').download(sKey);
         if (stored) {
             const buf = Buffer.from(await stored.arrayBuffer());
-            receiptCache.set(cacheKey, buf);
             res.setHeader('Content-Type', 'image/png');
             res.setHeader('Cache-Control', 'public, max-age=31536000');
             return res.send(buf);
@@ -114,8 +103,7 @@ router.get('/:txnCode.png', async (req, res) => {
             const screenshot = await element.screenshot({ type: 'png' }) as Buffer;
             await page.close();
 
-            // Populate both cache layers (fire-and-forget the storage upload)
-            receiptCache.set(cacheKey, screenshot);
+            // Persist to Supabase Storage (fire-and-forget)
             supabase.storage.from('receipts').upload(sKey, screenshot, { contentType: 'image/png', upsert: true })
                 .catch(e => console.error('[Receipt Service] Storage upload error:', e));
 
