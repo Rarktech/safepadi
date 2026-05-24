@@ -516,10 +516,23 @@ bot.action('other_settings', async (ctx) => {
 
 bot.action('linked_accounts', async (ctx) => {
     try { await ctx.answerCbQuery(); } catch (e) { }
-    await ctx.reply('🔗 <b>Linked Accounts</b>\n\nYour account is linked to this Telegram profile.\n\nTo link other platforms, log in via WhatsApp, Instagram, or Discord using your safetag.', {
-        parse_mode: 'HTML',
-        reply_markup: { inline_keyboard: [[{ text: '🔙 Back', callback_data: 'other_settings' }]] }
-    });
+    try {
+        const profileRes = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
+        const safetag = profileRes.data.safetag;
+        const linkedRes = await axios.get(`${API_URL}/profiles/${encodeURIComponent(safetag)}/linked-accounts`);
+        const linked: any[] = linkedRes.data;
+        const list = linked.length
+            ? linked.map((l: any) => `• ${l.platform}${l.is_primary ? ' ⭐ (primary)' : ''}`).join('\n')
+            : 'No linked accounts found.';
+        await ctx.reply(`🔗 <b>Linked Accounts</b>\n\n${list}`, {
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: [[{ text: '🔙 Back', callback_data: 'other_settings' }]] }
+        });
+    } catch (err: any) {
+        await ctx.reply('❌ Could not load linked accounts.', {
+            reply_markup: { inline_keyboard: [[{ text: '🔙 Back', callback_data: 'other_settings' }]] }
+        });
+    }
 });
 
 bot.action('start_deletion', (ctx) => {
@@ -849,12 +862,15 @@ bot.action(/^m_status\|(.+)$/, async (ctx) => {
 bot.action(/^txn_pay_(.+)$/, async (ctx) => {
     const txnId = ctx.match[1];
     try { await ctx.answerCbQuery(); } catch (e) { console.error('Answer CB Error:', e); }
-    try {
-        await axios.post(`${API_URL}/transactions/${txnId}/pay`);
-        await ctx.reply(`⏳ <b>Payment Processing...</b>\n\nWe're verifying your payment. This may take a few minutes.\n\nPlease wait while we confirm...`, { parse_mode: 'HTML' });
-    } catch (err: any) {
-        ctx.reply('❌ Error initiating payment.');
-    }
+    await ctx.reply(
+        `💳 <b>Complete Your Payment</b>\n\nTap the button below to make your secure payment:`,
+        {
+            parse_mode: 'HTML',
+            reply_markup: {
+                inline_keyboard: [[{ text: '💳 Pay Now', url: `${REVIEWS_URL}/pay/${txnId}` }]]
+            }
+        }
+    );
 });
 
 bot.action(/^leave_review_(.+)$/, async (ctx) => {

@@ -1660,11 +1660,25 @@ client.on('interactionCreate', async (interaction) => {
                     });
                 } catch (err: any) { await interaction.editReply(`❌ Error: ${err.message}`); }
             } else if (customId === 'linked_accounts') {
-                await interaction.reply({
-                    content: '🔗 **Linked Accounts**\n\nYour account is linked to this Discord profile.\n\nTo link other platforms, log in via WhatsApp, Instagram, or Telegram using your safetag.',
-                    components: [{ type: 1, components: [{ type: 2, label: '🔙 Back', style: 2, custom_id: 'other_settings' }] }],
-                    flags: MessageFlags.Ephemeral
-                });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                try {
+                    const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
+                    const safetag = profileRes.data.safetag;
+                    const linkedRes = await axios.get(`${API_URL}/profiles/${encodeURIComponent(safetag)}/linked-accounts`);
+                    const linked: any[] = linkedRes.data;
+                    const list = linked.length
+                        ? linked.map((l: any) => `• ${l.platform}${l.is_primary ? ' ⭐ (primary)' : ''}`).join('\n')
+                        : 'No linked accounts found.';
+                    await interaction.editReply({
+                        content: `🔗 **Linked Accounts**\n\n${list}`,
+                        components: [{ type: 1, components: [{ type: 2, label: '🔙 Back', style: 2, custom_id: 'other_settings' }] }]
+                    });
+                } catch (err: any) {
+                    await interaction.editReply({
+                        content: '❌ Could not load linked accounts.',
+                        components: [{ type: 1, components: [{ type: 2, label: '🔙 Back', style: 2, custom_id: 'other_settings' }] }]
+                    });
+                }
             } else if (customId === 'start_deletion') {
                 await interaction.reply({
                     content: '⚠️ **Account Deletion**\n\n' +
