@@ -1,5 +1,5 @@
 [build]
-buildCommand = "cd ../.. && npm install && npm run build -w packages/shared && npm run build -w packages/telegram"
+buildCommand = "cd ../.. && npm run build -w packages/shared && npm run build -w packages/telegram"
 
 [deploy]
 startCommand = "node dist/bot.js"
