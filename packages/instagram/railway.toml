@@ -1,0 +1,7 @@
+[build]
+buildCommand = "cd ../.. && npm install && npm run build -w packages/shared && npm run build -w packages/instagram"
+
+[deploy]
+startCommand = "node dist/bot.js"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5

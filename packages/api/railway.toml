@@ -1,0 +1,9 @@
+[build]
+buildCommand = "cd ../.. && npm install && npm run build -w packages/shared && npm run build -w packages/api && npx puppeteer browsers install chrome"
+
+[deploy]
+startCommand = "node dist/server.js"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5
