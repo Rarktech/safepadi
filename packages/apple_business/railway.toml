@@ -1,7 +1,0 @@
-[build]
-buildCommand = "cd ../.. && npm run build -w packages/shared && npm run build -w packages/apple_business"
-
-[deploy]
-startCommand = "node dist/server.js"
-restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 5
