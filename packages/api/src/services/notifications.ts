@@ -18,7 +18,7 @@ function log(msg: string) {
     console.log(`[Notification Engine] ${msg}`);
 }
 
-export async function sendNotification(platform: string, platformId: string, message: string, options?: { label: string, customId?: string, url?: string }[], imageUrl?: string) {
+export async function sendNotification(platform: string, platformId: string, message: string, options?: { label: string, customId?: string, url?: string }[], imageUrl?: string, imageBuffer?: Buffer) {
     const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
     const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
@@ -54,10 +54,10 @@ export async function sendNotification(platform: string, platformId: string, mes
             let imageSent = false;
             if (imageUrl) {
                 try {
-                    // Pre-fetch the image as a buffer so Telegram doesn't need to hit our Puppeteer endpoint
                     const FormData = require('form-data');
-                    const imgResp = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 30000 });
-                    const imgBuffer = Buffer.from(imgResp.data);
+                    const imgBuffer = imageBuffer ?? Buffer.from(
+                        (await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 30000 })).data
+                    );
                     const isVideo = imageUrl.match(/\.(mp4|mov|webm)(\?|$)/i);
                     const form = new FormData();
                     form.append('chat_id', platformId);
@@ -126,12 +126,14 @@ export async function sendNotification(platform: string, platformId: string, mes
                 ? [{ type: 1, components: options.map(opt => ({ type: 2, label: opt.label, style: opt.url ? 5 : 2, url: opt.url, custom_id: opt.customId })) }]
                 : undefined;
 
-            if (imageUrl) {
+            if (imageUrl || imageBuffer) {
                 try {
-                    const imgRes = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                    const imgData = imageBuffer ?? Buffer.from(
+                        (await axios.get(imageUrl!, { responseType: 'arraybuffer', timeout: 15000 })).data
+                    );
                     const FormData = require('form-data');
                     const form = new FormData();
-                    form.append('files[0]', Buffer.from(imgRes.data), { filename: 'receipt.png', contentType: 'image/png' });
+                    form.append('files[0]', imgData, { filename: 'receipt.png', contentType: 'image/png' });
                     const imgPayload: any = { embeds: [{ ...embed, image: { url: 'attachment://receipt.png' } }] };
                     if (components) imgPayload.components = components;
                     form.append('payload_json', JSON.stringify(imgPayload));
@@ -512,6 +514,17 @@ export async function routeNotification(
             return;
         }
 
+        // Pre-fetch image once so each platform doesn't independently hit the receipt endpoint
+        let imageBuffer: Buffer | undefined;
+        if (imageUrl) {
+            try {
+                const imgRes = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 30000 });
+                imageBuffer = Buffer.from(imgRes.data);
+            } catch (e: any) {
+                log(`⚠️ [routeNotification] Failed to pre-fetch receipt image: ${e.message}`);
+            }
+        }
+
         let notified = false;
         for (const acct of accounts) {
             if (META_PLATFORMS.includes(acct.platform)) {
@@ -520,7 +533,7 @@ export async function routeNotification(
                     : false;
                 if (!windowOpen) continue;
             }
-            await sendNotification(acct.platform, acct.platform_id, message, options ?? [], imageUrl ?? undefined);
+            await sendNotification(acct.platform, acct.platform_id, message, options ?? [], imageUrl ?? undefined, imageBuffer);
             notified = true;
         }
         if (!notified && emailFallback) {
