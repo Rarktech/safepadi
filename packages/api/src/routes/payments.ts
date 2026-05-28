@@ -315,7 +315,7 @@ router.post('/flutterwave/webhook', async (req, res) => {
         const { event, data } = req.body;
         console.log(`📦 Flutterwave Event: ${event} | Reference: ${data?.tx_ref} | Status: ${data?.status}`);
 
-        if (event === 'charge.completed' || event === 'transfer.completed') {
+        if ((event === 'charge.completed' || event === 'transfer.completed') && data?.status === 'successful') {
             const txRef = data.tx_ref;
             if (!txRef) {
                 console.warn('⚠️ Webhook received without tx_ref');
