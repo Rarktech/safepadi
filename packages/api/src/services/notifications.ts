@@ -22,8 +22,8 @@ export async function sendNotification(platform: string, platformId: string, mes
     const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
     const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
-    if (platform === 'telegram' && TELEGRAM_BOT_TOKEN) {
-        // ... (Telegram logic unchanged)
+    if (platform === 'telegram') {
+        if (!TELEGRAM_BOT_TOKEN) { log(`⚠️ [Telegram] TELEGRAM_BOT_TOKEN not set in API service — notification skipped`); return; }
         try {
             // Escape HTML entities, preserving all valid Telegram HTML tags (including <a href>)
             const tagRe = /(<\/?(b|i|em|strong|code|s|strike|del|u|a)(?:\s[^>]*)?>)/gi;
@@ -51,21 +51,28 @@ export async function sendNotification(platform: string, platformId: string, mes
                 ? { inline_keyboard: options.map(opt => [opt.url ? { text: opt.label, url: opt.url } : { text: opt.label, callback_data: opt.customId }]) }
                 : undefined;
 
+            let imageSent = false;
             if (imageUrl) {
-                // Pre-fetch the image as a buffer so Telegram doesn't need to hit our Puppeteer endpoint
-                const FormData = require('form-data');
-                const imgResp = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 30000 });
-                const imgBuffer = Buffer.from(imgResp.data);
-                const isVideo = imageUrl.match(/\.(mp4|mov|webm)(\?|$)/i);
-                const form = new FormData();
-                form.append('chat_id', platformId);
-                form.append('parse_mode', 'HTML');
-                form.append('caption', formattedMsg);
-                form.append(isVideo ? 'video' : 'photo', imgBuffer, { filename: isVideo ? 'receipt.mp4' : 'receipt.png', contentType: isVideo ? 'video/mp4' : 'image/png' });
-                if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
-                const endpoint = isVideo ? 'sendVideo' : 'sendPhoto';
-                await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/${endpoint}`, form, { headers: form.getHeaders() });
-            } else {
+                try {
+                    // Pre-fetch the image as a buffer so Telegram doesn't need to hit our Puppeteer endpoint
+                    const FormData = require('form-data');
+                    const imgResp = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 30000 });
+                    const imgBuffer = Buffer.from(imgResp.data);
+                    const isVideo = imageUrl.match(/\.(mp4|mov|webm)(\?|$)/i);
+                    const form = new FormData();
+                    form.append('chat_id', platformId);
+                    form.append('parse_mode', 'HTML');
+                    form.append('caption', formattedMsg);
+                    form.append(isVideo ? 'video' : 'photo', imgBuffer, { filename: isVideo ? 'receipt.mp4' : 'receipt.png', contentType: isVideo ? 'video/mp4' : 'image/png' });
+                    if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
+                    const endpoint = isVideo ? 'sendVideo' : 'sendPhoto';
+                    await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/${endpoint}`, form, { headers: form.getHeaders() });
+                    imageSent = true;
+                } catch (imgErr: any) {
+                    log(`⚠️ [Telegram] Receipt image failed (${imgErr.message}) — falling back to text`);
+                }
+            }
+            if (!imageSent) {
                 const payload: any = { chat_id: platformId, parse_mode: 'HTML', text: formattedMsg };
                 if (replyMarkup) payload.reply_markup = replyMarkup;
                 await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, payload);
@@ -73,7 +80,8 @@ export async function sendNotification(platform: string, platformId: string, mes
             log(`✅ [Telegram Notification] Sent to ${platformId}`);
         } catch (err: any) { log(`❌ Telegram Error: ${err.message}`); }
 
-    } else if (platform === 'discord' && DISCORD_BOT_TOKEN) {
+    } else if (platform === 'discord') {
+        if (!DISCORD_BOT_TOKEN) { log(`⚠️ [Discord] DISCORD_BOT_TOKEN not set in API service — notification skipped`); return; }
         try {
             const dm = await axios.post('https://discord.com/api/v10/users/@me/channels', { recipient_id: platformId }, { headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` } });
             const channelId = dm.data.id;
@@ -130,7 +138,7 @@ export async function sendNotification(platform: string, platformId: string, mes
         log(`🍎 [Apple Notification] Dispatching to ${platformId}...`);
 
         if (!JIVO_PROVIDER_ID || !JIVO_TOKEN) {
-            log(`❌ Apple Notification Error: Jivo credentials missing in .env`);
+            log(`⚠️ [Apple] JIVO_PROVIDER_ID or JIVO_TOKEN not set in API service — notification skipped`);
             return;
         }
 
@@ -200,21 +208,25 @@ export async function sendNotification(platform: string, platformId: string, mes
 
     } else if (platform === 'instagram') {
         const IG_TOKEN = process.env.INSTAGRAM_ACCESS_TOKEN;
-        if (!IG_TOKEN) { log(`⚠️ Instagram notification skipped — INSTAGRAM_ACCESS_TOKEN not set`); return; }
+        if (!IG_TOKEN) { log(`⚠️ [Instagram] INSTAGRAM_ACCESS_TOKEN not set in API service — notification skipped`); return; }
         const IG_BASE = 'https://graph.facebook.com/v18.0';
 
         const cleanMsg = message.replace(/<[^>]*>/g, '');
 
         try {
-            // 1. Send image receipt if present
+            // 1. Send image receipt if present (non-fatal — text still sends if this fails)
             if (imageUrl) {
-                log(`🖼️ [Instagram] Sending receipt image to ${platformId}: ${imageUrl}`);
-                await axios.post(`${IG_BASE}/me/messages?access_token=${IG_TOKEN}`, {
-                    recipient: { id: platformId },
-                    message: { attachment: { type: 'image', payload: { url: imageUrl, is_reusable: true } } },
-                    messaging_type: 'MESSAGE_TAG',
-                    tag: 'POST_PURCHASE_UPDATE'
-                });
+                try {
+                    log(`🖼️ [Instagram] Sending receipt image to ${platformId}: ${imageUrl}`);
+                    await axios.post(`${IG_BASE}/me/messages?access_token=${IG_TOKEN}`, {
+                        recipient: { id: platformId },
+                        message: { attachment: { type: 'image', payload: { url: imageUrl, is_reusable: true } } },
+                        messaging_type: 'MESSAGE_TAG',
+                        tag: 'POST_PURCHASE_UPDATE'
+                    });
+                } catch (imgErr: any) {
+                    log(`⚠️ [Instagram] Receipt image failed (${imgErr.message}) — sending text only`);
+                }
             }
 
             // 2. Build text or template payload
@@ -263,21 +275,28 @@ export async function sendNotification(platform: string, platformId: string, mes
     } else if (platform === 'whatsapp') {
         const WA_TOKEN = process.env.WHATSAPP_TOKEN;
         const WA_PHONE_ID = process.env.PHONE_NUMBER_ID;
-        if (!WA_TOKEN || !WA_PHONE_ID) { log(`⚠️ WhatsApp notification skipped — WHATSAPP_TOKEN or PHONE_NUMBER_ID not set`); return; }
+        if (!WA_TOKEN || !WA_PHONE_ID) { log(`⚠️ [WhatsApp] WHATSAPP_TOKEN or PHONE_NUMBER_ID not set in API service — notification skipped`); return; }
         const WA_BASE = `https://graph.facebook.com/v20.0/${WA_PHONE_ID}/messages`;
         const headers = { Authorization: `Bearer ${WA_TOKEN}`, 'Content-Type': 'application/json' };
         const cleanMsg = message.replace(/<[^>]*>/g, '');
 
         try {
+            let imageSent = false;
             if (imageUrl) {
-                log(`🖼️ [WhatsApp] Sending receipt image to ${platformId}: ${imageUrl}`);
-                await axios.post(WA_BASE, {
-                    messaging_product: 'whatsapp',
-                    to: platformId,
-                    type: 'image',
-                    image: { link: imageUrl, caption: cleanMsg.substring(0, 1024) }
-                }, { headers });
-            } else if (options && options.length > 0) {
+                try {
+                    log(`🖼️ [WhatsApp] Sending receipt image to ${platformId}: ${imageUrl}`);
+                    await axios.post(WA_BASE, {
+                        messaging_product: 'whatsapp',
+                        to: platformId,
+                        type: 'image',
+                        image: { link: imageUrl, caption: cleanMsg.substring(0, 1024) }
+                    }, { headers });
+                    imageSent = true;
+                } catch (imgErr: any) {
+                    log(`⚠️ [WhatsApp] Receipt image failed (${imgErr.message}) — falling back to text`);
+                }
+            }
+            if (!imageSent && options && options.length > 0) {
                 const urlOpts = options.filter(o => o.url);
                 const replyOpts = options.filter(o => !o.url);
 
@@ -324,7 +343,7 @@ export async function sendNotification(platform: string, platformId: string, mes
                         }
                     }, { headers });
                 }
-            } else {
+            } else if (!imageSent) {
                 await axios.post(WA_BASE, {
                     messaging_product: 'whatsapp',
                     to: platformId,
@@ -343,20 +362,24 @@ export async function sendNotification(platform: string, platformId: string, mes
         }
     } else if (platform === 'messenger') {
         const MSG_TOKEN = process.env.MESSENGER_ACCESS_TOKEN;
-        if (!MSG_TOKEN) { log(`⚠️ Messenger notification skipped — MESSENGER_ACCESS_TOKEN not set`); return; }
+        if (!MSG_TOKEN) { log(`⚠️ [Messenger] MESSENGER_ACCESS_TOKEN not set in API service — notification skipped`); return; }
         const MSG_BASE = 'https://graph.facebook.com/v18.0';
         const cleanMsg = message.replace(/<[^>]*>/g, '');
 
         try {
-            // 1. Send image receipt if present
+            // 1. Send image receipt if present (non-fatal — text still sends if this fails)
             if (imageUrl) {
-                log(`🖼️ [Messenger] Sending receipt image to ${platformId}: ${imageUrl}`);
-                await axios.post(`${MSG_BASE}/me/messages?access_token=${MSG_TOKEN}`, {
-                    recipient: { id: platformId },
-                    message: { attachment: { type: 'image', payload: { url: imageUrl, is_reusable: true } } },
-                    messaging_type: 'MESSAGE_TAG',
-                    tag: 'ACCOUNT_UPDATE'
-                });
+                try {
+                    log(`🖼️ [Messenger] Sending receipt image to ${platformId}: ${imageUrl}`);
+                    await axios.post(`${MSG_BASE}/me/messages?access_token=${MSG_TOKEN}`, {
+                        recipient: { id: platformId },
+                        message: { attachment: { type: 'image', payload: { url: imageUrl, is_reusable: true } } },
+                        messaging_type: 'MESSAGE_TAG',
+                        tag: 'ACCOUNT_UPDATE'
+                    });
+                } catch (imgErr: any) {
+                    log(`⚠️ [Messenger] Receipt image failed (${imgErr.message}) — sending text only`);
+                }
             }
 
             // 2. Build text or template payload
