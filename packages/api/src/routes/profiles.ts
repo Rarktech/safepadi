@@ -783,7 +783,7 @@ router.delete('/:safetag/payout-methods/:id', requireUser, requireSafetagOwner, 
 router.post('/:safetag/deactivate', requireUserOrBot, async (req, res) => {
     try {
         const isBot = (req as BotOrUserRequest).isBot;
-        const rawTag = req.params.safetag;
+        const rawTag = String(req.params.safetag);
         const cleanTag = rawTag.startsWith('@') ? rawTag : `@${rawTag}`;
         const withoutAt = cleanTag.replace('@', '');
         const { data: profileByTag } = await supabase.from('profiles').select('id').or(`safetag.ilike.${cleanTag},safetag.ilike.${withoutAt}`).maybeSingle();
