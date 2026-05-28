@@ -121,12 +121,32 @@ export async function sendNotification(platform: string, platformId: string, mes
 
             const embed: any = { color, description: formattedBody };
             if (embedTitle) embed.title = embedTitle;
-            if (imageUrl) embed.image = { url: imageUrl };
+
+            const components = options && options.length > 0
+                ? [{ type: 1, components: options.map(opt => ({ type: 2, label: opt.label, style: opt.url ? 5 : 2, url: opt.url, custom_id: opt.customId })) }]
+                : undefined;
+
+            if (imageUrl) {
+                try {
+                    const imgRes = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                    const FormData = require('form-data');
+                    const form = new FormData();
+                    form.append('files[0]', Buffer.from(imgRes.data), { filename: 'receipt.png', contentType: 'image/png' });
+                    const imgPayload: any = { embeds: [{ ...embed, image: { url: 'attachment://receipt.png' } }] };
+                    if (components) imgPayload.components = components;
+                    form.append('payload_json', JSON.stringify(imgPayload));
+                    await axios.post(`https://discord.com/api/v10/channels/${channelId}/messages`, form, {
+                        headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}`, ...form.getHeaders() }
+                    });
+                    log(`✅ [Discord Notification] Sent to ${platformId}`);
+                    return;
+                } catch (imgErr: any) {
+                    log(`⚠️ [Discord] Failed to attach receipt image, sending text-only: ${imgErr.message}`);
+                }
+            }
 
             const payload: any = { embeds: [embed] };
-            if (options && options.length > 0) {
-                payload.components = [{ type: 1, components: options.map(opt => ({ type: 2, label: opt.label, style: opt.url ? 5 : 2, url: opt.url, custom_id: opt.customId })) }];
-            }
+            if (components) payload.components = components;
             await axios.post(`https://discord.com/api/v10/channels/${channelId}/messages`, payload, { headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` } });
             log(`✅ [Discord Notification] Sent to ${platformId}`);
         } catch (err: any) { log(`❌ Discord Error: ${err.message}`); }

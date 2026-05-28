@@ -1064,7 +1064,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
     } else if (interactiveId === 'CONFIRM_DELETE') {
         try {
             const p = await getProfile(from);
-            await axios.post(`${API_URL}/profiles/${encodeURIComponent(p.safetag)}/deactivate`, { reason: 'User requested deletion' });
+            await axios.post(`${API_URL}/profiles/${encodeURIComponent(p.safetag)}/deactivate`, { reason: 'User requested deletion' }, { headers: BOT_AUTH_HEADERS });
             await sendText(from, "✅ Your account has been deleted. We're sorry to see you go.");
         } catch (err: any) {
             await sendText(from, `❌ Failed to delete account: ${err.response?.data?.error || err.message}`);

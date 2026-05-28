@@ -52,6 +52,10 @@ const BOT_AUTH_HEADERS = process.env.BOT_API_SECRET
     ? { 'Authorization': `Bearer ${process.env.BOT_API_SECRET}`, 'x-bot-platform': 'telegram' }
     : {};
 
+// Session maps to avoid exceeding Telegram's 64-byte callback_data limit
+const pendingRefunds = new Map<string, { txnId: string; reason?: string }>();
+const pendingMilestoneActions = new Map<string, Array<{ txnId: string; mId: string; status: string }>>();
+
 // Telegram API rejects 'localhost' in inline keyboard URLs
 if (REVIEWS_URL.includes('localhost')) {
     REVIEWS_URL = REVIEWS_URL.replace('localhost', '127.0.0.1');
@@ -589,17 +593,22 @@ bot.action(/^view_txn_details\|(.+)$/, async (ctx) => {
 
         if (t.transaction_type === 'MILESTONE' && t.milestones && t.milestones.length > 0) {
             milestoneInfo = '\n\n🪜 <b>Milestone Progress:</b>\n';
+            const msActions: Array<{ txnId: string; mId: string; status: string }> = [];
             t.milestones.sort((a: any, b: any) => a.index_num - b.index_num).forEach((m: any) => {
                 const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
                 milestoneInfo += `${statusEmoji} ${m.title}: <b>${m.amount} ${t.currency}</b> (${m.status})\n`;
-                
-                // Add action buttons for pending/completed milestones
+
                 if (m.status === 'PENDING' && myTag === t.seller.safetag && t.status === 'PAID') {
-                    buttons.push([{ text: `📦 Mark "${m.title}" Complete`, callback_data: `m_status|${t.id}|${m.id}|COMPLETED` }]);
+                    const idx = msActions.length;
+                    msActions.push({ txnId: t.id, mId: m.id, status: 'COMPLETED' });
+                    buttons.push([{ text: `📦 Mark "${m.title}" Complete`, callback_data: `ms|${idx}` }]);
                 } else if (m.status === 'COMPLETED' && myTag === t.buyer.safetag) {
-                    buttons.push([{ text: `💸 Release "${m.title}"`, callback_data: `m_status|${t.id}|${m.id}|RELEASED` }]);
+                    const idx = msActions.length;
+                    msActions.push({ txnId: t.id, mId: m.id, status: 'RELEASED' });
+                    buttons.push([{ text: `💸 Release "${m.title}"`, callback_data: `ms|${idx}` }]);
                 }
             });
+            if (msActions.length > 0) pendingMilestoneActions.set(String(ctx.from?.id), msActions);
         }
 
         const msg = `📋 <b>Transaction Details</b>\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 ID: <b>${t.txn_code}</b>\n📦 Type: <b>${t.transaction_type}</b>\n🛒 Product: <b>${t.product_name}</b>\n📝 Desc: ${t.description || 'N/A'}\n💰 Total: <b>${t.amount} ${t.currency}</b>\n💵 Fee: <b>${t.fee_amount}</b> (${t.fee_allocation})\n💳 Escrow: <b>${t.total_amount}</b>\n👤 Buyer: <code>${t.buyer.safetag}</code>\n👤 Seller: <code>${t.seller.safetag}</code>\n💠 Status: <b>${t.status.replace(/_/g, ' ')}</b>${milestoneInfo}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
@@ -749,15 +758,16 @@ bot.action(/^txn_action_(.+)$/, async (ctx) => {
 bot.action(/^txn_refund_initiate\|(.+)$/, async (ctx) => {
     const txnId = ctx.match[1];
     try { await ctx.answerCbQuery(); } catch {}
+    pendingRefunds.set(String(ctx.from?.id), { txnId });
     return ctx.reply(
         '💸 <b>Refund Buyer — Select a Reason</b>\n\nWhy are you cancelling this transaction?\n\nThe buyer will receive a <b>full refund</b>. Your seller cancellation count will increase.',
         {
             parse_mode: 'HTML',
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: '📦 Item no longer available / out of stock', callback_data: `txn_refund_reason|${txnId}|out_of_stock` }],
-                    [{ text: '🚫 Unable to fulfil this order',             callback_data: `txn_refund_reason|${txnId}|cannot_fulfil` }],
-                    [{ text: '🤝 Mutually agreed to cancel with buyer',    callback_data: `txn_refund_reason|${txnId}|mutual_cancel` }],
+                    [{ text: '📦 Item no longer available / out of stock', callback_data: 'trf|out_of_stock' }],
+                    [{ text: '🚫 Unable to fulfil this order',             callback_data: 'trf|cannot_fulfil' }],
+                    [{ text: '🤝 Mutually agreed to cancel with buyer',    callback_data: 'trf|mutual_cancel' }],
                     [{ text: '🔙 Back',                                    callback_data: 'main_menu' }],
                 ]
             }
@@ -765,10 +775,13 @@ bot.action(/^txn_refund_initiate\|(.+)$/, async (ctx) => {
     );
 });
 
-bot.action(/^txn_refund_reason\|(.+)\|(.+)$/, async (ctx) => {
-    const txnId = ctx.match[1];
-    const reason = ctx.match[2];
+bot.action(/^trf\|(.+)$/, async (ctx) => {
+    const reason = ctx.match[1];
     try { await ctx.answerCbQuery(); } catch {}
+    const pending = pendingRefunds.get(String(ctx.from?.id));
+    if (!pending) return ctx.reply('⚠️ Session expired. Please tap Cancel / Refund on the transaction again.');
+    const txnId = pending.txnId;
+    pendingRefunds.set(String(ctx.from?.id), { txnId, reason });
     try {
         const res = await axios.get(`${API_URL}/transactions/${txnId}`);
         const txn = res.data;
@@ -784,7 +797,7 @@ bot.action(/^txn_refund_reason\|(.+)\|(.+)$/, async (ctx) => {
                 parse_mode: 'HTML',
                 reply_markup: {
                     inline_keyboard: [
-                        [{ text: '✅ Yes, Refund Buyer', callback_data: `txn_refund_confirm|${txnId}|${reason}` }],
+                        [{ text: '✅ Yes, Refund Buyer', callback_data: 'trf_confirm' }],
                         [{ text: '❌ Cancel',            callback_data: 'main_menu' }],
                     ]
                 }
@@ -796,10 +809,12 @@ bot.action(/^txn_refund_reason\|(.+)\|(.+)$/, async (ctx) => {
     }
 });
 
-bot.action(/^txn_refund_confirm\|(.+)\|(.+)$/, async (ctx) => {
-    const txnId = ctx.match[1];
-    const reason = ctx.match[2];
+bot.action('trf_confirm', async (ctx) => {
     try { await ctx.answerCbQuery(); } catch {}
+    const pending = pendingRefunds.get(String(ctx.from?.id));
+    if (!pending || !pending.reason) return ctx.reply('⚠️ Session expired. Please tap Cancel / Refund on the transaction again.');
+    const { txnId, reason } = pending;
+    pendingRefunds.delete(String(ctx.from?.id));
     try {
         const tgProfile = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
         await axios.patch(
@@ -818,33 +833,41 @@ bot.action(/^txn_refund_confirm\|(.+)\|(.+)$/, async (ctx) => {
     }
 });
 
-bot.action(/^m_status\|(.+)$/, async (ctx) => {
+bot.action(/^ms\|(\d+)$/, async (ctx) => {
     try {
-        const [txnId, mId, status] = ctx.match[1].split('|');
+        const idx = parseInt(ctx.match[1], 10);
+        const msActions = pendingMilestoneActions.get(String(ctx.from?.id));
+        if (!msActions || !msActions[idx]) return ctx.answerCbQuery('⚠️ Session expired. Please reopen the transaction.');
+        const { txnId, mId, status } = msActions[idx];
+
         const tgProfile = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
         await axios.patch(`${API_URL}/transactions/${txnId}/milestones/${mId}/status`, { status, updater_safetag: tgProfile.data.safetag }, { headers: BOT_AUTH_HEADERS });
-        
+
         await ctx.answerCbQuery(`✅ Milestone marked as ${status.toLowerCase()}!`);
-        
-        // Refresh the transaction view
+
         const res = await axios.get(`${API_URL}/transactions/${txnId}`);
         const t = res.data;
-        
-        // Re-use logic from view_txn_details (simplified)
+        const myTag = tgProfile.data.safetag;
+
         let milestoneInfo = '\n\n🪜 <b>Milestone Progress:</b>\n';
         const buttons: any[] = [];
-        const profileRes = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
-        const myTag = profileRes.data.safetag;
+        const newMsActions: Array<{ txnId: string; mId: string; status: string }> = [];
 
         t.milestones.sort((a: any, b: any) => a.index_num - b.index_num).forEach((m: any) => {
             const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
             milestoneInfo += `${statusEmoji} ${m.title}: <b>${m.amount} ${t.currency}</b> (${m.status})\n`;
             if (m.status === 'PENDING' && myTag === t.seller.safetag && t.status === 'PAID') {
-                buttons.push([{ text: `📦 Mark "${m.title}" Complete`, callback_data: `m_status|${t.id}|${m.id}|COMPLETED` }]);
+                const newIdx = newMsActions.length;
+                newMsActions.push({ txnId: t.id, mId: m.id, status: 'COMPLETED' });
+                buttons.push([{ text: `📦 Mark "${m.title}" Complete`, callback_data: `ms|${newIdx}` }]);
             } else if (m.status === 'COMPLETED' && myTag === t.buyer.safetag) {
-                buttons.push([{ text: `💸 Release "${m.title}"`, callback_data: `m_status|${t.id}|${m.id}|RELEASED` }]);
+                const newIdx = newMsActions.length;
+                newMsActions.push({ txnId: t.id, mId: m.id, status: 'RELEASED' });
+                buttons.push([{ text: `💸 Release "${m.title}"`, callback_data: `ms|${newIdx}` }]);
             }
         });
+
+        pendingMilestoneActions.set(String(ctx.from?.id), newMsActions);
 
         const msg = `📋 <b>Transaction Details</b>\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 ID: <b>${t.txn_code}</b>\n📦 Type: <b>${t.transaction_type}</b>\n🛒 Product: <b>${t.product_name}</b>\n💠 Status: <b>${t.status.replace(/_/g, ' ')}</b>${milestoneInfo}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
         buttons.push([{ text: '🔙 Back', callback_data: 'my_txns' }]);

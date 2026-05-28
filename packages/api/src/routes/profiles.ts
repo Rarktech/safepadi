@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { sendNotification, sendReferralNotification, recordNotification } from '../services/notifications';
 import { sendEmail } from '../services/email';
 import multer from 'multer';
-import { requireUser, requireSafetagOwner, requireElevation, AuthedRequest } from '../middleware/requireUser';
+import { requireUser, requireSafetagOwner, requireElevation, requireUserOrBot, AuthedRequest, BotOrUserRequest } from '../middleware/requireUser';
 import { requireBot, BotAuthedRequest } from '../middleware/requireBot';
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -780,10 +780,20 @@ router.delete('/:safetag/payout-methods/:id', requireUser, requireSafetagOwner, 
 });
 
 // Deactivate account (Meta policy compliance)
-router.post('/:safetag/deactivate', requireUser, requireSafetagOwner, async (req, res) => {
+router.post('/:safetag/deactivate', requireUserOrBot, async (req, res) => {
     try {
+        const isBot = (req as BotOrUserRequest).isBot;
+        const rawTag = req.params.safetag;
+        const cleanTag = rawTag.startsWith('@') ? rawTag : `@${rawTag}`;
+        const withoutAt = cleanTag.replace('@', '');
+        const { data: profileByTag } = await supabase.from('profiles').select('id').or(`safetag.ilike.${cleanTag},safetag.ilike.${withoutAt}`).maybeSingle();
+        if (!profileByTag) return res.status(404).json({ error: 'Profile not found' });
+        if (!isBot) {
+            const user = (req as AuthedRequest).user;
+            if (profileByTag.id !== user.sub) return res.status(403).json({ error: 'FORBIDDEN' });
+        }
         const { reason } = DeactivateSchema.parse(req.body);
-        const profileId = (req as AuthedRequest).user.sub;
+        const profileId = profileByTag.id;
 
         // 1. Find profile
         const { data: profile, error: findError } = await supabase

@@ -95,7 +95,7 @@ router.post('/opay/webhook', async (req, res) => {
                 console.log(`✅ [OPay Webhook] Transaction ${txnCode} marked as PAID`);
 
                 const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
-                const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
+                const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png?type=completed`;
 
                 // Notify Buyer
                 const buyerMsg = `✅ <b>Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
@@ -174,7 +174,7 @@ router.post('/airwallex/webhook', async (req, res) => {
                 console.log(`✅ [Airwallex Webhook] Transaction ${txnCode} marked as PAID`);
 
                 const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
-                const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
+                const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png?type=completed`;
 
                 // Notify Buyer
                 const buyerMsg = `✅ <b>Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
@@ -267,7 +267,7 @@ router.post('/chainrails/webhook', async (req, res) => {
                 console.log(`✅ [ChainRails] Transaction ${txn.txn_code} marked as PAID`);
 
                 const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
-                const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
+                const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png?type=completed`;
 
                 // Notify buyer
                 const buyerMsg = `✅ <b>Crypto Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔗 Gateway: <b>ChainRails (Crypto)</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
@@ -474,7 +474,7 @@ router.post('/flutterwave/webhook', async (req, res) => {
                 console.log(`✅ [Flutterwave Webhook] Transaction ${txnCode} marked as PAID`);
 
                 const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
-                const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png`;
+                const receiptUrl = `${apiBaseUrl}/receipts/${txn.txn_code}.png?type=completed`;
 
                 // Notify Buyer
                 const buyerMsg = `✅ <b>Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;

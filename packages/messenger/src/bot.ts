@@ -1092,7 +1092,7 @@ async function handlePostback(psid: string, payload: string) {
     } else if (payload === 'CONFIRM_DELETE') {
         try {
             const p = await getProfile(psid);
-            await axios.delete(`${API_URL}/profiles/${p.safetag}`);
+            await axios.post(`${API_URL}/profiles/${encodeURIComponent(p.safetag)}/deactivate`, { reason: 'User requested deletion' }, { headers: BOT_AUTH_HEADERS });
             delete userStates[psid];
             await sendMsg(psid, { text: '✅ Your account has been deleted. We\'re sorry to see you go. Your transaction history is preserved for legal compliance.' });
         } catch (err: any) {
