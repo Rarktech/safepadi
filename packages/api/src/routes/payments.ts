@@ -312,13 +312,18 @@ router.post('/flutterwave/webhook', async (req, res) => {
             return res.status(401).send('Unauthorized');
         }
 
-        const { event, data } = req.body;
-        console.log(`📦 Flutterwave Event: ${event} | Reference: ${data?.tx_ref} | Status: ${data?.status}`);
+        // Detect v3 ({ event, data }) vs v2 flat format ({ txRef, status, 'event.type' })
+        const isV3 = !!(req.body.event && req.body.data);
+        const txRef: string     = isV3 ? req.body.data?.tx_ref          : req.body.txRef;
+        const status: string    = isV3 ? req.body.data?.status           : req.body.status;
+        const flwAmount: number = isV3 ? Number(req.body.data?.amount || 0) : Number(req.body.amount || 0);
+        const flwId: number     = isV3 ? req.body.data?.id               : req.body.id;
 
-        if ((event === 'charge.completed' || event === 'transfer.completed') && data?.status === 'successful') {
-            const txRef = data.tx_ref;
+        console.log(`📦 Flutterwave Payment: Reference: ${txRef} | Status: ${status} | Amount: ${flwAmount}`);
+
+        if (status === 'successful') {
             if (!txRef) {
-                console.warn('⚠️ Webhook received without tx_ref');
+                console.warn('⚠️ Webhook received without txRef');
                 return res.status(200).send('OK (No ref)');
             }
 
@@ -455,7 +460,6 @@ router.post('/flutterwave/webhook', async (req, res) => {
             }
 
             // Verify Flutterwave-reported amount matches expected amount
-            const flwAmount = Number(data.amount || 0);
             if (flwAmount > 0 && !amountMatches(flwAmount, Number(txn.total_amount || 0))) {
                 console.error(`❌ [Flutterwave Webhook] Amount mismatch for ${txnCode}: reported=${flwAmount}, expected=${txn.total_amount}`);
                 return res.status(400).send('Amount mismatch');
@@ -464,7 +468,7 @@ router.post('/flutterwave/webhook', async (req, res) => {
             if (txn.status !== 'PAID' && txn.status !== 'FINALIZED') {
                 await supabase.from('transactions').update({
                     status: 'PAID',
-                    metadata: { ...(txn.metadata || {}), payment_gateway: 'Flutterwave', flw_id: data.id }
+                    metadata: { ...(txn.metadata || {}), payment_gateway: 'Flutterwave', flw_id: flwId }
                 }).eq('id', txn.id);
 
                 console.log(`✅ [Flutterwave Webhook] Transaction ${txnCode} marked as PAID`);
