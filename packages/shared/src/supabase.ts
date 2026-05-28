@@ -1,21 +1,24 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
 import path from 'path';
 
-// Only load .env manually if we are in development and the file exists locally
 if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 }
 
-const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+let _client: SupabaseClient | null = null;
 
-console.log('📡 Supabase Client initializing...');
-console.log('🔗 URL:', supabaseUrl ? '✅ Found' : '❌ Missing');
-console.log('🔑 Service Key:', supabaseServiceKey ? '✅ Found' : '❌ Missing');
-
-if (!supabaseUrl || !supabaseServiceKey) {
-    console.error('🚨 Supabase configuration is missing. Requests will fail.');
+function getClient(): SupabaseClient {
+    if (!_client) {
+        const url = process.env.SUPABASE_URL || '';
+        const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+        _client = createClient(url, key);
+    }
+    return _client;
 }
 
-export const supabase = createClient(supabaseUrl, supabaseServiceKey);
+export const supabase = new Proxy({} as SupabaseClient, {
+    get(_target, prop: string | symbol) {
+        return (getClient() as any)[prop];
+    }
+});
