@@ -9,7 +9,7 @@ import { classifyDisputeType } from '../services/dispute-ai/classifier';
 import { quickTierHint } from '../services/dispute-ai/config/disputeTypes';
 import { issueReferralCommissions } from '../services/commissions';
 import { routeDispute } from '../services/disputeRouter';
-import { requireUser, AuthedRequest } from '../middleware/requireUser';
+import { requireUser, requireUserOrBot, BotOrUserRequest, AuthedRequest } from '../middleware/requireUser';
 import { requireAdmin } from '../middleware/requireAdmin';
 
 const router = Router();
@@ -342,11 +342,12 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
 /**
  * Raise a dispute
  */
-router.post('/raise', requireUser, async (req: Request, res: Response) => {
+router.post('/raise', requireUserOrBot, async (req: Request, res: Response) => {
     try {
-        const user = (req as AuthedRequest).user;
-        // Override raised_by — always use the authenticated user, never trust body
-        const data = RaiseDisputeSchema.parse({ ...req.body, raised_by: user.sub });
+        const isBot = (req as BotOrUserRequest).isBot;
+        const user = isBot ? null : (req as AuthedRequest).user;
+        const raisedBy = isBot ? req.body.raised_by : user!.sub;
+        const data = RaiseDisputeSchema.parse({ ...req.body, raised_by: raisedBy });
 
         const { data: txn, error: txnError } = await supabase
             .from('transactions')

@@ -5,6 +5,10 @@ import { buildMagicLink } from '../utils/magicLink';
 const API_URL = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
 const REVIEWS_URL = process.env.REVIEWS_URL || 'https://Safeeely.com';
 
+const BOT_AUTH_HEADERS = process.env.BOT_API_SECRET
+    ? { 'Authorization': `Bearer ${process.env.BOT_API_SECRET}`, 'x-bot-platform': 'telegram' }
+    : {};
+
 const CATEGORY_KEYBOARD = {
     inline_keyboard: [
         [{ text: '📦 Not Delivered', callback_data: 'dispute_cat_NOT_DELIVERED' }],
@@ -65,7 +69,7 @@ export const disputeScene = new Scenes.WizardScene(
                 raised_by: profile.id,
                 reason: reason,
                 category: category
-            });
+            }, { headers: BOT_AUTH_HEADERS });
 
             const disputeUrl = await buildMagicLink({ platform_id: String(ctx.from.id), scope: 'dispute', txn_id: txnId, fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(profile.safetag)}?view=dispute_details&txnId=${txnId}` });
             ctx.reply('✅ <b>Dispute Raised Successfully</b>\n\nThe transaction has been frozen. You can view the status and provide further evidence on your Safeeely Web Dashboard.', {

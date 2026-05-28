@@ -1713,6 +1713,113 @@ client.on('interactionCreate', async (interaction) => {
                         }]
                     }]
                 });
+            } else if (customId === 'smart_txn_confirm') {
+                console.log(`✅ Processing smart_txn_confirm for ${interaction.user.tag}`);
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const draft = smartTxnSessions.get(interaction.user.id);
+                if (!draft) return interaction.editReply("❌ AI Session expired.");
+                smartTxnSessions.delete(interaction.user.id);
+
+                const rawOther = (draft as any).counterparty_safetag || '';
+                const otherSafetag = rawOther.startsWith('@') ? rawOther : `@${rawOther}`;
+
+                // Convert AI draft to manual draft format to reuse final logic
+                const incomingEntry = incomingGuildIds.get(interaction.user.id);
+                txnDrafts.set(interaction.user.id, {
+                    role: draft.role!,
+                    product: draft.product_name!,
+                    desc: draft.description || '',
+                    amount: draft.amount?.toString(),
+                    currency: draft.currency,
+                    other: otherSafetag,
+                    fee_allocation: draft.fee_allocation,
+                    transaction_type: draft.transaction_type as any,
+                    milestones: draft.milestones,
+                    incomingGroupId: (incomingEntry && incomingEntry.expires > Date.now()) ? incomingEntry.communityId : undefined,
+                });
+                try {
+                    const statsRes = await axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(otherSafetag)}`);
+                    const { average_rating, review_count } = statsRes.data;
+
+                    const amount = parseFloat(String(draft.amount ?? 0));
+                    const fee = amount * 0.05;
+                    const total = draft.fee_allocation === 'buyer' ? amount + fee : (draft.fee_allocation === 'split' ? amount + (fee / 2) : amount);
+
+                    let mList = '';
+                    if (draft.transaction_type === 'MILESTONE' && draft.milestones) {
+                        mList = '\n📍 **Milestones:**\n' + draft.milestones.map((m, i) => `   ${i+1}. ${m.title} - ${m.amount} ${draft.currency}`).join('\n');
+                    }
+
+                    const summary = `✨ **AI Draft Summary**\n\nPlease review your transaction details:\n\n` +
+                        `📦 Type: **${draft.transaction_type || 'ONE_TIME'}**\n` +
+                        `🛒 Product/Service: **${draft.product_name}**\n` +
+                        `📝 Description: **${draft.description || 'No description'}**${mList}\n` +
+                        `💰 Amount: **${amount} ${draft.currency}**\n` +
+                        `💵 Fee: **${fee.toFixed(2)} ${draft.currency} (${draft.fee_allocation})**\n` +
+                        `💳 Total: **${total.toFixed(2)} ${draft.currency}**\n` +
+                        `👤 ${draft.role === 'buyer' ? 'Seller' : 'Buyer'}: \`${otherSafetag}\`\n` +
+                        `⭐ ${draft.role === 'buyer' ? 'Seller' : 'Buyer'} Rating: **${(average_rating || 0).toFixed(1)}/5** (${review_count} reviews)\n\n` +
+                        `Proceed with creating this transaction?`;
+
+                    await interaction.editReply({
+                        content: summary,
+                        components: [{
+                            type: 1,
+                            components: [
+                                { type: 2, label: '✅ Create Transaction', style: 3, custom_id: 'txn_confirm_final' },
+                                { type: 2, label: '❌ Cancel', style: 4, custom_id: 'txn_cancel' }
+                            ]
+                        }]
+                    });
+                } catch (e) {
+                    console.error('Smart Txn Confirm Error:', e);
+                    await interaction.editReply(`❌ Counterparty **${otherSafetag}** not found.`);
+                }
+            } else if (customId === 'smart_txn_cancel') {
+                console.log(`❌ Processing smart_txn_cancel for ${interaction.user.tag}`);
+                if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
+                smartTxnSessions.delete(interaction.user.id);
+                if (!interaction.deferred && !interaction.replied) await interaction.update({ content: '❌ AI Draft Cancelled.', components: [] });
+                else await interaction.editReply({ content: '❌ AI Draft Cancelled.', components: [] });
+            } else if (customId.startsWith('verify_otp_btn|')) {
+                const safetag = customId.split('|')[1];
+                // @ts-ignore
+                await interaction.showModal({
+                    title: '🔐 Enter OTP',
+                    custom_id: `otp_verify_modal|${safetag}`,
+                    components: [{ type: 1, components: [{ type: 4, custom_id: 'otp_code', label: 'Enter your 6-digit OTP', style: 1, placeholder: '123456', required: true, min_length: 6, max_length: 6 }] }]
+                });
+            } else if (customId.startsWith('resend_login_otp|')) {
+                const safetag = customId.split('|')[1];
+                if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
+                try {
+                    await axios.post(`${API_URL}/auth/otp/send`, { safetag, platform: 'discord', platform_id: interaction.user.id });
+                    await interaction.editReply({
+                        content: `✅ New OTP sent to your linked accounts.\n\n🔐 Enter it to link this Discord account:`,
+                        components: [{ type: 1, components: [{ type: 2, label: '🔢 Enter OTP', style: 1, custom_id: `verify_otp_btn|${safetag}` }, { type: 2, label: '🔄 Resend OTP', style: 2, custom_id: `resend_login_otp|${safetag}` }] }]
+                    });
+                } catch (err: any) {
+                    await interaction.editReply(`❌ Error: ${err.response?.data?.error || 'Failed to resend.'}`);
+                }
+            } else if (customId === 'verify_reg_email_btn') {
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                await interaction.editReply({ content: '📧 **Type your 6-digit code directly in this channel** and I\'ll complete your registration automatically.\n\n_(Example: type `123456` in the chat)_', components: [] });
+            } else if (customId === 'resend_reg_email_otp') {
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const draft = regDrafts.get(interaction.user.id);
+                if (!draft) {
+                    await interaction.editReply('❌ Registration session expired. Please type !start and begin again.');
+                    return;
+                }
+                try {
+                    await axios.post(`${API_URL}/auth/email-otp/send`, { email: draft.email });
+                    await interaction.editReply({
+                        content: `✅ New code sent to **${draft.email}**.\nEnter it to complete registration:`,
+                        components: [{ type: 1, components: [{ type: 2, label: '📧 Enter Email Code', style: 1, custom_id: 'verify_reg_email_btn' }, { type: 2, label: '🔄 Resend Code', style: 2, custom_id: 'resend_reg_email_otp' }] }]
+                    });
+                } catch (err: any) {
+                    await interaction.editReply(`❌ ${err.response?.data?.error || 'Failed to resend.'}`);
+                }
             }
         }
 
@@ -1802,113 +1909,6 @@ client.on('interactionCreate', async (interaction) => {
                     content: `🛒 **Transaction: ${draft?.product}**\nRole: **${draft?.role?.toUpperCase()}**\nCurrency: **${currency}**`,
                     components: [{ type: 1, components: [{ type: 2, label: '🔢 Enter Details', style: 1, custom_id: `txn_continue` }] }]
                 });
-            } else if (customId === 'smart_txn_confirm') {
-                console.log(`✅ Processing smart_txn_confirm for ${interaction.user.tag}`);
-                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-                const draft = smartTxnSessions.get(interaction.user.id);
-                if (!draft) return interaction.editReply("❌ AI Session expired.");
-                smartTxnSessions.delete(interaction.user.id);
-                
-                const rawOther = (draft as any).counterparty_safetag || '';
-                const otherSafetag = rawOther.startsWith('@') ? rawOther : `@${rawOther}`;
-
-                // Convert AI draft to manual draft format to reuse final logic
-                const incomingEntry = incomingGuildIds.get(interaction.user.id);
-                txnDrafts.set(interaction.user.id, {
-                    role: draft.role!,
-                    product: draft.product_name!,
-                    desc: draft.description || '',
-                    amount: draft.amount?.toString(),
-                    currency: draft.currency,
-                    other: otherSafetag,
-                    fee_allocation: draft.fee_allocation,
-                    transaction_type: draft.transaction_type as any,
-                    milestones: draft.milestones,
-                    incomingGroupId: (incomingEntry && incomingEntry.expires > Date.now()) ? incomingEntry.communityId : undefined,
-                });
-                try {
-                    const statsRes = await axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(otherSafetag)}`);
-                    const { average_rating, review_count } = statsRes.data;
-
-                    const amount = parseFloat(String(draft.amount ?? 0));
-                    const fee = amount * 0.05;
-                    const total = draft.fee_allocation === 'buyer' ? amount + fee : (draft.fee_allocation === 'split' ? amount + (fee / 2) : amount);
-
-                    let mList = '';
-                    if (draft.transaction_type === 'MILESTONE' && draft.milestones) {
-                        mList = '\n📍 **Milestones:**\n' + draft.milestones.map((m, i) => `   ${i+1}. ${m.title} - ${m.amount} ${draft.currency}`).join('\n');
-                    }
-
-                    const summary = `✨ **AI Draft Summary**\n\nPlease review your transaction details:\n\n` +
-                        `📦 Type: **${draft.transaction_type || 'ONE_TIME'}**\n` +
-                        `🛒 Product/Service: **${draft.product_name}**\n` +
-                        `📝 Description: **${draft.description || 'No description'}**${mList}\n` +
-                        `💰 Amount: **${amount} ${draft.currency}**\n` +
-                        `💵 Fee: **${fee.toFixed(2)} ${draft.currency} (${draft.fee_allocation})**\n` +
-                        `💳 Total: **${total.toFixed(2)} ${draft.currency}**\n` +
-                        `👤 ${draft.role === 'buyer' ? 'Seller' : 'Buyer'}: \`${otherSafetag}\`\n` +
-                        `⭐ ${draft.role === 'buyer' ? 'Seller' : 'Buyer'} Rating: **${(average_rating || 0).toFixed(1)}/5** (${review_count} reviews)\n\n` +
-                        `Proceed with creating this transaction?`;
-                    
-                    await interaction.editReply({
-                        content: summary,
-                        components: [{
-                            type: 1,
-                            components: [
-                                { type: 2, label: '✅ Create Transaction', style: 3, custom_id: 'txn_confirm_final' },
-                                { type: 2, label: '❌ Cancel', style: 4, custom_id: 'txn_cancel' }
-                            ]
-                        }]
-                    });
-                } catch (e) {
-                    console.error('Smart Txn Confirm Error:', e);
-                    await interaction.editReply(`❌ Counterparty **${otherSafetag}** not found.`);
-                }
-            } else if (customId === 'smart_txn_cancel') {
-                console.log(`❌ Processing smart_txn_cancel for ${interaction.user.tag}`);
-                if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
-                smartTxnSessions.delete(interaction.user.id);
-                if (!interaction.deferred && !interaction.replied) await interaction.update({ content: '❌ AI Draft Cancelled.', components: [] });
-                else await interaction.editReply({ content: '❌ AI Draft Cancelled.', components: [] });
-            } else if (customId.startsWith('verify_otp_btn|')) {
-                const safetag = customId.split('|')[1];
-                // @ts-ignore
-                await interaction.showModal({
-                    title: '🔐 Enter OTP',
-                    custom_id: `otp_verify_modal|${safetag}`,
-                    components: [{ type: 1, components: [{ type: 4, custom_id: 'otp_code', label: 'Enter your 6-digit OTP', style: 1, placeholder: '123456', required: true, min_length: 6, max_length: 6 }] }]
-                });
-            } else if (customId.startsWith('resend_login_otp|')) {
-                const safetag = customId.split('|')[1];
-                if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
-                try {
-                    await axios.post(`${API_URL}/auth/otp/send`, { safetag, platform: 'discord', platform_id: interaction.user.id });
-                    await interaction.editReply({
-                        content: `✅ New OTP sent to your linked accounts.\n\n🔐 Enter it to link this Discord account:`,
-                        components: [{ type: 1, components: [{ type: 2, label: '🔢 Enter OTP', style: 1, custom_id: `verify_otp_btn|${safetag}` }, { type: 2, label: '🔄 Resend OTP', style: 2, custom_id: `resend_login_otp|${safetag}` }] }]
-                    });
-                } catch (err: any) {
-                    await interaction.editReply(`❌ Error: ${err.response?.data?.error || 'Failed to resend.'}`);
-                }
-            } else if (customId === 'verify_reg_email_btn') {
-                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-                await interaction.editReply({ content: '📧 **Type your 6-digit code directly in this channel** and I\'ll complete your registration automatically.\n\n_(Example: type `123456` in the chat)_', components: [] });
-            } else if (customId === 'resend_reg_email_otp') {
-                if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-                const draft = regDrafts.get(interaction.user.id);
-                if (!draft) {
-                    await interaction.editReply('❌ Registration session expired. Please type !start and begin again.');
-                    return;
-                }
-                try {
-                    await axios.post(`${API_URL}/auth/email-otp/send`, { email: draft.email });
-                    await interaction.editReply({
-                        content: `✅ New code sent to **${draft.email}**.\nEnter it to complete registration:`,
-                        components: [{ type: 1, components: [{ type: 2, label: '📧 Enter Email Code', style: 1, custom_id: 'verify_reg_email_btn' }, { type: 2, label: '🔄 Resend Code', style: 2, custom_id: 'resend_reg_email_otp' }] }]
-                    });
-                } catch (err: any) {
-                    await interaction.editReply(`❌ ${err.response?.data?.error || 'Failed to resend.'}`);
-                }
             }
         }
 

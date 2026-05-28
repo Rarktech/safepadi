@@ -463,7 +463,7 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
             if (!isBuyer && !isSeller) {
                 return res.status(403).json({ error: 'FORBIDDEN' });
             }
-            const sellerOnlyActions = ['accept', 'decline', 'complete_yes', 'complete_confirmed', 'seller_cancel'];
+            const sellerOnlyActions = ['complete_yes', 'complete_confirmed', 'seller_cancel'];
             const buyerOnlyActions = ['confirm_receipt'];
             if (sellerOnlyActions.includes(status) && !isSeller) {
                 return res.status(403).json({ error: 'Only the seller can perform this action' });
