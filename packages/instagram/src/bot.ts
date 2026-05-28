@@ -1222,9 +1222,9 @@ async function handlePostback(psid: string, payload: string) {
     } else if (payload.startsWith('txn_refund_initiate|')) {
         const txnId = payload.replace('txn_refund_initiate|', '');
         await sendMsg(psid, qr('💸 Why are you cancelling?\n\nThe buyer will receive a full refund. Your cancellation count will increase.', [
-            { content_type: 'text', title: '📦 Out of stock', payload: `txn_refund_reason|${txnId}|out_of_stock` },
-            { content_type: 'text', title: '🚫 Cannot fulfil', payload: `txn_refund_reason|${txnId}|cannot_fulfil` },
-            { content_type: 'text', title: '🤝 Mutual cancel', payload: `txn_refund_reason|${txnId}|mutual_cancel` },
+            { title: '📦 Out of stock', payload: `txn_refund_reason|${txnId}|out_of_stock` },
+            { title: '🚫 Cannot fulfil', payload: `txn_refund_reason|${txnId}|cannot_fulfil` },
+            { title: '🤝 Mutual cancel', payload: `txn_refund_reason|${txnId}|mutual_cancel` },
         ]));
 
     } else if (payload.startsWith('txn_refund_reason|')) {
@@ -1235,8 +1235,8 @@ async function handlePostback(psid: string, payload: string) {
             const txnRes = await axios.get(`${API_URL}/transactions/${txnId}`, { headers: BOT_AUTH_HEADERS });
             const t = txnRes.data;
             await sendMsg(psid, qr(`⚠️ Confirm Cancellation\n\nYou are about to return ${t.amount} ${t.currency} to the buyer. This cannot be undone.`, [
-                { content_type: 'text', title: '✅ Yes, Refund', payload: `txn_refund_confirm|${txnId}|${reason}` },
-                { content_type: 'text', title: '❌ Cancel',      payload: 'MAIN_MENU' },
+                { title: '✅ Yes, Refund', payload: `txn_refund_confirm|${txnId}|${reason}` },
+                { title: '❌ Cancel',      payload: 'MAIN_MENU' },
             ]));
         } catch (err: any) { await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed.'}` }); }
 

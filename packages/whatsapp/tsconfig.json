@@ -10,7 +10,7 @@
     "baseUrl": ".",
     "paths": {
       "@safepal/shared": [
-        "../shared/src/index"
+        "../shared/dist/index"
       ]
     }
   },

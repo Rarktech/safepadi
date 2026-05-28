@@ -11,7 +11,7 @@
     "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
-      "@safepal/shared": ["../shared/src/index"],
+      "@safepal/shared": ["../shared/dist/index"],
       "@/*": ["./src/*"]
     }
   },
