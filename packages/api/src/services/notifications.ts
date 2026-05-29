@@ -496,10 +496,14 @@ export async function sendReferralNotification(
     }
 }
 
+type NotifOptions =
+    | { label: string; customId?: string; url?: string }[]
+    | ((platform: string, platformId: string) => Promise<{ label: string; customId?: string; url?: string }[]>);
+
 export async function routeNotification(
     profileId: string,
     message: string,
-    options?: { label: string; customId?: string; url?: string }[],
+    options?: NotifOptions,
     imageUrl?: string | null,
     emailFallback?: () => void | Promise<void>
 ): Promise<void> {
@@ -533,7 +537,10 @@ export async function routeNotification(
                     : false;
                 if (!windowOpen) continue;
             }
-            await sendNotification(acct.platform, acct.platform_id, message, options ?? [], imageUrl ?? undefined, imageBuffer);
+            const resolvedOptions = typeof options === 'function'
+                ? await options(acct.platform, acct.platform_id)
+                : options ?? [];
+            await sendNotification(acct.platform, acct.platform_id, message, resolvedOptions, imageUrl ?? undefined, imageBuffer);
             notified = true;
         }
         if (!notified && emailFallback) {

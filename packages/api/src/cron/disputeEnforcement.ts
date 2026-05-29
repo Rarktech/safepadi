@@ -1,9 +1,8 @@
 import { supabase } from '@safepal/shared';
 import { routeNotification, recordNotification } from '../services/notifications';
+import { buildInternalMagicLink } from '../services/magicLinkInternal';
 import { sendDisputeResolvedEmail } from '../services/email';
 import { issueReferralCommissions } from '../services/commissions';
-
-const REVIEWS_URL = process.env.REVIEWS_URL || 'https://safeeely.com';
 
 // How long a party has to respond to an AI question (milliseconds)
 const EVIDENCE_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -171,11 +170,10 @@ async function applyReturnDeadlineInference(dispute: any, txn: any): Promise<voi
     const label = action === 'REFUND_BUYER' ? '✅ Refund issued to buyer' : '✅ Payment released to seller';
     await Promise.allSettled([txn.buyer, txn.seller].map(async (user: any) => {
         try {
-            const disputeUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txn.id}`;
             await routeNotification(
                 user.id,
                 `⚖️ <b>Case Closed</b>\n\n${reason}\n\n<b>Outcome:</b> ${label}`,
-                [{ label: '👁️ View Case', url: disputeUrl }],
+                async (platform, platformId) => [{ label: '👁️ View Case', url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform, platformId, scope: 'dispute', txnId: txn.id }) }],
                 undefined,
                 user.email ? () => sendDisputeResolvedEmail(user.email, {
                     safetag: user.safetag, product: txn.product_name,
@@ -267,11 +265,10 @@ async function applyAdverseInference(dispute: any, txn: any): Promise<void> {
 
     await Promise.allSettled([txn.buyer, txn.seller].map(async (user: any) => {
         try {
-            const disputeUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txn.id}`;
             await routeNotification(
                 user.id,
                 `⚖️ <b>Case Closed</b>\n\n${verdictReason}\n\n<b>Outcome:</b> ${label}`,
-                [{ label: '👁️ View Case', url: disputeUrl }],
+                async (platform, platformId) => [{ label: '👁️ View Case', url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform, platformId, scope: 'dispute', txnId: txn.id }) }],
                 undefined,
                 user.email ? () => sendDisputeResolvedEmail(user.email, {
                     safetag: user.safetag, product: txn.product_name,
@@ -300,11 +297,10 @@ async function sendReminder(dispute: any, txn: any, _level: 1 | 2, message: stri
 
     await Promise.allSettled(targets.map(async (user: any) => {
         try {
-            const disputeUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txn.id}`;
             await routeNotification(
                 user.id,
                 message,
-                [{ label: '📤 Send Proof Now', url: disputeUrl }]
+                async (platform, platformId) => [{ label: '📤 Send Proof Now', url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform, platformId, scope: 'dispute', txnId: txn.id }) }]
             );
         } catch { /* non-critical */ }
     }));

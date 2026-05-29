@@ -56,7 +56,7 @@ const smartTxnSessions: Map<string, SmartTransactionDraft>              = new Ma
 const txnSessions:     Map<string, { step: string; formData: any }>    = new Map();
 const reviewSessions:    Map<string, { step: string; formData: any }>    = new Map();
 const feedbackSessions:  Map<string, { step: string; formData: any }>    = new Map();
-const disputeSessions:   Map<string, { txnId: string; raisedBy: string; step: 'ASK_CATEGORY' | 'ASK_REASON'; category?: string }> = new Map();
+const disputeSessions:   Map<string, { txnId: string; raisedBy: string; safetag: string; step: 'ASK_CATEGORY' | 'ASK_REASON'; category?: string }> = new Map();
 const refSessions:     Map<string, string>                               = new Map();
 
 // ─── Message helpers ──────────────────────────────────────────────────────────
@@ -863,11 +863,11 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         // step === 'ASK_REASON' (or undefined for backward compat with in-flight sessions)
         try {
             await axios.post(`${API_URL}/disputes/raise`, { transaction_id: ds.txnId, reason: rawText.trim(), raised_by: ds.raisedBy, category: ds.category }, { headers: BOT_AUTH_HEADERS });
+            const safetag = ds.safetag || '';
             disputeSessions.delete(from);
-            await sendButtons(from,
-                '⚖️ Dispute raised. Transaction frozen. An AI mediator will review shortly and may ask for evidence.',
-                [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]
-            );
+            const disputeUrl = await buildMagicLink({ platform_id: from, scope: 'dispute', txn_id: ds.txnId, fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag)}?view=dispute_details&txnId=${ds.txnId}` });
+            await sendCTAUrl(from, '⚖️ Dispute raised. Transaction frozen. An AI mediator will review shortly and may ask for evidence.', 'View Details', disputeUrl);
+            await sendButtons(from, 'Return to main menu anytime:', [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]);
         } catch (err: any) {
             disputeSessions.delete(from);
             await sendText(from, `❌ Failed to raise dispute: ${err.response?.data?.error || err.message}`);
@@ -1288,7 +1288,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         const txnId = interactiveId.startsWith('txn_dispute_') ? interactiveId.replace('txn_dispute_', '') : interactiveId.replace('DISPUTE_TXN_', '');
         try {
             const p = await getProfile(from);
-            disputeSessions.set(from, { txnId, raisedBy: p.id, step: 'ASK_CATEGORY' });
+            disputeSessions.set(from, { txnId, raisedBy: p.id, safetag: p.safetag, step: 'ASK_CATEGORY' });
             await sendList(from, '⚠️ Raise Dispute', 'Select the category that best describes your issue:', [{
                 title: 'Dispute Categories',
                 rows: [

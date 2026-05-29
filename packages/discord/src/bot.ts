@@ -1996,8 +1996,10 @@ client.on('interactionCreate', async (interaction) => {
                 pendingDisputeData.delete(interaction.user.id);
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
-                    await axios.post(`${API_URL}/disputes/raise`, { transaction_id: txnId, raised_by: profileRes.data.id, reason, category: pending?.category }, { headers: BOT_AUTH_HEADERS });
-                    await interaction.editReply({ content: `✅ **Dispute Raised!** The transaction is frozen.`, components: [{ type: 1, components: [{ type: 2, label: '🏠 Menu', style: 2, custom_id: 'main_menu' }] }] });
+                    const profile = profileRes.data;
+                    await axios.post(`${API_URL}/disputes/raise`, { transaction_id: txnId, raised_by: profile.id, reason, category: pending?.category }, { headers: BOT_AUTH_HEADERS });
+                    const disputeUrl = await buildMagicLink({ platform_id: interaction.user.id, scope: 'dispute', txn_id: txnId, fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(profile.safetag)}?view=dispute_details&txnId=${txnId}` });
+                    await interaction.editReply({ content: `✅ **Dispute Raised!** The transaction is frozen.`, components: [{ type: 1, components: [{ type: 2, label: '👁️ View Dispute Details', style: 5, url: disputeUrl }, { type: 2, label: '🏠 Menu', style: 2, custom_id: 'main_menu' }] }] });
                 } catch (err: any) { await interaction.editReply(`❌ Failed: ${err.message}`); }
             } else if (customId.startsWith('dispute_modal|')) {
                 const txnId = customId.split('|')[1];
@@ -2005,8 +2007,10 @@ client.on('interactionCreate', async (interaction) => {
                 const reason = interaction.fields.getTextInputValue('reason');
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
-                    await axios.post(`${API_URL}/disputes/raise`, { transaction_id: txnId, raised_by: profileRes.data.id, reason }, { headers: BOT_AUTH_HEADERS });
-                    await interaction.editReply({ content: `✅ **Dispute Raised!** The transaction is frozen.`, components: [{ type: 1, components: [{ type: 2, label: '🏠 Menu', style: 2, custom_id: 'main_menu' }] }] });
+                    const profile = profileRes.data;
+                    await axios.post(`${API_URL}/disputes/raise`, { transaction_id: txnId, raised_by: profile.id, reason }, { headers: BOT_AUTH_HEADERS });
+                    const disputeUrl = await buildMagicLink({ platform_id: interaction.user.id, scope: 'dispute', txn_id: txnId, fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(profile.safetag)}?view=dispute_details&txnId=${txnId}` });
+                    await interaction.editReply({ content: `✅ **Dispute Raised!** The transaction is frozen.`, components: [{ type: 1, components: [{ type: 2, label: '👁️ View Dispute Details', style: 5, url: disputeUrl }, { type: 2, label: '🏠 Menu', style: 2, custom_id: 'main_menu' }] }] });
                 } catch (err: any) { await interaction.editReply(`❌ Failed: ${err.message}`); }
             } else if (customId.startsWith('dispute_return_buyer_') || customId.startsWith('dispute_return_seller_')) {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });

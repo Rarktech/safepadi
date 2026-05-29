@@ -17,7 +17,8 @@ export async function runTransactionReminders(): Promise<void> {
             .select(joinSelect)
             .eq('status', 'PENDING_SELLER_ACCEPTANCE')
             .lt('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-            .gt('created_at', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString());
+            .gt('created_at', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
+            .limit(200);
 
         for (const txn of b1 || []) {
             const sellerMsg = `⏳ <b>Pending Transaction Request</b>\n\nYou have a pending trade request for <b>"${txn.product_name}"</b> from <code>${txn.buyer?.safetag}</code>.\n\n💰 Amount: <b>${txn.total_amount} ${txn.currency}</b>\n\nPlease respond to keep the transaction moving.`;
@@ -42,7 +43,8 @@ export async function runTransactionReminders(): Promise<void> {
             .select(joinSelect)
             .eq('status', 'ACCEPTED')
             .lt('updated_at', new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString())
-            .gt('updated_at', new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString());
+            .gt('updated_at', new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString())
+            .limit(200);
 
         for (const txn of b2 || []) {
             const msg = `💳 <b>Payment Needed</b>\n\nYour accepted deal for <b>"${txn.product_name}"</b> with <code>${txn.seller?.safetag}</code> is awaiting payment.\n\n💰 Amount: <b>${txn.total_amount} ${txn.currency}</b>\n\nPay now to secure the funds in escrow and keep the deal moving.`;
@@ -62,7 +64,8 @@ export async function runTransactionReminders(): Promise<void> {
             .select(joinSelect)
             .eq('status', 'ACCEPTED')
             .lt('updated_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-            .gt('updated_at', new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString());
+            .gt('updated_at', new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString())
+            .limit(200);
 
         for (const txn of b3 || []) {
             const msg = `⚠️ <b>Last Reminder — Payment Overdue</b>\n\nYour deal for <b>"${txn.product_name}"</b> has been accepted for over 24 hours but payment hasn't been made.\n\n💰 Amount: <b>${txn.total_amount} ${txn.currency}</b>\n\nThe seller may cancel if payment is not received soon.`;
@@ -82,7 +85,8 @@ export async function runTransactionReminders(): Promise<void> {
             .select(joinSelect)
             .eq('status', 'PAID')
             .lt('updated_at', new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString())
-            .gt('updated_at', new Date(Date.now() - 74 * 60 * 60 * 1000).toISOString());
+            .gt('updated_at', new Date(Date.now() - 74 * 60 * 60 * 1000).toISOString())
+            .limit(200);
 
         for (const txn of b4 || []) {
             const msg = `📦 <b>Delivery Reminder</b>\n\nThe buyer has paid for <b>"${txn.product_name}"</b> and the funds are secured in escrow.\n\n💰 Amount: <b>${txn.amount} ${txn.currency}</b>\n\nPlease deliver and mark the transaction as complete.`;
@@ -102,7 +106,8 @@ export async function runTransactionReminders(): Promise<void> {
             .select(joinSelect)
             .eq('status', 'PAID')
             .lt('updated_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
-            .gt('updated_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000 - 2 * 60 * 60 * 1000).toISOString());
+            .gt('updated_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000 - 2 * 60 * 60 * 1000).toISOString())
+            .limit(200);
 
         for (const txn of b5 || []) {
             const sellerMsg = `🚨 <b>Urgent: Delivery Overdue</b>\n\nPayment for <b>"${txn.product_name}"</b> has been waiting in escrow for 7 days. The buyer may open a dispute.\n\nPlease deliver and mark the order as complete immediately.`;
@@ -129,7 +134,8 @@ export async function runTransactionReminders(): Promise<void> {
             .select(joinSelect)
             .eq('status', 'COMPLETED_BY_SELLER')
             .lt('updated_at', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
-            .gt('updated_at', new Date(Date.now() - 50 * 60 * 60 * 1000).toISOString());
+            .gt('updated_at', new Date(Date.now() - 50 * 60 * 60 * 1000).toISOString())
+            .limit(200);
 
         for (const txn of b6 || []) {
             const msg = `📬 <b>Please Confirm Receipt</b>\n\nThe seller has marked <b>"${txn.product_name}"</b> as delivered. Have you received it?\n\nConfirm receipt to release the payment to the seller, or open a dispute if there's a problem.\n\n⏳ <b>5 days remaining</b> before funds are automatically released to the seller.`;
@@ -152,7 +158,8 @@ export async function runTransactionReminders(): Promise<void> {
             .select(joinSelect)
             .eq('status', 'COMPLETED_BY_SELLER')
             .lt('updated_at', new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString())
-            .gt('updated_at', new Date(Date.now() - 5 * 24 * 60 * 60 * 1000 - 2 * 60 * 60 * 1000).toISOString());
+            .gt('updated_at', new Date(Date.now() - 5 * 24 * 60 * 60 * 1000 - 2 * 60 * 60 * 1000).toISOString())
+            .limit(200);
 
         for (const txn of b7 || []) {
             const msg = `🚨 <b>Final Warning — Funds Auto-Release in 48 Hours</b>\n\n<b>"${txn.product_name}"</b> has been marked as delivered for 5 days without your confirmation.\n\nIf you do not confirm receipt or raise a dispute within <b>2 days</b>, funds will be automatically released to the seller.\n\nPlease act now — confirm receipt or open a dispute immediately.`;
@@ -174,7 +181,8 @@ export async function runTransactionReminders(): Promise<void> {
             .from('transactions')
             .select(joinSelect)
             .eq('status', 'COMPLETED_BY_SELLER')
-            .lt('updated_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
+            .lt('updated_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+            .limit(200);
 
         for (const txn of b8 || []) {
             try {

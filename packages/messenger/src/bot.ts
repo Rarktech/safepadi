@@ -731,8 +731,11 @@ async function handleDisputeText(psid: string, rawText: string) {
                 raised_by:      state.formData.raisedBy,
                 category:       state.formData.category
             }, { headers: BOT_AUTH_HEADERS });
+            const { txnId, safetag } = state.formData;
             delete userStates[psid];
+            const disputeUrl = await buildMagicLink({ platform_id: psid, scope: 'dispute', txn_id: txnId, fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(safetag || '')}?view=dispute_details&txnId=${txnId}` });
             await sendMsg(psid, { text: '⚖️ Dispute raised. Transaction frozen. An AI mediator will review shortly and may ask for evidence.' });
+            await sendMsg(psid, btnTemplate('View your dispute:', [{ type: 'web_url', url: disputeUrl, title: '👁️ View Dispute' }]));
             await sendNextOptions(psid);
         } catch (err: any) {
             delete userStates[psid];
@@ -1310,7 +1313,7 @@ async function handlePostback(psid: string, payload: string) {
         const txnId = payload.startsWith('txn_dispute_') ? payload.replace('txn_dispute_', '') : payload.replace('DISPUTE_TXN_', '');
         try {
             const p = await getProfile(psid);
-            userStates[psid] = { mode: 'DISPUTE', step: 'ASK_CATEGORY', formData: { txnId, raisedBy: p.id } };
+            userStates[psid] = { mode: 'DISPUTE', step: 'ASK_CATEGORY', formData: { txnId, raisedBy: p.id, safetag: p.safetag } };
             await sendMsg(psid, qr('⚠️ Raise Dispute — Step 1 of 2\n\nSelect the category that best describes your issue:', [
                 { title: '📦 Not Delivered',  payload: 'DISPUTE_CAT_NOT_DELIVERED' },
                 { title: '🔍 Not Described',  payload: 'DISPUTE_CAT_NOT_AS_DESCRIBED' },

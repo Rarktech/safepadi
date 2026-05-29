@@ -24,6 +24,12 @@ export interface AuthedRequest extends Request {
 // On revocation events (logout), the jti is added here immediately.
 const revokedJtiCache = new Map<string, number>();
 const JTI_CACHE_TTL_MS = 30_000;
+setInterval(() => {
+    const now = Date.now();
+    for (const [jti, exp] of revokedJtiCache) {
+        if (now > exp) revokedJtiCache.delete(jti);
+    }
+}, 30_000);
 
 export function markJtiRevoked(jti: string) {
     revokedJtiCache.set(jti, Date.now() + JTI_CACHE_TTL_MS);

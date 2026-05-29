@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
 import { sendNotification, routeNotification, recordNotification } from '../services/notifications';
+import { buildInternalMagicLink } from '../services/magicLinkInternal';
 import { sendDisputeRaisedEmail, sendDisputeResolvedEmail } from '../services/email';
 import { maybeSendFeedbackPrompt } from './feedback';
 import multer from 'multer';
@@ -138,11 +139,10 @@ async function sendVerdictNotifications(disputeId: string, action: string, txn: 
 
         await Promise.all([txn.buyer, txn.seller].map(async (user: any) => {
             try {
-                const disputeUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txn.id}`;
                 await routeNotification(
                     user.id,
                     `⚖️ <b>Dispute Resolved</b>\n\nCase for <b>"${txn.product_name}"</b> (#${txn.txn_code}) has been resolved by AI Mediation.\n\n<b>Outcome:</b> ${label}\n\nView your case details for next steps.`,
-                    [{ label: '👁️ View Case', url: disputeUrl }],
+                    async (platform, platformId) => [{ label: '👁️ View Case', url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform, platformId, scope: 'dispute', txnId: txn.id }) }],
                     undefined,
                     user.email ? () => sendDisputeResolvedEmail(user.email, { safetag: user.safetag, product: txn.product_name, txnCode: txn.txn_code, outcome: label, txnId: txn.id }) : undefined
                 );
@@ -231,16 +231,14 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
                         await sendVerdictNotifications(disputeId, aiResult.action, txn);
                     } else {
                         // Notify both parties about the return requirement
-                        const REVIEWS_URL = process.env.REVIEWS_URL || 'https://safeeely.com';
                         await Promise.allSettled([txn.buyer, txn.seller].filter(Boolean).map(async (user: any) => {
                             const isBuyer = user.id === txn.buyer_id;
-                            const disputeUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txn.id}`;
                             const msg = isBuyer
                                 ? `📦 <b>Return Required</b>\n\nThe mediator has ruled in your favour, but you must first return the goods to the seller. Please ship the item(s) back and confirm here once shipped. You have <b>${(aiResult as any).return_deadline_hours || 72} hours</b>.`
                                 : `📦 <b>Goods Being Returned</b>\n\nThe mediator has ruled that the buyer will return the goods. Once you confirm receipt, the refund will be released. Please confirm here when you receive them.`;
                             const btnLabel = isBuyer ? '📤 Confirm Goods Shipped' : '✅ Confirm Goods Received';
                             const btnId = isBuyer ? `dispute_return_buyer_${disputeId}` : `dispute_return_seller_${disputeId}`;
-                            await routeNotification(user.id, msg, [{ label: btnLabel, customId: btnId, url: disputeUrl }]);
+                            await routeNotification(user.id, msg, async (platform, platformId) => [{ label: btnLabel, customId: btnId, url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform, platformId, scope: 'dispute', txnId: txn.id }) }]);
                         }));
                     }
                 }
@@ -254,14 +252,12 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
                     content: '🛡️ **Case Forwarded to Human Support**\n\nThis case needs a closer look from our support team. A Safeeely agent will review all the details and reach out to both parties shortly.\n\nYou don\'t need to do anything right now — just keep an eye on this chat.'
                 });
                 if (txn?.buyer && txn?.seller) {
-                    const REVIEWS_URL_ESC = process.env.REVIEWS_URL || 'https://safeeely.com';
                     await Promise.allSettled([txn.buyer, txn.seller].map(async (user: any) => {
                         try {
-                            const disputeUrl = `${REVIEWS_URL_ESC}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txn.id}`;
                             await routeNotification(
                                 user.id,
                                 `🛡️ <b>Human Support Taking Over</b>\n\nOur AI mediator has flagged your case for human review. A Safeeely support agent will look into this shortly.\n\nYou don't need to do anything right now — just check back on your case.`,
-                                [{ label: '👁️ View Case', url: disputeUrl }]
+                                async (platform, platformId) => [{ label: '👁️ View Case', url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform, platformId, scope: 'dispute', txnId: txn.id }) }]
                             );
                         } catch { /* non-critical */ }
                     }));
@@ -292,16 +288,14 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
                 // Immediately notify the restricted party
                 if (txn) {
                     try {
-                        const REVIEWS_URL_Q = process.env.REVIEWS_URL || 'https://safeeely.com';
                         const targets: any[] = aiResult.restrict === 'BUYER' ? [txn.buyer]
                             : aiResult.restrict === 'SELLER' ? [txn.seller]
                             : [txn.buyer, txn.seller];
                         await Promise.allSettled(targets.filter(Boolean).map(async (user: any) => {
-                            const disputeUrl = `${REVIEWS_URL_Q}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txn.id}`;
                             await routeNotification(
                                 user.id,
                                 `⏱️ <b>Your response is needed</b>\n\nThe mediator has asked for your input on this case. Please check the dispute and share what you can — you have <b>2 hours</b> to respond.`,
-                                [{ label: '📤 Reply Now', url: disputeUrl }]
+                                async (platform, platformId) => [{ label: '📤 Reply Now', url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform, platformId, scope: 'dispute', txnId: txn.id }) }]
                             );
                         }));
                     } catch { /* non-critical */ }
@@ -316,14 +310,12 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
                     });
                     // Notify both parties that the case has been escalated
                     if (txn) {
-                        const REVIEWS_URL = process.env.REVIEWS_URL || 'https://safeeely.com';
                         await Promise.allSettled([txn.buyer, txn.seller].filter(Boolean).map(async (user: any) => {
                             try {
-                                const disputeUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txn.id}`;
                                 await routeNotification(
                                     user.id,
                                     `⚠️ <b>Case Escalated</b>\n\nYour dispute for <b>"${txn.product_name}"</b> has been escalated for human review after extensive AI analysis. A Safeeely support agent will contact you shortly. Funds remain secure in escrow.`,
-                                    [{ label: '👁️ View Case', url: disputeUrl }]
+                                    async (platform, platformId) => [{ label: '👁️ View Case', url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform, platformId, scope: 'dispute', txnId: txn.id }) }]
                                 );
                             } catch { /* non-critical */ }
                         }));
@@ -428,14 +420,12 @@ router.post('/raise', requireUserOrBot, async (req: Request, res: Response) => {
 
         // Notifications
         try {
-            const REVIEWS_URL = process.env.REVIEWS_URL || 'https://Safeeely.com';
             const otherParty = txn.buyer.id === data.raised_by ? txn.seller : txn.buyer;
             const raiser = txn.buyer.id === data.raised_by ? txn.buyer : txn.seller;
-            const disputeDetailsUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(otherParty.safetag)}?view=dispute_details&txnId=${txn.id}`;
             await routeNotification(
                 otherParty.id,
                 `⚠️ <b>Transaction Disputed</b>\n\nTransaction <b>${txn.txn_code}</b> for "${txn.product_name}" has been disputed by @${raiser.safetag}.\n\n<b>Reason:</b> ${data.reason}\n\nFunds have been locked. Please visit your Web Dashboard to review the evidence and resolve the dispute.`,
-                [{ label: '👁️ View Dispute Details', url: disputeDetailsUrl }],
+                async (platform, platformId) => [{ label: '👁️ View Dispute Details', url: await buildInternalMagicLink({ profileId: otherParty.id, safetag: otherParty.safetag, platform, platformId, scope: 'dispute', txnId: txn.id }) }],
                 undefined,
                 otherParty.email ? () => sendDisputeRaisedEmail(otherParty.email, { safetag: otherParty.safetag, raisingParty: raiser.safetag, product: txn.product_name, txnCode: txn.txn_code, reason: data.reason, txnId: txn.id }) : undefined
             );
@@ -873,17 +863,15 @@ router.post('/:id/resolve', requireAdmin, async (req: Request, res: Response) =>
                 await sendVerdictNotifications(id, data.resolution_type, txnFull);
             } else {
                 // Return flow: notify both parties about return requirement
-                const REVIEWS_URL = process.env.REVIEWS_URL || 'https://safeeely.com';
                 const deadlineHours = data.return_deadline_hours ?? 72;
                 await Promise.allSettled([txnFull.buyer, txnFull.seller].filter(Boolean).map(async (user: any) => {
                     const isBuyer = user.id === txnFull.buyer_id;
-                    const disputeUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${txnFull.id}`;
                     const msg = isBuyer
                         ? `📦 <b>Return Required</b>\n\nAdmin has ruled in your favour, but you must first return the goods to the seller. Please ship the item(s) back and confirm once shipped. You have <b>${deadlineHours} hours</b>.`
                         : `📦 <b>Goods Being Returned</b>\n\nAdmin has ruled that the buyer will return the goods. Please confirm receipt here when you receive them.`;
                     const btnLabel = isBuyer ? '📤 Confirm Goods Shipped' : '✅ Confirm Goods Received';
                     const btnId = isBuyer ? `dispute_return_buyer_${id}` : `dispute_return_seller_${id}`;
-                    await routeNotification(user.id, msg, [{ label: btnLabel, customId: btnId, url: disputeUrl }]).catch(() => {});
+                    await routeNotification(user.id, msg, async (platform, platformId) => [{ label: btnLabel, customId: btnId, url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform, platformId, scope: 'dispute', txnId: txnFull.id }) }]).catch(() => {});
                 }));
             }
         }
@@ -937,8 +925,6 @@ router.post('/:id/confirm-return', requireUser, async (req: Request, res: Respon
             return res.status(403).json({ error: 'FORBIDDEN' });
         }
 
-        const REVIEWS_URL = process.env.REVIEWS_URL || 'https://safeeely.com';
-
         if (role === 'BUYER') {
             // Buyer confirms they have shipped goods back
             const meta = { ...(dispute.metadata || {}), buyer_shipped_at: new Date().toISOString(), ...(tracking_number ? { tracking_number } : {}) };
@@ -946,11 +932,10 @@ router.post('/:id/confirm-return', requireUser, async (req: Request, res: Respon
 
             // Notify seller
             if (txn.seller) {
-                const disputeUrl = `${REVIEWS_URL}/withdraw/${encodeURIComponent(txn.seller.safetag)}?view=dispute_details&txnId=${txn.id}`;
                 await routeNotification(
                     txn.seller_id,
                     `📦 <b>Buyer Shipped Goods Back</b>\n\nThe buyer has confirmed they shipped the goods back${tracking_number ? ` (Tracking: <code>${tracking_number}</code>)` : ''}. Please confirm receipt once you receive them.`,
-                    [{ label: '✅ Confirm Received', customId: `dispute_return_seller_${id}`, url: disputeUrl }]
+                    async (platform, platformId) => [{ label: '✅ Confirm Received', customId: `dispute_return_seller_${id}`, url: await buildInternalMagicLink({ profileId: txn.seller.id, safetag: txn.seller.safetag, platform, platformId, scope: 'dispute', txnId: txn.id }) }]
                 );
             }
 
@@ -1043,7 +1028,6 @@ router.post('/:id/notify-join', requireAdmin, async (req: Request, res: Response
         if (disputeData && disputeData.transaction) {
             const { buyer, seller } = disputeData.transaction;
             const txn = disputeData.transaction;
-            const REVIEWS_URL = process.env.REVIEWS_URL || 'https://Safeeely.com';
 
             await Promise.all([buyer, seller].map(async (user) => {
                 const { data: linked } = await supabase
@@ -1057,7 +1041,7 @@ router.post('/:id/notify-join', requireAdmin, async (req: Request, res: Response
                     const fullMsg = `🛡️ <b>Human Support Joined</b>\n\nSupport agent <b>${admin_name || 'Admin'}</b> has joined the conversation to resolve this dispute personally. AI Mediation is now on standby.\n\n<b>Case Context:</b>\n📦 ${txn.product_name}\n💰 ${txn.amount} ${txn.currency}\n🆔 #${txn.txn_code}`;
                     const actionBtn = {
                         label: '👁️ View Case',
-                        url: `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${disputeData.transaction_id}`
+                        url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform: linked.platform, platformId: linked.platform_id, scope: 'dispute', txnId: disputeData.transaction_id })
                     };
                     await sendNotification(linked.platform, linked.platform_id, fullMsg, [actionBtn]);
                     recordNotification(user.id, 'dispute', '🛡️ Human Support Joined', `Support agent ${admin_name || 'Admin'} joined your dispute for "${txn.product_name}"`, { transaction_id: disputeData.transaction_id, link_url: `/dashboard/transactions/${disputeData.transaction_id}` }).catch(() => {});
@@ -1088,7 +1072,6 @@ router.post('/:id/notify-leave', requireAdmin, async (req: Request, res: Respons
         if (disputeData && disputeData.transaction) {
             const { buyer, seller } = disputeData.transaction;
             const txn = disputeData.transaction;
-            const REVIEWS_URL = process.env.REVIEWS_URL || 'https://Safeeely.com';
 
             await Promise.all([buyer, seller].map(async (user) => {
                 const { data: linked } = await supabase
@@ -1102,7 +1085,7 @@ router.post('/:id/notify-leave', requireAdmin, async (req: Request, res: Respons
                     const fullMsg = `🛡️ <b>Human Support Left</b>\n\nSupport agent <b>${admin_name || 'Admin'}</b> has left the conversation. Standard dispute terms still apply.\n\n<b>Case Context:</b>\n📦 ${txn.product_name}\n💰 ${txn.amount} ${txn.currency}\n🆔 #${txn.txn_code}`;
                     const actionBtn = {
                         label: '👁️ View Case',
-                        url: `${REVIEWS_URL}/withdraw/${encodeURIComponent(user.safetag)}?view=dispute_details&txnId=${disputeData.transaction_id}`
+                        url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform: linked.platform, platformId: linked.platform_id, scope: 'dispute', txnId: disputeData.transaction_id })
                     };
                     await sendNotification(linked.platform, linked.platform_id, fullMsg, [actionBtn]);
                     recordNotification(user.id, 'dispute', '🛡️ Support Left', `Support agent ${admin_name || 'Admin'} left your dispute for "${txn.product_name}"`, { transaction_id: disputeData.transaction_id, link_url: `/dashboard/transactions/${disputeData.transaction_id}` }).catch(() => {});

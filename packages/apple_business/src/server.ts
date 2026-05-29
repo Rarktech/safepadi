@@ -49,6 +49,7 @@ interface UserState {
         other_id?: string;
         other_rating?: string;
         dispute_txn_id?: string;
+        dispute_safetag?: string;
         dispute_category?: string;
         review_txn_id?: string;
         review_other?: string;
@@ -508,9 +509,12 @@ app.post('/webhook/:token', (req, res) => {
                 // --- DISPUTE_REASON state input ---
                 if (session.state === 'DISPUTE_REASON') {
                     const txnId = session.formData.dispute_txn_id!;
+                    const disputeSafetag = session.formData.dispute_safetag || '';
                     try {
                         await axios.post(`${API_URL}/disputes/raise`, { transaction_id: txnId, reason: messageText, raised_by: profileId, category: session.formData.dispute_category }, { headers: BOT_AUTH_HEADERS });
+                        const disputeUrl = await buildMagicLink({ platform_id: clientId, scope: 'dispute', txn_id: txnId, fallbackUrl: `${FRONTEND_URL}/withdraw/${encodeURIComponent(disputeSafetag)}?view=dispute_details&txnId=${txnId}` });
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '⚖️ Dispute raised. Transaction frozen. An AI mediator will review shortly and may ask for evidence.' });
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `👁️ View your dispute details:\n${disputeUrl}` });
                     } catch (err: any) {
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to raise dispute.'}` });
                     }
@@ -752,6 +756,7 @@ app.post('/webhook/:token', (req, res) => {
                     const txnId = messageText.replace('txn_dispute_', '');
                     session.state = 'DISPUTE_CATEGORY';
                     session.formData.dispute_txn_id = txnId;
+                    session.formData.dispute_safetag = safetag;
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'BUTTONS',
                         title: '⚠️ Raise Dispute',

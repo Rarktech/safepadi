@@ -47,15 +47,17 @@ export async function sendTransactionInvoiceEmail(data: InvoiceData) {
     const html = generateInvoiceTemplate(data);
 
     let pdfBase64: string | undefined;
+    let page: import('puppeteer').Page | null = null;
     try {
         const browser = await getBrowser();
-        const page = await browser.newPage();
+        page = await browser.newPage();
         await page.setContent(html, { waitUntil: 'networkidle0' as any });
         const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
-        await page.close();
         pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
     } catch (err: any) {
         console.error('❌ [Invoice] PDF generation failed, sending email without attachment:', err.message);
+    } finally {
+        if (page) await page.close().catch(() => {});
     }
 
     const subject = `Invoice #${data.txnCode} from ${data.seller.firstName} (${data.seller.safetag})`;

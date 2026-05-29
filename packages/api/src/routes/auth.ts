@@ -11,6 +11,12 @@ const router = Router();
 
 // Simple in-memory rate limiter for OTP requests (max 3 per 15 min per key)
 const otpRateLimits = new Map<string, { count: number; resetAt: number }>();
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, record] of otpRateLimits) {
+        if (now > record.resetAt) otpRateLimits.delete(key);
+    }
+}, 15 * 60 * 1000);
 function isRateLimited(key: string): boolean {
     const now = Date.now();
     const window = 15 * 60 * 1000;
