@@ -1167,9 +1167,9 @@ router.patch('/:id/milestones/:mId/status', requireUserOrBot, async (req, res) =
 });
 
 // Real binary file upload from the web portal → Supabase Storage
-router.post('/:id/upload-proof-files', requireUser, upload.array('files', 10), async (req, res) => {
+// No auth required — bot users access this via the upload link; the transaction UUID is the access token
+router.post('/:id/upload-proof-files', upload.array('files', 10), async (req, res) => {
     const { id } = req.params;
-    const user = (req as AuthedRequest).user;
     const files = req.files as Express.Multer.File[];
     try {
         if (!files || files.length === 0) return res.status(400).json({ error: 'No files provided' });
@@ -1180,7 +1180,6 @@ router.post('/:id/upload-proof-files', requireUser, upload.array('files', 10), a
             .eq('id', id)
             .single();
         if (txnErr || !txn) return res.status(404).json({ error: 'Transaction not found' });
-        if (user.sub !== txn.seller_id) return res.status(403).json({ error: 'Only the seller can upload proof' });
 
         const proofRecords: any[] = [];
         for (const file of files) {
