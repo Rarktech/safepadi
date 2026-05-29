@@ -729,7 +729,7 @@ async function handleDisputeText(psid: string, rawText: string) {
                 reason:         rawText.trim(),
                 raised_by:      state.formData.raisedBy,
                 category:       state.formData.category
-            });
+            }, { headers: BOT_AUTH_HEADERS });
             delete userStates[psid];
             await sendMsg(psid, { text: '⚖️ Dispute raised. Transaction frozen. An AI mediator will review shortly and may ask for evidence.' });
             await sendNextOptions(psid);

@@ -862,7 +862,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         }
         // step === 'ASK_REASON' (or undefined for backward compat with in-flight sessions)
         try {
-            await axios.post(`${API_URL}/disputes/raise`, { transaction_id: ds.txnId, reason: rawText.trim(), raised_by: ds.raisedBy, category: ds.category });
+            await axios.post(`${API_URL}/disputes/raise`, { transaction_id: ds.txnId, reason: rawText.trim(), raised_by: ds.raisedBy, category: ds.category }, { headers: BOT_AUTH_HEADERS });
             disputeSessions.delete(from);
             await sendButtons(from,
                 '⚖️ Dispute raised. Transaction frozen. An AI mediator will review shortly and may ask for evidence.',
