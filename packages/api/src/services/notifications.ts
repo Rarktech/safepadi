@@ -304,48 +304,33 @@ export async function sendNotification(platform: string, platformId: string, mes
         log(`[WhatsApp] token prefix=${WA_TOKEN.substring(0, 10)}… phone_id=${WA_PHONE_ID}`);
 
         try {
-            let imageSent = false;
-            if (imageUrl) {
-                try {
-                    log(`🖼️ [WhatsApp] Sending receipt image to ${platformId}: ${imageUrl}`);
-                    await axios.post(WA_BASE, {
-                        messaging_product: 'whatsapp',
-                        recipient_type: 'individual',
-                        to: platformId,
-                        type: 'image',
-                        image: { link: imageUrl, caption: cleanMsg.substring(0, 1024) }
-                    }, { headers });
-                    imageSent = true;
-                } catch (imgErr: any) {
-                    log(`⚠️ [WhatsApp] Receipt image failed (${imgErr.message}) — falling back to text`);
-                }
-            }
-            // Always send buttons when options exist — even after a successful image send.
-            // When image was sent the caption already carries the full message, so use a
-            // short body for the button message to avoid repeating it.
             if (options && options.length > 0) {
-                const urlOpts = options.filter(o => o.url);
+                const urlOpts   = options.filter(o => o.url);
                 const replyOpts = options.filter(o => !o.url);
-                const buttonBody = imageSent ? 'Choose an action:' : cleanMsg.substring(0, 1024);
 
                 if (replyOpts.length > 0) {
-                    // Send reply buttons (non-URL options)
+                    // Single combined message: image header (if available) + text body + reply buttons.
+                    // This guarantees image, text, and buttons arrive together as one WhatsApp message.
                     const buttons = replyOpts.slice(0, 3).map((opt, i) => ({
                         type: 'reply',
                         reply: { id: (opt.customId || `opt_${i}`).substring(0, 256), title: opt.label.substring(0, 20) }
                     }));
+                    const interactive: any = {
+                        type: 'button',
+                        body: { text: cleanMsg.substring(0, 1024) },
+                        action: { buttons }
+                    };
+                    if (imageUrl) {
+                        interactive.header = { type: 'image', image: { link: imageUrl } };
+                    }
                     await axios.post(WA_BASE, {
                         messaging_product: 'whatsapp',
                         recipient_type: 'individual',
                         to: platformId,
                         type: 'interactive',
-                        interactive: {
-                            type: 'button',
-                            body: { text: buttonBody },
-                            action: { buttons }
-                        }
+                        interactive
                     }, { headers });
-                    // Then send each URL option as a separate CTA message
+                    // Send each URL option as a separate CTA message after
                     for (const urlOpt of urlOpts) {
                         await axios.post(WA_BASE, {
                             messaging_product: 'whatsapp',
@@ -360,7 +345,20 @@ export async function sendNotification(platform: string, platformId: string, mes
                         }, { headers });
                     }
                 } else {
-                    // URL-only options — send a single CTA URL
+                    // URL-only options: send image standalone first if available, then CTA
+                    if (imageUrl) {
+                        try {
+                            await axios.post(WA_BASE, {
+                                messaging_product: 'whatsapp',
+                                recipient_type: 'individual',
+                                to: platformId,
+                                type: 'image',
+                                image: { link: imageUrl, caption: cleanMsg.substring(0, 1024) }
+                            }, { headers });
+                        } catch (imgErr: any) {
+                            log(`⚠️ [WhatsApp] Receipt image failed (${(imgErr as any).message})`);
+                        }
+                    }
                     const urlOpt = urlOpts[0];
                     await axios.post(WA_BASE, {
                         messaging_product: 'whatsapp',
@@ -369,12 +367,32 @@ export async function sendNotification(platform: string, platformId: string, mes
                         type: 'interactive',
                         interactive: {
                             type: 'cta_url',
-                            body: { text: buttonBody },
+                            body: { text: imageUrl ? urlOpt.label.substring(0, 1024) : cleanMsg.substring(0, 1024) },
                             action: { name: 'cta_url', parameters: { display_text: urlOpt.label.substring(0, 20), url: urlOpt.url } }
                         }
                     }, { headers });
                 }
-            } else if (!imageSent) {
+            } else if (imageUrl) {
+                // Image with no buttons — send standalone image with caption
+                try {
+                    await axios.post(WA_BASE, {
+                        messaging_product: 'whatsapp',
+                        recipient_type: 'individual',
+                        to: platformId,
+                        type: 'image',
+                        image: { link: imageUrl, caption: cleanMsg.substring(0, 1024) }
+                    }, { headers });
+                } catch (imgErr: any) {
+                    log(`⚠️ [WhatsApp] Receipt image failed (${(imgErr as any).message}) — sending text`);
+                    await axios.post(WA_BASE, {
+                        messaging_product: 'whatsapp',
+                        recipient_type: 'individual',
+                        to: platformId,
+                        type: 'text',
+                        text: { body: cleanMsg.substring(0, 4096) }
+                    }, { headers });
+                }
+            } else {
                 await axios.post(WA_BASE, {
                     messaging_product: 'whatsapp',
                     recipient_type: 'individual',

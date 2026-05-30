@@ -532,7 +532,19 @@ export const transactionScene = new Scenes.WizardScene(
                 }
             });
         } catch (err: any) {
-            ctx.reply(`❌ Error: ${err.response?.data?.error || err.message}`);
+            const errData = err.response?.data;
+            if (errData?.error === 'AMOUNT_LIMIT_EXCEEDED') {
+                const kycUrl = await buildMagicLink({ platform_id: String(ctx.from!.id), scope: 'kyc', fallbackUrl: `${REVIEWS_URL}/kyc` }).catch(() => `${REVIEWS_URL}/kyc`);
+                await ctx.reply(
+                    `⚠️ *Transaction Limit Exceeded*\n\n${errData.message || 'Your unverified account has a transaction limit. Complete identity verification to unlock higher amounts.'}`,
+                    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+                        [{ text: '✅ Verify Account', url: kycUrl }],
+                        [{ text: '🏠 Main Menu', callback_data: 'main_menu' }]
+                    ] } }
+                );
+            } else {
+                await ctx.reply(`❌ Error: ${errData?.error || err.message}`);
+            }
         }
         return ctx.scene.leave();
     }

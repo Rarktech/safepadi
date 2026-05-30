@@ -77,12 +77,17 @@ async function sendMsg(to: string, payload: any) {
 const sendText = (to: string, text: string) =>
     sendMsg(to, { type: 'text', text: { body: text } });
 
-function sendButtons(to: string, body: string, buttons: Array<{ id: string; title: string }>, header?: string) {
+function sendButtons(to: string, body: string, buttons: Array<{ id: string; title: string }>, header?: string | { imageUrl: string }) {
+    const headerObj = header === undefined
+        ? undefined
+        : typeof header === 'string'
+            ? { type: 'text' as const, text: header }
+            : { type: 'image' as const, image: { link: header.imageUrl } };
     return sendMsg(to, {
         type: 'interactive',
         interactive: {
             type: 'button',
-            ...(header ? { header: { type: 'text', text: header } } : {}),
+            ...(headerObj ? { header: headerObj } : {}),
             body: { text: body },
             action: { buttons: buttons.slice(0, 3).map(b => ({ type: 'reply', reply: { id: b.id, title: b.title.substring(0, 20) } })) }
         }
@@ -556,7 +561,14 @@ async function createTransaction(from: string) {
         );
     } catch (err: any) {
         txnSessions.delete(from);
-        await sendText(from, `❌ Failed to create transaction: ${err.response?.data?.error || err.message}`);
+        const errData = err.response?.data;
+        if (errData?.error === 'AMOUNT_LIMIT_EXCEEDED') {
+            const kycUrl = await buildMagicLink({ platform_id: from, scope: 'kyc', fallbackUrl: `${REVIEWS_URL}/kyc` }).catch(() => `${REVIEWS_URL}/kyc`);
+            await sendCTAUrl(from, errData.message || 'Your unverified account has a transaction limit. Complete identity verification to unlock higher amounts.', '✅ Verify Account', kycUrl);
+            await sendButtons(from, 'Or return to the main menu:', [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]);
+        } else {
+            await sendText(from, `❌ Failed to create transaction: ${errData?.error || err.message}`);
+        }
     }
 }
 
@@ -648,7 +660,7 @@ async function submitReview(from: string, proofUrl?: string) {
     const session = reviewSessions.get(from)!;
     const fd = session.formData;
     try {
-        await axios.post(`${API_URL}/reviews`, {
+        await axios.post(`${API_URL}/reviews/create`, {
             transaction_id:   fd.txnId,
             reviewer_safetag: fd.reviewerSafetag,
             reviewee_safetag: fd.revieweeSafetag,
@@ -1251,15 +1263,14 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
             const p = await getProfile(from);
             const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'confirm_receipt', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             const msg = (res.data.follow_up_msg || '✅ Transaction completed! Funds will be released to the seller.').replace(/<[^>]*>/g, '');
-            if (res.data.follow_up_receipt_url) {
-                try { await sendImage(from, res.data.follow_up_receipt_url); } catch (_) {}
-            }
             const fopts: any[] = res.data.follow_up_options || [];
             const replyOpts = fopts.filter((o: any) => !o.url);
             const urlOpts = fopts.filter((o: any) => o.url);
             const btns = replyOpts.slice(0, 3).map((o: any) => ({ id: o.customId || o.label, title: o.label.substring(0, 20) }));
             if (btns.length === 0) btns.push({ id: 'MAIN_MENU', title: '🏠 Main Menu' });
-            await sendButtons(from, msg, btns);
+            // Pass receipt URL as image header so image + text + buttons arrive as one message
+            const receiptUrl: string | undefined = res.data.follow_up_receipt_url;
+            await sendButtons(from, msg, btns, receiptUrl ? { imageUrl: receiptUrl } : undefined);
             for (const u of urlOpts) await sendCTAUrl(from, u.label, u.label.substring(0, 20), u.url);
         } catch (err: any) { await sendText(from, `❌ ${err.response?.data?.error || 'Failed.'}`); }
 
@@ -1332,15 +1343,14 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
             const p = await getProfile(from);
             const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'confirm_receipt', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             const msg = (res.data.follow_up_msg || '✅ Transaction completed! Funds will be released to the seller.').replace(/<[^>]*>/g, '');
-            if (res.data.follow_up_receipt_url) {
-                try { await sendImage(from, res.data.follow_up_receipt_url); } catch (_) {}
-            }
             const fopts: any[] = res.data.follow_up_options || [];
             const replyOpts = fopts.filter((o: any) => !o.url);
             const urlOpts = fopts.filter((o: any) => o.url);
             const btns = replyOpts.slice(0, 3).map((o: any) => ({ id: o.customId || o.label, title: o.label.substring(0, 20) }));
             if (btns.length === 0) btns.push({ id: 'MAIN_MENU', title: '🏠 Main Menu' });
-            await sendButtons(from, msg, btns);
+            // Pass receipt URL as image header so image + text + buttons arrive as one message
+            const receiptUrl: string | undefined = res.data.follow_up_receipt_url;
+            await sendButtons(from, msg, btns, receiptUrl ? { imageUrl: receiptUrl } : undefined);
             for (const u of urlOpts) await sendCTAUrl(from, u.label, u.label.substring(0, 20), u.url);
         } catch (err: any) { await sendText(from, `❌ ${err.response?.data?.error || 'Failed.'}`); }
 

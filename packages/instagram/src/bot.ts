@@ -565,7 +565,16 @@ async function createTransaction(psid: string) {
         await sendNextOptions(psid, [{ title: '👁️ View Txns', payload: 'MY_TXNS' }]);
     } catch (err: any) {
         delete userStates[psid];
-        await sendMsg(psid, { text: `❌ Failed to create transaction: ${err.response?.data?.error || err.message}` });
+        const errData = err.response?.data;
+        if (errData?.error === 'AMOUNT_LIMIT_EXCEEDED') {
+            const kycUrl = await buildMagicLink({ platform_id: psid, scope: 'kyc', fallbackUrl: `${REVIEWS_URL}/kyc` }).catch(() => `${REVIEWS_URL}/kyc`);
+            await sendMsg(psid, btnTemplate(
+                `⚠️ Transaction Limit Exceeded\n\n${errData.message || 'Your unverified account has a transaction limit. Complete identity verification to unlock higher amounts.'}`,
+                [{ type: 'web_url', url: kycUrl, title: '✅ Verify Account' }]
+            ));
+        } else {
+            await sendMsg(psid, { text: `❌ Failed to create transaction: ${errData?.error || err.message}` });
+        }
     }
 }
 
@@ -822,7 +831,7 @@ async function submitReview(psid: string, proofUrl?: string) {
     const state = userStates[psid];
     const fd    = state.formData;
     try {
-        await axios.post(`${API_URL}/reviews`, {
+        await axios.post(`${API_URL}/reviews/create`, {
             transaction_id:  fd.txnId,
             reviewer_safetag: fd.reviewerSafetag,
             reviewee_safetag: fd.revieweeSafetag,

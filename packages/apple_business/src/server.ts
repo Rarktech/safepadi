@@ -553,7 +553,13 @@ app.post('/webhook/:token', (req, res) => {
                             await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: txnLink });
                             resetSession(clientId);
                         } catch (err: any) {
-                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ Error creating transaction: ${err.response?.data?.error || err.message}` });
+                            const errData = err.response?.data;
+                            if (errData?.error === 'AMOUNT_LIMIT_EXCEEDED') {
+                                const kycUrl = await buildMagicLink({ platform_id: clientId, scope: 'kyc', fallbackUrl: `${FRONTEND_URL}/kyc` }).catch(() => `${FRONTEND_URL}/kyc`);
+                                await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `⚠️ Transaction Limit Exceeded\n\n${errData.message || 'Your unverified account has a transaction limit. Complete identity verification to unlock higher amounts.'}\n\nTap to verify: ${kycUrl}` });
+                            } else {
+                                await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ Error creating transaction: ${errData?.error || err.message}` });
+                            }
                             resetSession(clientId);
                         }
                     }
@@ -615,7 +621,7 @@ app.post('/webhook/:token', (req, res) => {
                     const rating = session.formData.review_rating || 5;
                     const remark = messageText === 'skip' ? '' : messageText;
                     try {
-                        await axios.post(`${API_URL}/reviews`, { transaction_id: txnId, reviewer_safetag: safetag, reviewee_safetag: other, rating, remark });
+                        await axios.post(`${API_URL}/reviews/create`, { transaction_id: txnId, reviewer_safetag: safetag, reviewee_safetag: other, rating, remark });
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '🎉 Thank you for leaving a review! This helps make buying and selling safer for everyone.' });
                     } catch (err: any) {
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to submit review.'}` });

@@ -1106,6 +1106,17 @@ client.on('interactionCreate', async (interaction) => {
                                 ]
                             }]
                         });
+                    } else if (errData?.error === 'AMOUNT_LIMIT_EXCEEDED') {
+                        const kycUrl = await buildMagicLink({ platform_id: interaction.user.id, scope: 'kyc', fallbackUrl: `${REVIEWS_URL}/kyc` }).catch(() => `${REVIEWS_URL}/kyc`);
+                        await interaction.editReply({
+                            content: `⚠️ **Transaction Limit Exceeded**\n\n${errData.message || 'Your unverified account has a transaction limit. Complete identity verification to unlock higher amounts.'}`,
+                            components: [{
+                                type: 1, components: [
+                                    { type: 2, label: '✅ Verify Account', style: 5, url: kycUrl },
+                                    { type: 2, label: '🏠 Main Menu', style: 2, custom_id: 'main_menu' }
+                                ]
+                            }]
+                        });
                     } else {
                         await interaction.editReply(`❌ Failed: ${errData?.error || err.message}`);
                     }
