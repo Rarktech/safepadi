@@ -1346,6 +1346,11 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
     } else if (interactiveId.startsWith('txn_action_complete_prompt|')) {
         const txnId = interactiveId.replace('txn_action_complete_prompt|', '');
         try {
+            const txnCheck = await axios.get(`${API_URL}/transactions/${txnId}`);
+            if (txnCheck.data?.transaction_type === 'MILESTONE') {
+                await showTransactionDetail(from, txnId);
+                return;
+            }
             const p = await getProfile(from);
             const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_prompt', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             const opts: any[] = res.data.follow_up_options || [];
@@ -1439,6 +1444,9 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
 
     } else if (interactiveId.startsWith('view_txn_details|')) {
         await showTransactionDetail(from, interactiveId.replace('view_txn_details|', ''));
+
+    } else if (interactiveId.startsWith('view_txn_')) {
+        await showTransactionDetail(from, interactiveId.replace('view_txn_', ''));
 
     } else if (interactiveId.startsWith('view_docs_')) {
         const txnId = interactiveId.replace('view_docs_', '');

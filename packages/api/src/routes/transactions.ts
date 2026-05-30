@@ -1168,12 +1168,16 @@ router.patch('/:id/milestones/:mId/status', requireUserOrBot, async (req, res) =
                 link_url: `/dashboard/transactions/${txn.id}`,
             };
 
-            routeNotification(txn.buyer_id, buyerMsg, [], undefined,
+            routeNotification(txn.buyer_id, buyerMsg,
+                status === 'COMPLETED'
+                    ? [{ label: '📦 Review & Release', customId: `view_txn_details|${txn.id}` }]
+                    : [],
+                undefined,
                 (status === 'RELEASED' && txn.buyer?.email)
                     ? () => sendMilestoneReleasedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', milestoneTitle: milestone.title, milestoneIndex, milestoneTotal, amount: milestone.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id })
                     : undefined
             ).catch(() => {});
-            routeNotification(txn.seller_id, sellerMsg, [{ label: '✅ View Transaction', customId: `view_txn_${txn.id}` }], undefined,
+            routeNotification(txn.seller_id, sellerMsg, [{ label: '✅ View Transaction', customId: `view_txn_details|${txn.id}` }], undefined,
                 (status === 'RELEASED' && txn.seller?.email)
                     ? () => sendMilestoneReleasedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', milestoneTitle: milestone.title, milestoneIndex, milestoneTotal, amount: milestone.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id })
                     : undefined

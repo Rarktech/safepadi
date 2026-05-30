@@ -35,6 +35,13 @@ function buildSellerPaidMsg(txn: any): string {
 
 function buildSellerPaidButtons(txn: any): Array<{ label: string; customId?: string; url?: string }> {
     const frontendUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
+    if (txn.transaction_type === 'MILESTONE') {
+        return [
+            { label: '🪜 Manage Milestones', customId: `view_txn_details|${txn.id}` },
+            { label: '💸 Refund Buyer',      customId: `txn_refund_initiate|${txn.id}` },
+            { label: '📖 View Guidelines',   url: `${frontendUrl}/guides/delivery` }
+        ];
+    }
     return [
         { label: '✅ Mark as Delivered',  customId: `txn_action_complete_prompt|${txn.id}` },
         { label: '💸 Refund Buyer',       customId: `txn_refund_initiate|${txn.id}` },
@@ -100,7 +107,7 @@ router.post('/opay/webhook', async (req, res) => {
                 // Notify Buyer
                 const buyerMsg = `✅ <b>Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
                 routeNotification(txn.buyer_id, buyerMsg, [
-                    { label: '👁️ View Transaction', customId: `view_txn_${txn.id}` },
+                    { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` },
                     { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
                     { label: '🔙 Main Menu', customId: 'main_menu' }
                 ], receiptUrl, txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Buyer Notif Error:', e));
@@ -179,7 +186,7 @@ router.post('/airwallex/webhook', async (req, res) => {
                 // Notify Buyer
                 const buyerMsg = `✅ <b>Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
                 routeNotification(txn.buyer_id, buyerMsg, [
-                    { label: '👁️ View Transaction', customId: `view_txn_${txn.id}` },
+                    { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` },
                     { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
                     { label: '🔙 Main Menu', customId: 'main_menu' }
                 ], receiptUrl, txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Buyer Notif Error:', e));
@@ -272,7 +279,7 @@ router.post('/chainrails/webhook', async (req, res) => {
                 // Notify buyer
                 const buyerMsg = `✅ <b>Crypto Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔗 Gateway: <b>ChainRails (Crypto)</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
                 routeNotification(txn.buyer_id, buyerMsg, [
-                    { label: '👁️ View Transaction', customId: `view_txn_${txn.id}` },
+                    { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` },
                     { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
                     { label: '🔙 Main Menu', customId: 'main_menu' }
                 ], receiptUrl, txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Buyer Notif Error:', e));
@@ -479,7 +486,7 @@ router.post('/flutterwave/webhook', async (req, res) => {
                 // Notify Buyer
                 const buyerMsg = `✅ <b>Payment Confirmed!</b>\n\nYour payment has been received and secured in escrow!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n💰 Amount Paid: <b>${txn.total_amount} ${txn.currency}</b>\n🔐 Status: <b>Payment Secured in Escrow</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Seller has been notified and can now proceed to fulfill the order.\n\nYou'll be notified when:\n• Seller marks delivery as completed\n• Delivery documents are available\n• It's time to confirm receipt`;
                 routeNotification(txn.buyer_id, buyerMsg, [
-                    { label: '👁️ View Transaction', customId: `view_txn_${txn.id}` },
+                    { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` },
                     { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
                     { label: '🔙 Main Menu', customId: 'main_menu' }
                 ], receiptUrl, txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Buyer Notif Error:', e));

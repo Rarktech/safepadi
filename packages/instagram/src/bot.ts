@@ -1363,6 +1363,11 @@ async function handlePostback(psid: string, payload: string) {
     } else if (payload.startsWith('txn_action_complete_prompt|')) {
         const txnId = payload.replace('txn_action_complete_prompt|', '');
         try {
+            const txnCheck = await axios.get(`${API_URL}/transactions/${txnId}`);
+            if (txnCheck.data?.transaction_type === 'MILESTONE') {
+                await showTransactionDetail(psid, txnId);
+                return;
+            }
             const p = await getProfile(psid);
             const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'complete_prompt', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             const opts: any[] = res.data.follow_up_options || [];
@@ -1450,6 +1455,9 @@ async function handlePostback(psid: string, payload: string) {
 
     } else if (payload.startsWith('view_txn_details|')) {
         await showTransactionDetail(psid, payload.replace('view_txn_details|', ''));
+
+    } else if (payload.startsWith('view_txn_')) {
+        await showTransactionDetail(psid, payload.replace('view_txn_', ''));
 
     } else if (payload.startsWith('view_docs_')) {
         const txnId = payload.replace('view_docs_', '');
