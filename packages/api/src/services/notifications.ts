@@ -298,9 +298,10 @@ export async function sendNotification(platform: string, platformId: string, mes
         const WA_TOKEN = process.env.WHATSAPP_TOKEN;
         const WA_PHONE_ID = process.env.PHONE_NUMBER_ID;
         if (!WA_TOKEN || !WA_PHONE_ID) { log(`⚠️ [WhatsApp] WHATSAPP_TOKEN or PHONE_NUMBER_ID not set in API service — notification skipped`); return; }
-        const WA_BASE = `https://graph.facebook.com/v20.0/${WA_PHONE_ID}/messages`;
+        const WA_BASE = `https://graph.facebook.com/v17.0/${WA_PHONE_ID}/messages`;
         const headers = { Authorization: `Bearer ${WA_TOKEN}`, 'Content-Type': 'application/json' };
         const cleanMsg = message.replace(/<[^>]*>/g, '');
+        log(`[WhatsApp] token prefix=${WA_TOKEN.substring(0, 10)}… phone_id=${WA_PHONE_ID}`);
 
         try {
             let imageSent = false;
@@ -309,6 +310,7 @@ export async function sendNotification(platform: string, platformId: string, mes
                     log(`🖼️ [WhatsApp] Sending receipt image to ${platformId}: ${imageUrl}`);
                     await axios.post(WA_BASE, {
                         messaging_product: 'whatsapp',
+                        recipient_type: 'individual',
                         to: platformId,
                         type: 'image',
                         image: { link: imageUrl, caption: cleanMsg.substring(0, 1024) }
@@ -330,6 +332,7 @@ export async function sendNotification(platform: string, platformId: string, mes
                     }));
                     await axios.post(WA_BASE, {
                         messaging_product: 'whatsapp',
+                        recipient_type: 'individual',
                         to: platformId,
                         type: 'interactive',
                         interactive: {
@@ -342,6 +345,7 @@ export async function sendNotification(platform: string, platformId: string, mes
                     for (const urlOpt of urlOpts) {
                         await axios.post(WA_BASE, {
                             messaging_product: 'whatsapp',
+                            recipient_type: 'individual',
                             to: platformId,
                             type: 'interactive',
                             interactive: {
@@ -356,6 +360,7 @@ export async function sendNotification(platform: string, platformId: string, mes
                     const urlOpt = urlOpts[0];
                     await axios.post(WA_BASE, {
                         messaging_product: 'whatsapp',
+                        recipient_type: 'individual',
                         to: platformId,
                         type: 'interactive',
                         interactive: {
@@ -368,6 +373,7 @@ export async function sendNotification(platform: string, platformId: string, mes
             } else if (!imageSent) {
                 await axios.post(WA_BASE, {
                     messaging_product: 'whatsapp',
+                    recipient_type: 'individual',
                     to: platformId,
                     type: 'text',
                     text: { body: cleanMsg.substring(0, 4096) }
