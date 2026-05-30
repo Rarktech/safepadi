@@ -423,6 +423,11 @@ async function showTransactionDetail(from: string, txnId: string) {
         } else if (isMilestone && role === 'buyer' && ['PAID', 'COMPLETED_BY_SELLER'].includes(t.status)) {
             const completed = (t.milestones || []).filter((m: any) => m.status === 'COMPLETED');
             if (completed.length > 0) {
+                await sendCTAUrl(from,
+                    '🔍 Review the seller\'s delivery proof before releasing funds:',
+                    '🔍 View Delivery Proof',
+                    `${REVIEWS_URL}/delivery/${t.id}`
+                );
                 if (completed.length <= 3) {
                     await sendButtons(from, '💸 Which milestone would you like to release funds for?',
                         completed.map((m: any) => ({ id: `RELEASE_MILE_${t.id}_${m.id}`, title: `💸 ${m.title}`.substring(0, 20) }))
@@ -446,7 +451,7 @@ async function showTransactionDetail(from: string, txnId: string) {
             buttons.push({ id: `COMPLETE_TXN_${t.id}`, title: '📦 Mark Complete' });
         } else if (!isMilestone && t.status === 'AWAITING_PROOF' && role === 'buyer') {
             buttons.push({ id: `RECEIVED_TXN_${t.id}`, title: '✅ Mark Received' });
-        } else if (t.status === 'COMPLETED') {
+        } else if (['COMPLETED', 'FINALIZED'].includes(t.status)) {
             buttons.push({ id: `REVIEW_TXN_${t.id}_${other}`, title: '⭐ Leave Review' });
         }
         if (!['COMPLETED', 'CANCELLED', 'REFUNDED', 'FINALIZED'].includes(t.status) && buttons.length < 3) {
@@ -1302,17 +1307,31 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
             for (const u of urlOpts) await sendCTAUrl(from, u.label, u.label.substring(0, 20), u.url);
         } catch (err: any) { await sendText(from, `❌ ${err.response?.data?.error || 'Failed.'}`); }
 
-    } else if (interactiveId.startsWith('COMPLETE_MILE_')) {
-        // Per-milestone completion — ID format: COMPLETE_MILE_<36-char-txnId>_<36-char-mId>
-        const suffix = interactiveId.replace('COMPLETE_MILE_', '');
+    } else if (interactiveId.startsWith('MILE_CONFIRM_')) {
+        const suffix = interactiveId.replace('MILE_CONFIRM_', '');
         const txnId  = suffix.substring(0, 36);
         const mId    = suffix.substring(37);
         try {
             const p = await getProfile(from);
             await axios.patch(`${API_URL}/transactions/${txnId}/milestones/${mId}/status`, { status: 'COMPLETED', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
-            await sendText(from, '📦 Milestone marked as complete! The buyer has been notified to review and release funds.');
+            await sendText(from, '📦 Phase marked as complete! The buyer has been notified to review your proof and release the funds.');
             await showTransactionDetail(from, txnId);
         } catch (err: any) { await sendText(from, `❌ ${err.response?.data?.error || 'Failed to mark milestone complete.'}`); }
+
+    } else if (interactiveId.startsWith('COMPLETE_MILE_')) {
+        // Per-milestone completion — ID format: COMPLETE_MILE_<36-char-txnId>_<36-char-mId>
+        // 2-step: upload CTA → confirm button (MILE_CONFIRM_)
+        const suffix = interactiveId.replace('COMPLETE_MILE_', '');
+        const txnId  = suffix.substring(0, 36);
+        const mId    = suffix.substring(37);
+        await sendCTAUrl(from,
+            '📎 Upload your proof of delivery so the buyer can verify before releasing funds. Once uploaded, confirm below:',
+            '📎 Upload Proof Now',
+            `${REVIEWS_URL}/upload/${txnId}`
+        );
+        await sendButtons(from, 'Confirm when ready:', [
+            { id: `MILE_CONFIRM_${txnId}_${mId}`, title: '✅ Mark as Complete' }
+        ]);
 
     } else if (interactiveId.startsWith('RELEASE_MILE_')) {
         // Per-milestone release — ID format: RELEASE_MILE_<36-char-txnId>_<36-char-mId>

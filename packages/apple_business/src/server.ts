@@ -689,7 +689,7 @@ app.post('/webhook/:token', (req, res) => {
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'BUTTONS',
                         title: '📦 Confirm Milestone Delivery',
-                        text: `You're marking this milestone as delivered:\n\n📍 ${chosen.title}\n💰 ${chosen.amount} ${session.formData.currency || ''}\n\nConfirm?`,
+                        text: `You're marking this milestone as delivered:\n\n📍 ${chosen.title}\n💰 ${chosen.amount} ${session.formData.currency || ''}\n\n📎 Please upload your proof at:\n${FRONTEND_URL}/upload/${session.formData.settlement_txn_id}\n\nOnce uploaded, confirm below:`,
                         force_reply: true,
                         buttons: [
                             { text: '✅ Confirm Delivery', title: 'Confirm Delivery', description: 'Mark this milestone complete', id: 'confirm_milestone' },
@@ -736,7 +736,7 @@ app.post('/webhook/:token', (req, res) => {
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'BUTTONS',
                         title: '💸 Confirm Milestone Release',
-                        text: `You're releasing funds for this milestone:\n\n📍 ${chosen.title}\n💰 ${chosen.amount} ${session.formData.currency || ''}\n\nThis will transfer the funds to the seller immediately.`,
+                        text: `You're releasing funds for this milestone:\n\n📍 ${chosen.title}\n💰 ${chosen.amount} ${session.formData.currency || ''}\n\n🔍 Review proof at:\n${FRONTEND_URL}/delivery/${session.formData.settlement_txn_id}\n\nOnce reviewed, confirm to release:`,
                         force_reply: true,
                         buttons: [
                             { text: '💸 Release Funds', title: 'Release Funds', description: 'Send funds to seller', id: 'confirm_release' },

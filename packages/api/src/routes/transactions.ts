@@ -1146,63 +1146,91 @@ router.patch('/:id/milestones/:mId/status', requireUserOrBot, async (req, res) =
 
         // Notify counterparties based on the action
         try {
-            const buyerMsg = status === 'COMPLETED' 
-                ? `📦 <b>Milestone Completed</b>\n\nThe seller has marked "<b>${milestone.title}</b>" as completed. Please review and release the funds if satisfied.`
-                : `💸 <b>Milestone Released</b>\n\nYou have released the funds for "<b>${milestone.title}</b>".`;
-            
-            const sellerMsg = status === 'COMPLETED'
-                ? `✅ <b>Milestone Submitted</b>\n\nYou've marked "<b>${milestone.title}</b>" as completed. Awaiting buyer's release.`
-                : `💰 <b>Funds Received!</b>\n\nThe buyer has released the funds for "<b>${milestone.title}</b>". They are now available in your balance.`;
-
-            // Build milestone tracker data for dashboard progress card
+            const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
             const milestoneLabels = (txn.milestones || []).map((m: any) => m.title);
             const milestoneIndex = (txn.milestones || []).findIndex((m: any) => m.id === mId);
             const milestoneTotal = (txn.milestones || []).length;
+            const remainingPending = allMilestones.filter((m: any) => m.status === 'PENDING').length;
+
             const milestoneNotifData = {
                 transaction_id: txn.id, transaction_code: txn.txn_code,
                 transaction_title: txn.product_name,
-                milestone_index: milestoneIndex,
-                milestone_total: milestoneTotal,
+                milestone_index: milestoneIndex, milestone_total: milestoneTotal,
                 milestone_labels: milestoneLabels,
                 amount: milestone.amount, currency: txn.currency,
                 link_url: `/dashboard/transactions/${txn.id}`,
             };
 
-            routeNotification(txn.buyer_id, buyerMsg,
-                status === 'COMPLETED'
-                    ? [{ label: '📦 Review & Release', customId: `view_txn_details|${txn.id}` }]
-                    : [],
-                undefined,
-                (status === 'RELEASED' && txn.buyer?.email)
-                    ? () => sendMilestoneReleasedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', milestoneTitle: milestone.title, milestoneIndex, milestoneTotal, amount: milestone.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id })
-                    : undefined
-            ).catch(() => {});
-            routeNotification(txn.seller_id, sellerMsg, [{ label: '✅ View Transaction', customId: `view_txn_details|${txn.id}` }], undefined,
-                (status === 'RELEASED' && txn.seller?.email)
-                    ? () => sendMilestoneReleasedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', milestoneTitle: milestone.title, milestoneIndex, milestoneTotal, amount: milestone.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id })
-                    : undefined
-            ).catch(() => {});
+            if (status === 'COMPLETED') {
+                // Buyer: rich message with proof portal link so they can review before releasing
+                const buyerMsg = `📦 <b>Phase ${milestoneIndex + 1} of ${milestoneTotal} Complete!</b>\n\n<code>${txn.seller.safetag}</code> has marked "<b>${milestone.title}</b>" as delivered.\n\n💰 Phase Amount: <b>${milestone.amount} ${txn.currency}</b>\n📋 Transaction: <b>${txn.txn_code}</b>\n\n🔍 <b>Please review the delivery proof before releasing the funds.</b> Only release once you've confirmed the deliverable meets your agreement.\n\n⚠️ If there's an issue, raise a dispute instead.`;
+                routeNotification(txn.buyer_id, buyerMsg, [
+                    { label: '🔍 View Proof', url: `${reviewsUrl}/delivery/${txn.id}` },
+                    { label: '💸 View & Release', customId: `view_txn_details|${txn.id}` }
+                ]).catch(() => {});
 
-            if (status === 'RELEASED') {
-                const releaseTitle = `💰 Milestone Released — ${milestone.title}`;
-                const releaseMsg = `Stage ${milestoneIndex + 1} of ${milestoneTotal} · ${milestone.amount} ${txn.currency}`;
-                recordNotification(txn.buyer_id, 'milestone', releaseTitle, releaseMsg, milestoneNotifData).catch(() => {});
-                recordNotification(txn.seller_id, 'milestone', releaseTitle, releaseMsg, milestoneNotifData).catch(() => {});
-            } else if (status === 'COMPLETED') {
+                // Seller: acknowledgement — no button needed, they wait for buyer
+                const sellerMsg = `✅ <b>Phase ${milestoneIndex + 1} Submitted!</b>\n\nYou've marked "<b>${milestone.title}</b>" as complete and the buyer has been notified to review your proof.\n\n⏳ Awaiting buyer's release of <b>${milestone.amount} ${txn.currency}</b>.${remainingPending > 0 ? `\n\n📍 ${remainingPending} more phase(s) remaining after this one.` : ''}`;
+                routeNotification(txn.seller_id, sellerMsg, []).catch(() => {});
+
                 const completedTitle = `📦 Milestone Submitted — ${milestone.title}`;
                 const completedMsg = `Stage ${milestoneIndex + 1} of ${milestoneTotal} awaiting release`;
                 recordNotification(txn.buyer_id, 'milestone', completedTitle, completedMsg, milestoneNotifData).catch(() => {});
                 recordNotification(txn.seller_id, 'milestone', completedTitle, completedMsg, milestoneNotifData).catch(() => {});
             }
 
-            if (allReleased) {
-                const finalMsg = `🎉 <b>Project Finalized!</b>\n\nAll milestones for "<b>${txn.product_name}</b>" have been completed and released. The transaction is now officially finalized.`;
-                routeNotification(txn.buyer_id, finalMsg, [], undefined,
-                    txn.buyer?.email ? () => sendTransactionCompletedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code }) : undefined
+            if (status === 'RELEASED') {
+                // Buyer: simple confirmation
+                const buyerMsg = `💸 <b>Funds Released!</b>\n\nYou've released <b>${milestone.amount} ${txn.currency}</b> for "<b>${milestone.title}</b>" (Phase ${milestoneIndex + 1} of ${milestoneTotal}).${!allReleased && remainingPending > 0 ? `\n\n📍 ${remainingPending} phase(s) still pending delivery.` : ''}`;
+                routeNotification(txn.buyer_id, buyerMsg, [], undefined,
+                    (!allReleased && txn.buyer?.email) ? () => sendMilestoneReleasedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', milestoneTitle: milestone.title, milestoneIndex, milestoneTotal, amount: milestone.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined
                 ).catch(() => {});
-                routeNotification(txn.seller_id, finalMsg, [], undefined,
+
+                if (!allReleased) {
+                    // Seller: funds confirmed + next-phase prompt when more PENDING milestones exist
+                    const nextHint = remainingPending > 0
+                        ? `\n\n📦 <b>${remainingPending} phase(s) still to deliver.</b> Tap below when you're ready to mark the next one complete!`
+                        : `\n\n⏳ Waiting for the buyer to release the remaining phases.`;
+                    const sellerMsg = `💰 <b>Phase ${milestoneIndex + 1} Funds Received!</b>\n\nThe buyer released <b>${milestone.amount} ${txn.currency}</b> for "<b>${milestone.title}</b>".${nextHint}`;
+                    routeNotification(txn.seller_id, sellerMsg,
+                        remainingPending > 0
+                            ? [{ label: '📦 Mark Next Phase', customId: `view_txn_details|${txn.id}` }]
+                            : [{ label: '✅ View Transaction', customId: `view_txn_details|${txn.id}` }],
+                        undefined,
+                        txn.seller?.email ? () => sendMilestoneReleasedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', milestoneTitle: milestone.title, milestoneIndex, milestoneTotal, amount: milestone.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined
+                    ).catch(() => {});
+                }
+
+                const releaseTitle = `💰 Milestone Released — ${milestone.title}`;
+                const releaseMsg = `Stage ${milestoneIndex + 1} of ${milestoneTotal} · ${milestone.amount} ${txn.currency}`;
+                recordNotification(txn.buyer_id, 'milestone', releaseTitle, releaseMsg, milestoneNotifData).catch(() => {});
+                recordNotification(txn.seller_id, 'milestone', releaseTitle, releaseMsg, milestoneNotifData).catch(() => {});
+            }
+
+            if (allReleased) {
+                const finalBase = `🎉 <b>Project Finalized!</b>\n\nAll ${milestoneTotal} phases for "<b>${txn.product_name}</b>" have been completed and released. The transaction is now officially complete!\n\n📋 Transaction: <b>${txn.txn_code}</b>`;
+
+                // Seller: withdraw + leave review
+                routeNotification(txn.seller_id,
+                    finalBase + `\n\n💰 <b>${txn.amount} ${txn.currency}</b> is now fully available in your balance.`,
+                    [
+                        { label: '💰 Withdraw Funds', url: `${reviewsUrl}/withdraw/${encodeURIComponent(txn.seller.safetag)}` },
+                        { label: '✍️ Leave a Review', customId: `leave_review_${txn.id}` }
+                    ],
+                    undefined,
                     txn.seller?.email ? () => sendTransactionCompletedEmail(txn.seller.email, { safetag: txn.seller.safetag, product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code }) : undefined
                 ).catch(() => {});
+
+                // Buyer: leave review + main menu
+                routeNotification(txn.buyer_id, finalBase,
+                    [
+                        { label: '✍️ Leave a Review', customId: `leave_review_${txn.id}` },
+                        { label: '🏠 Main Menu', customId: 'main_menu' }
+                    ],
+                    undefined,
+                    txn.buyer?.email ? () => sendTransactionCompletedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code }) : undefined
+                ).catch(() => {});
+
                 const finalTitle = '🎉 Project Finalized!';
                 const finalNotifMsg = `All milestones for "${txn.product_name}" completed and released`;
                 recordNotification(txn.buyer_id, 'milestone', finalTitle, finalNotifMsg, { ...milestoneNotifData, milestone_index: milestoneTotal - 1 }).catch(() => {});

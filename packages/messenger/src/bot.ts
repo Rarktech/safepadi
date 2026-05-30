@@ -427,17 +427,23 @@ async function showTransactionDetail(psid: string, txnId: string) {
         }
         if (isMilestone && role === 'buyer' && ['PAID', 'COMPLETED_BY_SELLER'].includes(t.status)) {
             const completed = (t.milestones || []).filter((m: any) => m.status === 'COMPLETED');
-            for (const m of completed.slice(0, 11)) {
-                actions.push({ title: `💸 ${m.title}`.substring(0, 20), payload: `RELEASE_MILE|${t.id}|${m.id}` });
-            }
-            if (completed.length > 11) {
-                await sendMsg(psid, { text: `ℹ️ Showing 11 of ${completed.length} completed milestones. Release these first, then tap My Txns to see remaining phases.` });
-            }
-            if (!actions.find(a => a.payload === `DISPUTE_TXN_${t.id}`)) {
-                actions.push({ title: '🚩 Dispute', payload: `DISPUTE_TXN_${t.id}` });
+            if (completed.length > 0) {
+                await sendMsg(psid, btnTemplate(
+                    '🔍 Review the seller\'s delivery proof before releasing funds:',
+                    [{ type: 'web_url', url: `${REVIEWS_URL}/delivery/${t.id}`, title: '🔍 View Delivery Proof' }]
+                ));
+                for (const m of completed.slice(0, 11)) {
+                    actions.push({ title: `💸 ${m.title}`.substring(0, 20), payload: `RELEASE_MILE|${t.id}|${m.id}` });
+                }
+                if (completed.length > 11) {
+                    await sendMsg(psid, { text: `ℹ️ Showing 11 of ${completed.length} completed milestones. Release these first, then tap My Txns to see remaining phases.` });
+                }
+                if (!actions.find(a => a.payload === `DISPUTE_TXN_${t.id}`)) {
+                    actions.push({ title: '🚩 Dispute', payload: `DISPUTE_TXN_${t.id}` });
+                }
             }
         }
-        if (t.status === 'COMPLETED') {
+        if (['COMPLETED', 'FINALIZED'].includes(t.status)) {
             actions.push({ title: '⭐ Leave Review', payload: `REVIEW_TXN_${t.id}_${other}` });
         }
         if (!['COMPLETED', 'CANCELLED', 'REFUNDED', 'FINALIZED'].includes(t.status) && !actions.find(a => a.payload === `DISPUTE_TXN_${t.id}`)) {
@@ -1331,16 +1337,26 @@ async function handlePostback(psid: string, payload: string) {
             await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed to mark complete.'}` });
         }
 
-    } else if (payload.startsWith('COMPLETE_MILE|')) {
+    } else if (payload.startsWith('MILE_CONFIRM|')) {
         const [, txnId, mId] = payload.split('|');
         try {
             const p = await getProfile(psid);
             await axios.patch(`${API_URL}/transactions/${txnId}/milestones/${mId}/status`, { status: 'COMPLETED', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
-            await sendMsg(psid, { text: '📦 Milestone marked as complete! The buyer has been notified to review and release funds.' });
+            await sendMsg(psid, { text: '📦 Phase marked as complete! The buyer has been notified to review your proof and release the funds.' });
             await showTransactionDetail(psid, txnId);
         } catch (err: any) {
             await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed to mark milestone complete.'}` });
         }
+
+    } else if (payload.startsWith('COMPLETE_MILE|')) {
+        const [, txnId, mId] = payload.split('|');
+        await sendMsg(psid, btnTemplate(
+            '📎 Upload your proof of delivery so the buyer can verify before releasing funds:',
+            [{ type: 'web_url', url: `${REVIEWS_URL}/upload/${txnId}`, title: '📎 Upload Proof' }]
+        ));
+        await sendMsg(psid, qr('Once uploaded, confirm below:', [
+            { title: '✅ Mark as Complete', payload: `MILE_CONFIRM|${txnId}|${mId}` }
+        ]));
 
     } else if (payload.startsWith('RELEASE_MILE|')) {
         const [, txnId, mId] = payload.split('|');
