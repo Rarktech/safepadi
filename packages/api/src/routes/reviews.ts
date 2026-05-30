@@ -28,6 +28,46 @@ router.post('/create', async (req, res) => {
             return res.status(400).json({ error: 'Reviewer or Reviewee not found' });
         }
 
+        // Guard 1: transaction_id is required
+        if (!data.transaction_id) {
+            return res.status(400).json({ error: 'TRANSACTION_REQUIRED', message: 'A transaction ID is required to leave a review.' });
+        }
+
+        // Guard 2: verify both parties were part of this transaction
+        const { data: txn } = await supabase
+            .from('transactions')
+            .select('id, buyer_id, seller_id, status')
+            .eq('id', data.transaction_id)
+            .maybeSingle();
+
+        if (!txn) {
+            return res.status(404).json({ error: 'Transaction not found' });
+        }
+
+        const validParties = new Set([txn.buyer_id, txn.seller_id]);
+        if (!validParties.has(reviewer.id) || !validParties.has(reviewee.id)) {
+            return res.status(403).json({ error: 'REVIEW_NOT_ALLOWED', message: 'You can only review users you have completed a transaction with.' });
+        }
+
+        // Guard 3: transaction must be in a completed state
+        const REVIEWABLE_STATUSES = new Set(['COMPLETED', 'FINALIZED', 'RESOLVED_SPLIT']);
+        if (!REVIEWABLE_STATUSES.has(txn.status)) {
+            return res.status(400).json({ error: 'TRANSACTION_NOT_COMPLETE', message: 'Reviews can only be left after a transaction is completed.' });
+        }
+
+        // Guard 4: only one review per (reviewer, reviewee, transaction) pair
+        const { data: existingReview } = await supabase
+            .from('reviews')
+            .select('id')
+            .eq('reviewer_id', reviewer.id)
+            .eq('reviewee_id', reviewee.id)
+            .eq('transaction_id', data.transaction_id)
+            .maybeSingle();
+
+        if (existingReview) {
+            return res.status(409).json({ error: 'REVIEW_ALREADY_EXISTS', message: 'You have already reviewed this user for this transaction.' });
+        }
+
         // Capture existing ratings before insert to detect milestone crossings
         const { data: existingRatings } = await supabase
             .from('reviews')

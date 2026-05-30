@@ -43,6 +43,7 @@ import marketplaceRoutes from './routes/marketplace';
 import notificationRoutes from './routes/notifications';
 import communityRoutes from './routes/communities';
 import feedbackRoutes from './routes/feedback';
+import reportRoutes from './routes/reports';
 import cron from 'node-cron';
 import { runWeeklyDigest } from './cron/weeklyDigest';
 import { runLicenseExpiryCheck } from './cron/licenseExpiry';
@@ -51,6 +52,7 @@ import { runOnboardingDrip } from './cron/onboardingDrip';
 import { runReEngagement } from './cron/reEngagement';
 import { runMonthlyReferralSummary } from './cron/referralSummary';
 import { runDisputeEnforcement } from './cron/disputeEnforcement';
+import { runFraudEnforcement } from './cron/fraudEnforcement';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -120,6 +122,7 @@ app.use('/api/marketplace', marketplaceRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/communities', communityRoutes);
 app.use('/api/feedback', feedbackRoutes);
+app.use('/api/reports', reportRoutes);
 
 // 🔍 Health Check & Diagnostics
 app.get('/api/ping', (req, res) => {
@@ -186,6 +189,11 @@ cron.schedule('0 9 1 * *', () => {
 // Dispute evidence deadline enforcement — every 10 minutes
 cron.schedule('*/10 * * * *', () => {
     runDisputeEnforcement().catch((err) => console.error('Dispute enforcement cron failed:', err));
+});
+
+// Fraud enforcement — flag/block bad actors every 6 hours
+cron.schedule('0 */6 * * *', () => {
+    runFraudEnforcement().catch(console.error);
 });
 
 app.listen(PORT, () => {

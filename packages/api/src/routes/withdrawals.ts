@@ -31,6 +31,32 @@ router.post('/:safetag', requireUser, requireSafetagOwner, requireElevation('wit
             });
         }
 
+        // Balance check: compute available balance and reject if insufficient
+        const { data: earnings } = await supabase
+            .from('transactions')
+            .select('total_amount')
+            .eq('seller_id', profileId)
+            .in('status', ['FINALIZED', 'COMPLETED'])
+            .eq('currency', currency);
+
+        const { data: pendingWithdrawals } = await supabase
+            .from('withdrawals')
+            .select('amount')
+            .eq('profile_id', profileId)
+            .eq('currency', currency)
+            .in('status', ['PROCESSING', 'PENDING']);
+
+        const totalEarned = (earnings || []).reduce((s, t) => s + Number(t.total_amount), 0);
+        const totalPendingOut = (pendingWithdrawals || []).reduce((s, w) => s + Number(w.amount), 0);
+        const availableBalance = totalEarned - totalPendingOut;
+
+        if (Number(amount) > availableBalance) {
+            return res.status(400).json({
+                error: 'INSUFFICIENT_BALANCE',
+                message: `Insufficient balance. Available: ${availableBalance.toFixed(2)} ${currency}, requested: ${Number(amount).toFixed(2)} ${currency}.`
+            });
+        }
+
         const reference = `WD-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
 
         const { data, error } = await supabase

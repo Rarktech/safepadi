@@ -451,6 +451,26 @@ async function showTransactionSummary(psid: string) {
         ).join('\n') + `\n💰 Total: ${total} ${fd.currency}`;
     }
 
+    // Feature 3: first-trade safety warning
+    let safetyWarning = '';
+    try {
+        const p = await getProfile(psid);
+        const buyerSafetag  = fd.role === 'buyer' ? p.safetag : fd.counterparty_safetag;
+        const sellerSafetag = fd.role === 'seller' ? p.safetag : fd.counterparty_safetag;
+        const histRes = await axios.get(`${API_URL}/transactions/pair-history?buyer=${encodeURIComponent(buyerSafetag)}&seller=${encodeURIComponent(sellerSafetag)}`);
+        if (histRes.data?.completed_count === 0) {
+            safetyWarning =
+                '⚠️ Safety Reminder\n' +
+                'This is your first trade with this user. Stay safe:\n' +
+                '• Never pay outside Safeeely escrow\n' +
+                '• Check their review history before confirming\n' +
+                '• Insist on clear delivery proof\n' +
+                '• If anything feels wrong, cancel and report\n\n';
+        }
+    } catch (_) {
+        // Fail silently
+    }
+
     const summary =
         `📋 Transaction Summary\n\n` +
         `📦 Product: ${fd.product_name}\n` +
@@ -461,6 +481,7 @@ async function showTransactionSummary(psid: string) {
         `👤 ${fd.role === 'buyer' ? 'Seller' : 'Buyer'}: ${fd.counterparty_safetag}\n` +
         `💠 Your Role: ${fd.role === 'buyer' ? 'Buyer 🛒' : 'Seller 🤝'}`;
 
+    if (safetyWarning) await sendMsg(psid, { text: safetyWarning });
     await sendMsg(psid, { text: summary });
     await sendMsg(psid, qr('Confirm or cancel this transaction:', [
         { title: '✅ Create',  payload: 'CREATE_TXN_CONFIRM' },
@@ -805,6 +826,47 @@ async function submitFeedback(psid: string, comment?: string) {
     }
 }
 
+async function handleReportText(psid: string, rawText: string) {
+    const state = userStates[psid];
+
+    if (state.step === 'ASK_REPORT_SAFETAG') {
+        const safetag = rawText.trim().startsWith('@') ? rawText.trim() : `@${rawText.trim()}`;
+        state.formData.reportedSafetag = safetag;
+        state.step = 'ASK_REPORT_REASON';
+        await sendMsg(psid, qr('🚨 Why are you reporting this user?', [
+            { title: 'Scam',        payload: 'REPORT_REASON_SCAM'       },
+            { title: 'Fake Proof',  payload: 'REPORT_REASON_FAKE_PROOF' },
+            { title: 'Harassment',  payload: 'REPORT_REASON_HARASSMENT' },
+            { title: 'Other',       payload: 'REPORT_REASON_OTHER'      }
+        ]));
+
+    } else if (state.step === 'ASK_REPORT_DESCRIPTION') {
+        const description = rawText.trim().toLowerCase() === 'skip' ? '' : rawText.trim();
+        await submitReport(psid, description);
+    }
+}
+
+async function submitReport(psid: string, description: string) {
+    const state = userStates[psid];
+    const fd    = state.formData;
+    try {
+        const p = await getProfile(psid);
+        await axios.post(`${API_URL}/reports`, {
+            reporter_safetag: p.safetag,
+            reported_safetag: fd.reportedSafetag,
+            reason:           fd.reportReason,
+            description:      description || '',
+            platform:         'messenger'
+        }, { headers: BOT_AUTH_HEADERS });
+        delete userStates[psid];
+        await sendMsg(psid, { text: `✅ Report submitted. Thank you for helping keep Safeeely safe.\n\nWe will review your report of ${fd.reportedSafetag} and take action if necessary.` });
+        await sendNextOptions(psid);
+    } catch (err: any) {
+        delete userStates[psid];
+        await sendMsg(psid, { text: `❌ Failed to submit report: ${err.response?.data?.error || err.message}` });
+    }
+}
+
 async function handleSmartTxnEdit(psid: string, rawText: string) {
     const state = userStates[psid];
     if (state.step === 'AWAITING_EDIT') {
@@ -912,6 +974,10 @@ async function handleMessage(psid: string, message: any) {
     }
     if (state?.mode === 'FEEDBACK' && state?.step === 'ASK_COMMENT') {
         await submitFeedback(psid, rawText.trim());
+        return;
+    }
+    if (state?.mode === 'REPORT' && ['ASK_REPORT_SAFETAG', 'ASK_REPORT_DESCRIPTION'].includes(state?.step)) {
+        await handleReportText(psid, rawText);
         return;
     }
     if (state?.mode === 'SMART_TXN' && state?.step === 'AWAITING_EDIT') {
@@ -1048,7 +1114,10 @@ async function handlePostback(psid: string, payload: string) {
     } else if (payload === 'ICEBREAKER_HELP' || payload === 'HELP') {
         await sendMsg(psid, btnTemplate(
             '❓ Safeeely Help\n\n• Create Transaction — set up an escrow deal\n• My Transactions — view and manage deals\n• Balance — check and withdraw earnings\n• Referral — invite friends and earn commission\n\nFor support: support@safeeely.com',
-            [{ type: 'postback', payload: 'CHOICE_REGISTER', title: '🆕 Get Started' }]
+            [
+                { type: 'postback', payload: 'CHOICE_REGISTER', title: '🆕 Get Started' },
+                { type: 'postback', payload: 'REPORT_USER',      title: '🚨 Report User' }
+            ]
         ));
 
     // ── Main menu / navigation ────────────────────────────────────────────────
@@ -1269,6 +1338,15 @@ async function handlePostback(psid: string, payload: string) {
 
     } else if (payload.startsWith('txn_pay_')) {
         const txnId = payload.replace('txn_pay_', '');
+        try {
+            await axios.post(`${API_URL}/transactions/${txnId}/initialize-payment`, {}, { headers: BOT_AUTH_HEADERS });
+        } catch (err: any) {
+            if (err?.response?.data?.error === 'ALREADY_PAID') {
+                await sendMsg(psid, { text: '✅ Payment already confirmed for this transaction.' });
+                return;
+            }
+            // Non-ALREADY_PAID errors are non-fatal — fall through to show pay button
+        }
         const payUrl = `${REVIEWS_URL}/pay/${txnId}`;
         await sendMsg(psid, btnTemplate('Tap below to complete your secure payment:', [{ type: 'web_url', url: payUrl, title: '💳 Pay Now' }]));
 
@@ -1570,6 +1648,34 @@ async function handlePostback(psid: string, payload: string) {
         delete userStates[psid];
         await sendMsg(psid, { text: '❌ Smart transaction cancelled.' });
         await sendNextOptions(psid, [{ title: '🛒 Create Txn', payload: 'CREATE_TXN' }]);
+
+    // ── Report User ───────────────────────────────────────────────────────────
+    } else if (payload === 'REPORT_USER') {
+        delete userStates[psid];
+        userStates[psid] = { mode: 'REPORT', step: 'ASK_REPORT_SAFETAG', formData: {} };
+        await sendMsg(psid, { text: '🚨 Report a User\n\nPlease enter the safetag of the user you want to report (e.g. @their_tag):' });
+
+    } else if (payload.startsWith('REPORT_REASON_')) {
+        const state = userStates[psid];
+        if (state?.mode === 'REPORT' && state?.step === 'ASK_REPORT_REASON') {
+            const reasonMap: Record<string, string> = {
+                REPORT_REASON_SCAM:       'Scam',
+                REPORT_REASON_FAKE_PROOF: 'Fake Proof',
+                REPORT_REASON_HARASSMENT: 'Harassment',
+                REPORT_REASON_OTHER:      'Other'
+            };
+            state.formData.reportReason = reasonMap[payload] || 'Other';
+            state.step = 'ASK_REPORT_DESCRIPTION';
+            await sendMsg(psid, qr('📝 Add more details about this report (optional — type "skip" to skip):', [
+                { title: '⏭️ Skip', payload: 'REPORT_SKIP_DESC' }
+            ]));
+        }
+
+    } else if (payload === 'REPORT_SKIP_DESC') {
+        const state = userStates[psid];
+        if (state?.mode === 'REPORT') {
+            await submitReport(psid, '');
+        }
     }
 }
 

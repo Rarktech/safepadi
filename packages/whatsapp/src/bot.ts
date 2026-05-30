@@ -57,6 +57,7 @@ const txnSessions:     Map<string, { step: string; formData: any }>    = new Map
 const reviewSessions:    Map<string, { step: string; formData: any }>    = new Map();
 const feedbackSessions:  Map<string, { step: string; formData: any }>    = new Map();
 const disputeSessions:   Map<string, { txnId: string; raisedBy: string; safetag: string; step: 'ASK_CATEGORY' | 'ASK_REASON'; category?: string }> = new Map();
+const reportSessions:    Map<string, { step: string; reported_safetag?: string; reason?: string }> = new Map();
 const refSessions:     Map<string, string>                               = new Map();
 
 // ─── Message helpers ──────────────────────────────────────────────────────────
@@ -135,6 +136,12 @@ function sendMainMenu(to: string, headerText = '🏠 Main Menu') {
                 { id: 'REVIEWS',       title: '⭐ Reviews & Ratings',     description: 'Your trust score' },
                 { id: 'SEND_FEEDBACK', title: '💭 Send Feedback',         description: 'Rate your Safeeely experience' },
                 { id: 'SETTINGS',      title: '⚙️ Settings & Account',   description: 'Manage your account' }
+            ]
+        },
+        {
+            title: 'Support',
+            rows: [
+                { id: 'REPORT_USER', title: '🚨 Report User', description: 'Report a scam or bad actor' }
             ]
         }
     ], undefined, 'Open Menu');
@@ -436,7 +443,26 @@ async function showTransactionSummary(from: string) {
         ).join('\n') + `\n💰 Total: ${total} ${fd.currency}`;
     }
 
+    // ── Feature 3: first-trade safety reminder ────────────────────────────────
+    let safetyReminder = '';
+    try {
+        const myProfile = await getProfile(from);
+        const buyer  = fd.role === 'buyer'  ? myProfile.safetag : fd.counterparty_safetag;
+        const seller = fd.role === 'seller' ? myProfile.safetag : fd.counterparty_safetag;
+        const pairRes = await axios.get(`${API_URL}/transactions/pair-history`, { params: { buyer, seller } });
+        if (pairRes.data?.completed_count === 0) {
+            safetyReminder =
+                `⚠️ *Safety Reminder*\n` +
+                `This is your first trade with this user. Stay safe:\n` +
+                `• Never pay outside Safeeely escrow\n` +
+                `• Check their review history before confirming\n` +
+                `• Insist on clear delivery proof\n` +
+                `• If anything feels wrong, cancel and report them\n\n`;
+        }
+    } catch (_) { /* fail silently */ }
+
     const summary =
+        safetyReminder +
         `📋 *Transaction Summary*\n\n` +
         `📦 Product: ${fd.product_name}\n` +
         `📝 Description: ${fd.description || 'N/A'}\n` +
@@ -875,6 +901,55 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         return;
     }
 
+    // ── Report user text steps ────────────────────────────────────────────────
+    if (msgType === 'text' && reportSessions.has(from)) {
+        const rs = reportSessions.get(from)!;
+        if (rs.step === 'report_safetag') {
+            const safetag = rawText.trim().startsWith('@') ? rawText.trim() : `@${rawText.trim()}`;
+            rs.reported_safetag = safetag;
+            rs.step = 'report_reason';
+            await sendList(from, '🚨 Report Reason', 'What best describes the issue?', [{
+                title: 'Reason',
+                rows: [
+                    { id: 'REPORT_REASON_SCAM',       title: '💸 Scam',         description: 'Fraud or payment scam' },
+                    { id: 'REPORT_REASON_FAKE_PROOF',  title: '🖼️ Fake Proof',  description: 'Fabricated delivery evidence' },
+                    { id: 'REPORT_REASON_HARASSMENT',  title: '😡 Harassment',  description: 'Threats or abusive behavior' },
+                    { id: 'REPORT_REASON_OTHER',       title: '📋 Other',        description: 'Other policy violation' }
+                ]
+            }], undefined, 'Select');
+            return;
+        }
+        if (rs.step === 'report_description') {
+            const description = rawText.trim().toLowerCase() === 'skip' ? '' : rawText.trim();
+            try {
+                await axios.post(`${API_URL}/reports`, {
+                    reported_safetag: rs.reported_safetag,
+                    reason:           rs.reason,
+                    description
+                }, { headers: BOT_AUTH_HEADERS });
+                reportSessions.delete(from);
+                await sendButtons(from,
+                    '✅ Report submitted. Our trust & safety team will review it within 24 hours.',
+                    [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]
+                );
+            } catch (err: any) {
+                reportSessions.delete(from);
+                if (err?.response?.data?.error === 'REPORT_ALREADY_SUBMITTED') {
+                    await sendButtons(from,
+                        "You've already reported this user recently. Our team is reviewing it.",
+                        [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]
+                    );
+                } else {
+                    await sendButtons(from,
+                        '❌ Failed to submit report. Please try again.',
+                        [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]
+                    );
+                }
+            }
+            return;
+        }
+    }
+
     // ── Smart transaction (audio or free text) ────────────────────────────────
     const isBasicCommand = ['hello', 'hi', 'start'].includes(textBody) || !!interactiveId;
     if (msgType === 'audio' || (msgType === 'text' && !isBasicCommand && !txnSessions.has(from) && rawText)) {
@@ -1025,6 +1100,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         txnSessions.delete(from);
         reviewSessions.delete(from);
         disputeSessions.delete(from);
+        reportSessions.delete(from);
         regSessions.delete(from);
         await sendMainMenu(from, '🏠 Main Menu');
 
@@ -1198,6 +1274,15 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
 
     } else if (interactiveId.startsWith('txn_pay_')) {
         const txnId = interactiveId.replace('txn_pay_', '');
+        try {
+            await axios.post(`${API_URL}/transactions/${txnId}/initialize-payment`, {}, { headers: BOT_AUTH_HEADERS });
+        } catch (err: any) {
+            if (err?.response?.data?.error === 'ALREADY_PAID') {
+                await sendText(from, '✅ Payment already confirmed for this transaction.');
+                return;
+            }
+            // Non-ALREADY_PAID errors — fall through and show pay link anyway
+        }
         const payUrl = `${REVIEWS_URL}/pay/${txnId}`;
         await sendCTAUrl(from, 'Tap below to complete your secure payment:', '💳 Pay Now', payUrl);
 
@@ -1436,7 +1521,56 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         session.formData.send_invoice = interactiveId === 'INVOICE_YES';
         await createTransaction(from);
 
-    // Smart transaction
+    // Report user flow
+    } else if (interactiveId === 'REPORT_USER') {
+        reportSessions.set(from, { step: 'report_safetag' });
+        await sendText(from, '🚨 *Report a User*\n\nEnter the @safetag of the user you want to report:');
+
+    } else if (interactiveId.startsWith('REPORT_REASON_')) {
+        const rs = reportSessions.get(from);
+        if (!rs || rs.step !== 'report_reason') return;
+        const reasonMap: Record<string, string> = {
+            REPORT_REASON_SCAM:       'Scam',
+            REPORT_REASON_FAKE_PROOF:  'Fake Proof',
+            REPORT_REASON_HARASSMENT:  'Harassment',
+            REPORT_REASON_OTHER:       'Other'
+        };
+        rs.reason = reasonMap[interactiveId] || 'Other';
+        rs.step = 'report_description';
+        await sendButtons(from,
+            "Briefly describe the issue (optional). Type 'skip' to skip.",
+            [{ id: 'REPORT_SKIP_DESC', title: '⏭️ Skip' }]
+        );
+
+    } else if (interactiveId === 'REPORT_SKIP_DESC') {
+        const rs = reportSessions.get(from);
+        if (!rs) return;
+        try {
+            await axios.post(`${API_URL}/reports`, {
+                reported_safetag: rs.reported_safetag,
+                reason:           rs.reason,
+                description:      ''
+            }, { headers: BOT_AUTH_HEADERS });
+            reportSessions.delete(from);
+            await sendButtons(from,
+                '✅ Report submitted. Our trust & safety team will review it within 24 hours.',
+                [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]
+            );
+        } catch (err: any) {
+            reportSessions.delete(from);
+            if (err?.response?.data?.error === 'REPORT_ALREADY_SUBMITTED') {
+                await sendButtons(from,
+                    "You've already reported this user recently. Our team is reviewing it.",
+                    [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]
+                );
+            } else {
+                await sendButtons(from,
+                    '❌ Failed to submit report. Please try again.',
+                    [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]
+                );
+            }
+        }
+
     } else if (interactiveId === 'SMART_TXN_CONFIRM') {
         const draft = smartTxnSessions.get(from);
         if (!draft) { await sendText(from, '❌ Session expired. Please start over.'); return; }

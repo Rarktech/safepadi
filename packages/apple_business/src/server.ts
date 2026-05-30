@@ -37,7 +37,7 @@ app.get('/health', (req, res) => {
 
 // --- SESSION MANAGEMENT ---
 interface UserState {
-    state: 'IDLE' | 'ROLE_SELECTION' | 'PRODUCT_NAME' | 'PRODUCT_DESCRIPTION' | 'ATTACHMENTS' | 'CURRENCY_SELECTION' | 'PRICE_INPUT' | 'FEE_ALLOCATION' | 'COUNTERPARTY_SAFETAG' | 'CONFIRMATION' | 'INVOICE_PROMPT' | 'DISPUTE_CATEGORY' | 'DISPUTE_REASON' | 'REVIEW_RATING' | 'REVIEW_COMMENT' | 'FEEDBACK_RATING' | 'FEEDBACK_COMMENT';
+    state: 'IDLE' | 'ROLE_SELECTION' | 'PRODUCT_NAME' | 'PRODUCT_DESCRIPTION' | 'ATTACHMENTS' | 'CURRENCY_SELECTION' | 'PRICE_INPUT' | 'FEE_ALLOCATION' | 'COUNTERPARTY_SAFETAG' | 'CONFIRMATION' | 'INVOICE_PROMPT' | 'DISPUTE_CATEGORY' | 'DISPUTE_REASON' | 'REVIEW_RATING' | 'REVIEW_COMMENT' | 'FEEDBACK_RATING' | 'FEEDBACK_COMMENT' | 'REPORT_SAFETAG' | 'REPORT_REASON' | 'REPORT_DESCRIPTION';
     formData: {
         role?: 'buyer' | 'seller';
         product_name?: string;
@@ -58,6 +58,8 @@ interface UserState {
         feedback_ref_id?: string;
         feedback_rating?: number;
         send_invoice?: boolean;
+        report_safetag?: string;
+        report_reason?: string;
     };
 }
 
@@ -400,7 +402,22 @@ app.post('/webhook/:token', (req, res) => {
                             text: profileLink
                         });
 
-                        // 3. Review & Confirm Buttons
+                        // 3. First-transaction safety warning
+                        try {
+                            const buyerSafetag = role === 'buyer' ? safetag : res.data.safetag;
+                            const sellerSafetag = role === 'seller' ? safetag : res.data.safetag;
+                            const pairRes = await axios.get(`${API_URL}/transactions/pair-history?buyer=${encodeURIComponent(buyerSafetag)}&seller=${encodeURIComponent(sellerSafetag)}`);
+                            if (pairRes.data?.completed_count === 0) {
+                                await sendJivoChatMessage(clientId, chatId, {
+                                    type: 'TEXT',
+                                    text: '⚠️ Safety Reminder\n\nThis is your first trade with this user. Stay safe:\n• Never pay outside Safeeely escrow\n• Check their review history before confirming\n• Insist on clear delivery proof\n• If anything feels wrong, cancel and report them'
+                                });
+                            }
+                        } catch (_) {
+                            // Fail silently — pair-history is non-critical
+                        }
+
+                        // 4. Review & Confirm Buttons
                         const { product_name, description, amount, currency, fee_allocation } = session.formData;
                         const fee = amount! * 0.05;
                         const total = fee_allocation === 'buyer' ? amount! + fee : (fee_allocation === 'split' ? amount! + (fee / 2) : amount!);
@@ -709,6 +726,15 @@ app.post('/webhook/:token', (req, res) => {
 
                 if (messageText.startsWith('txn_pay_')) {
                     const txnId = messageText.replace('txn_pay_', '');
+                    try {
+                        await axios.post(`${API_URL}/transactions/${txnId}/initialize-payment`, { safetag }, { headers: BOT_AUTH_HEADERS });
+                    } catch (err: any) {
+                        if (err?.response?.data?.error === 'ALREADY_PAID') {
+                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '✅ Payment already confirmed for this transaction.' });
+                            return;
+                        }
+                        // Non-ALREADY_PAID errors are non-fatal — still show the pay link
+                    }
                     await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `💳 Tap the link below to complete your secure payment:\n${FRONTEND_URL}/pay/${txnId}` });
                     return;
                 }
@@ -819,6 +845,74 @@ app.post('/webhook/:token', (req, res) => {
                             { text: '⭐⭐⭐ 3 Stars',    id: 'fb_rate_3', description: 'it was okay'         }
                         ]
                     });
+                    return;
+                }
+
+                // --- REPORT FLOW: keyword trigger ---
+                if (messageText === 'report' && session.state === 'IDLE') {
+                    session.state = 'REPORT_SAFETAG';
+                    await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: 'Please enter the @safetag of the user you want to report:' });
+                    return;
+                }
+
+                // --- REPORT_SAFETAG state ---
+                if (session.state === 'REPORT_SAFETAG') {
+                    const reportedTag = messageText.startsWith('@') ? messageText : `@${messageText}`;
+                    session.formData.report_safetag = reportedTag;
+                    session.state = 'REPORT_REASON';
+                    await sendJivoChatMessage(clientId, chatId, {
+                        type: 'BUTTONS',
+                        title: '🚩 Report User',
+                        text: 'What is the reason for this report?',
+                        force_reply: true,
+                        buttons: [
+                            { text: 'Scam',        id: 'report_reason_scam',        description: 'Attempted or completed scam' },
+                            { text: 'Fake Proof',  id: 'report_reason_fake_proof',  description: 'Submitted forged evidence' },
+                            { text: 'Harassment',  id: 'report_reason_harassment',  description: 'Abusive or threatening behaviour' },
+                            { text: 'Other',       id: 'report_reason_other',       description: 'Other policy violation' }
+                        ]
+                    });
+                    return;
+                }
+
+                // --- REPORT_REASON state ---
+                if (session.state === 'REPORT_REASON') {
+                    const reasonMap: Record<string, string> = {
+                        report_reason_scam:        'Scam',
+                        report_reason_fake_proof:  'Fake Proof',
+                        report_reason_harassment:  'Harassment',
+                        report_reason_other:       'Other'
+                    };
+                    const reason = reasonMap[messageText];
+                    if (!reason) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '⚠️ Please tap one of the reason buttons above.' });
+                        return;
+                    }
+                    session.formData.report_reason = reason;
+                    session.state = 'REPORT_DESCRIPTION';
+                    await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: "Please briefly describe the issue (optional — type 'skip' to skip):" });
+                    return;
+                }
+
+                // --- REPORT_DESCRIPTION state ---
+                if (session.state === 'REPORT_DESCRIPTION') {
+                    const description = messageText === 'skip' ? '' : body.message.text;
+                    try {
+                        await axios.post(`${API_URL}/reports`, {
+                            reporter_safetag: safetag,
+                            reported_safetag: session.formData.report_safetag,
+                            reason: session.formData.report_reason,
+                            description
+                        }, { headers: BOT_AUTH_HEADERS });
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '✅ Report submitted. Our trust & safety team will review it within 24 hours.' });
+                    } catch (err: any) {
+                        if (err?.response?.data?.error === 'REPORT_ALREADY_SUBMITTED') {
+                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: "You've already reported this user recently. Our team is reviewing it." });
+                        } else {
+                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '❌ Failed to submit report. Please try again.' });
+                        }
+                    }
+                    resetSession(clientId);
                     return;
                 }
 

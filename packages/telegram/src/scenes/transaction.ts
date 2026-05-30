@@ -357,7 +357,29 @@ export const transactionScene = new Scenes.WizardScene(
             milestoneList = '\n📍 <b>Milestones:</b>\n' + milestones.map((m: any, i: number) => `   ${i+1}. ${m.title} - ${m.amount} ${currency}`).join('\n');
         }
 
-        const summary = `📋 <b>Transaction Summary</b>\n\nPlease review your transaction details:\n\n` +
+        // Determine buyer/seller safetags for the pair-history check
+        let mySafetag = '';
+        try {
+            const myProfileRes = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
+            mySafetag = myProfileRes.data.safetag || '';
+        } catch (e: any) {}
+
+        const buyerSafetag = role === 'buyer' ? mySafetag : other_safetag;
+        const sellerSafetag = role === 'seller' ? mySafetag : other_safetag;
+
+        let safetyWarning = '';
+        try {
+            const pairRes = await axios.get(`${API_URL}/transactions/pair-history`, {
+                params: { buyer: buyerSafetag, seller: sellerSafetag }
+            });
+            if (pairRes.data?.completed_count === 0) {
+                safetyWarning = `⚠️ <b>Safety Reminder</b>\nThis is your first trade with this user. Stay safe:\n• Never pay outside Safeeely escrow\n• Check their review history before confirming\n• Insist on clear delivery proof\n• If anything feels wrong, cancel and report\n\n`;
+            }
+        } catch (e: any) {
+            // Fail silently — pair-history check is best-effort
+        }
+
+        const summary = `${safetyWarning}📋 <b>Transaction Summary</b>\n\nPlease review your transaction details:\n\n` +
             `🛒 Product/Service: <b>${product_name}</b>\n` +
             `📝 Description: <b>${description || 'No description'}</b>${milestoneList}\n` +
             `💰 Amount: <b>${amount} ${currency}</b>\n` +

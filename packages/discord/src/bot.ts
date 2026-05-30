@@ -614,6 +614,14 @@ client.on('interactionCreate', async (interaction) => {
             if (customId.startsWith('txn_pay_')) {
                 const txnId = customId.replace('txn_pay_', '');
                 if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                try {
+                    await axios.post(`${API_URL}/transactions/${txnId}/initialize-payment`, { platform: 'discord' }, { headers: BOT_AUTH_HEADERS });
+                } catch (err: any) {
+                    if (err?.response?.data?.error === 'ALREADY_PAID') {
+                        return interaction.editReply({ content: '✅ Payment already confirmed for this transaction.' });
+                    }
+                    // Non-ALREADY_PAID errors (e.g. network) — fall through and show pay link anyway
+                }
                 await interaction.editReply({
                     content: '💳 **Ready to Pay**\n\nClick the button below to complete your secure payment on Safeeely.',
                     components: [{ type: 1, components: [{ type: 2, label: '💳 Pay Now', style: 5, url: `${REVIEWS_URL}/pay/${txnId}` }] }]
@@ -922,7 +930,7 @@ client.on('interactionCreate', async (interaction) => {
             } else if (customId === 'txn_profile_confirm') {
                 const draft = txnDrafts.get(interaction.user.id);
                 if (!draft) return interaction.reply({ content: '❌ Transaction state lost.', flags: MessageFlags.Ephemeral });
-                
+
                 const amount = parseFloat(draft.amount || '0');
                 const feeAllocation = draft.fee_allocation || 'buyer';
                 const fee = amount * 0.05;
@@ -933,7 +941,22 @@ client.on('interactionCreate', async (interaction) => {
                     mList = '\n📍 **Milestones:**\n' + draft.milestones.map((m, i) => `   ${i+1}. ${m.title} - ${m.amount} ${draft.currency}`).join('\n');
                 }
 
-                const summary = `📋 **Transaction Summary**\n\nPlease review your transaction details:\n\n` +
+                // Feature 3: First-transaction safety warning
+                let safetyWarning = '';
+                try {
+                    const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
+                    const mySafetag = profileRes.data.safetag;
+                    const buyerSafetag = draft.role === 'buyer' ? mySafetag : draft.other;
+                    const sellerSafetag = draft.role === 'seller' ? mySafetag : draft.other;
+                    const pairRes = await axios.get(`${API_URL}/transactions/pair-history`, {
+                        params: { buyer: buyerSafetag, seller: sellerSafetag }
+                    });
+                    if (pairRes.data?.completed_count === 0) {
+                        safetyWarning = `⚠️ **Safety Reminder**\nThis is your first trade with this user. Stay safe:\n• Never pay outside Safeeely escrow\n• Check their review history before confirming\n• Insist on clear delivery proof\n• If anything feels wrong, cancel and report\n\n---\n`;
+                    }
+                } catch { /* fail silently */ }
+
+                const summary = safetyWarning + `📋 **Transaction Summary**\n\nPlease review your transaction details:\n\n` +
                     `🛒 Product/Service: **${draft.product}**\n` +
                     `📝 Description: **${draft.desc || 'No description'}**${mList}\n` +
                     `💰 Amount: **${amount} ${draft.currency}**\n` +
@@ -1633,6 +1656,12 @@ client.on('interactionCreate', async (interaction) => {
                             {
                                 type: 1,
                                 components: [
+                                    { type: 2, label: '🚨 Report User', style: 4, custom_id: 'report_user' },
+                                ]
+                            },
+                            {
+                                type: 1,
+                                components: [
                                     { type: 2, label: '💭 Send Feedback', style: 2, custom_id: 'send_feedback' },
                                     { type: 2, label: '🏠 Main Menu', style: 2, custom_id: 'main_menu' }
                                 ]
@@ -1678,6 +1707,17 @@ client.on('interactionCreate', async (interaction) => {
                         components: [{ type: 1, components: [{ type: 2, label: '🔙 Back', style: 2, custom_id: 'other_settings' }] }]
                     });
                 }
+            } else if (customId === 'report_user') {
+                // @ts-ignore
+                await interaction.showModal({
+                    title: '🚨 Report a User',
+                    custom_id: 'report_modal',
+                    components: [
+                        { type: 1, components: [{ type: 4, custom_id: 'safetag', label: 'Safetag to report', style: 1, placeholder: '@username', required: true }] },
+                        { type: 1, components: [{ type: 4, custom_id: 'reason', label: 'Reason', style: 1, placeholder: 'SCAM / FAKE_PROOF / HARASSMENT / OTHER', required: true }] },
+                        { type: 1, components: [{ type: 4, custom_id: 'description', label: 'Description (optional)', style: 2, placeholder: 'Describe what happened...', required: false }] },
+                    ]
+                });
             } else if (customId === 'start_deletion') {
                 await interaction.reply({
                     content: '⚠️ **Account Deletion**\n\n' +
@@ -2164,6 +2204,37 @@ client.on('interactionCreate', async (interaction) => {
                     await interaction.editReply(`❌ User **${otherSafetag}** not found. Please ensure the Safetag is correct.`);
                 }
 
+            } else if (customId === 'report_modal') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const rawSafetag = interaction.fields.getTextInputValue('safetag');
+                const reportedSafetag = rawSafetag.startsWith('@') ? rawSafetag : `@${rawSafetag}`;
+                const rawReason = interaction.fields.getTextInputValue('reason').toLowerCase();
+                const description = interaction.fields.getTextInputValue('description') || undefined;
+
+                let reason: string;
+                if (rawReason.includes('scam')) reason = 'SCAM';
+                else if (rawReason.includes('fake')) reason = 'FAKE_PROOF';
+                else if (rawReason.includes('harass')) reason = 'HARASSMENT';
+                else reason = 'OTHER';
+
+                try {
+                    const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
+                    const reporterSafetag = profileRes.data.safetag;
+                    await axios.post(`${API_URL}/reports`, {
+                        reporter_safetag: reporterSafetag,
+                        reported_safetag: reportedSafetag,
+                        reason,
+                        description,
+                    }, { headers: BOT_AUTH_HEADERS });
+                    await interaction.editReply({ content: '✅ Report submitted. Our trust & safety team will review it within 24 hours.' });
+                } catch (err: any) {
+                    const errCode = err?.response?.data?.error;
+                    if (errCode === 'ALREADY_REPORTED') {
+                        await interaction.editReply({ content: "You've already reported this user recently." });
+                    } else {
+                        await interaction.editReply({ content: '❌ Failed to submit report.' });
+                    }
+                }
             } else if (customId === 'deletion_feedback_modal') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 const reason = interaction.fields.getTextInputValue('reason') || 'No feedback provided';

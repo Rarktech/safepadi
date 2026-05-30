@@ -49,7 +49,7 @@ router.post('/create', async (req, res) => {
         const data = CreateTransactionSchema.parse(req.body);
 
         // Get IDs from safetags (case-insensitive — safetags may differ in capitalisation)
-        const { data: buyer } = await supabase.from('profiles').select('id, kyc_status, is_blocked, safetag, email, first_name, last_name').ilike('safetag', data.buyer_safetag).maybeSingle();
+        const { data: buyer } = await supabase.from('profiles').select('id, kyc_status, is_blocked, safetag, email, first_name, last_name, created_at').ilike('safetag', data.buyer_safetag).maybeSingle();
         const { data: seller } = await supabase.from('profiles').select('id, kyc_status, is_blocked, safetag, email, first_name, last_name').ilike('safetag', data.seller_safetag).maybeSingle();
 
         if (!buyer || !seller) {
@@ -63,6 +63,29 @@ router.post('/create', async (req, res) => {
         }
         if (seller.is_blocked) {
             return res.status(400).json({ error: 'USER_BLOCKED', safetag: data.seller_safetag, party: 'seller' });
+        }
+
+        // Currency whitelist
+        const VALID_CURRENCIES = new Set(['NGN', 'USD', 'EUR', 'USDT', 'BTC']);
+        if (!VALID_CURRENCIES.has(data.currency)) {
+            return res.status(400).json({
+                error: 'INVALID_CURRENCY',
+                message: `Currency must be one of: ${[...VALID_CURRENCIES].join(', ')}`
+            });
+        }
+
+        // New-user fiat amount cap (BTC/USDT excluded — crypto withdrawal is already KYC-gated)
+        const NEW_USER_FIAT_MAX: Record<string, number> = { NGN: 50_000, USD: 50, EUR: 50 };
+        const buyerAgeMs = Date.now() - new Date(buyer.created_at).getTime();
+        const buyerIsNewOrUnverified = buyerAgeMs < 14 * 86_400_000 || buyer.kyc_status !== 'VERIFIED';
+        if (buyerIsNewOrUnverified) {
+            const cap = NEW_USER_FIAT_MAX[data.currency];
+            if (cap !== undefined && data.amount > cap) {
+                return res.status(403).json({
+                    error: 'AMOUNT_LIMIT_EXCEEDED',
+                    message: `Unverified accounts are limited to ${cap} ${data.currency} per transaction. Complete KYC to unlock higher amounts.`
+                });
+            }
         }
 
         // Fetch platform fee rate from admin settings (fallback: 5%)
@@ -281,6 +304,32 @@ router.get('/', async (req, res) => {
         res.json(data);
     } catch (err: any) {
         res.status(400).json({ error: err.message });
+    }
+});
+
+// Returns completed transaction count between a buyer-seller pair (for safety warning in bots)
+router.get('/pair-history', async (req, res) => {
+    try {
+        const { buyer, seller } = req.query as { buyer?: string; seller?: string };
+        if (!buyer || !seller) return res.status(400).json({ error: 'buyer and seller query params required' });
+
+        const [{ data: buyerProfile }, { data: sellerProfile }] = await Promise.all([
+            supabase.from('profiles').select('id').ilike('safetag', buyer).maybeSingle(),
+            supabase.from('profiles').select('id').ilike('safetag', seller).maybeSingle(),
+        ]);
+
+        if (!buyerProfile || !sellerProfile) return res.json({ completed_count: 0 });
+
+        const { count } = await supabase
+            .from('transactions')
+            .select('id', { count: 'exact', head: true })
+            .eq('buyer_id', buyerProfile.id)
+            .eq('seller_id', sellerProfile.id)
+            .in('status', ['COMPLETED', 'FINALIZED']);
+
+        res.json({ completed_count: count ?? 0 });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -1425,6 +1474,19 @@ router.post('/:id/initialize-payment', async (req, res) => {
         }
 
         if (fetchError || !txn) return res.status(404).json({ error: 'Transaction not found' });
+
+        // Guard: prevent re-initializing payment for an already-paid or terminal transaction
+        const TERMINAL_STATUSES = new Set([
+            'PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER', 'COMPLETED',
+            'FINALIZED', 'DISPUTED', 'CANCELLED', 'REFUNDED', 'RESOLVED_SPLIT'
+        ]);
+        if (TERMINAL_STATUSES.has(txn.status)) {
+            return res.status(400).json({
+                error: 'ALREADY_PAID',
+                message: 'Payment has already been confirmed for this transaction.',
+                status: txn.status
+            });
+        }
 
         console.log(`🚀 [Payment] Initializing ${platform} for transaction ${txn.txn_code}`);
 

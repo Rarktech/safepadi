@@ -22,6 +22,7 @@ import { accountDeletionScene } from './scenes/account_deletion';
 import { buildMagicLink, fetchBotBalance } from './utils/magicLink';
 import { communityLicensingScene } from './scenes/community_licensing';
 import { communityWithdrawScene } from './scenes/community_withdraw';
+import { reportScene } from './scenes/report';
 import { processSmartTransaction, SmartTransactionDraft } from '@safepal/shared';
 
 interface SafeeelyWizardSession extends Scenes.WizardSessionData {
@@ -39,7 +40,7 @@ interface SafeeelyContext extends Scenes.WizardContext<SafeeelyWizardSession> {
 
 const bot = new Telegraf<SafeeelyContext>(process.env.TELEGRAM_BOT_TOKEN || '');
 
-const stage = new Scenes.Stage<SafeeelyContext>([registrationScene, transactionScene, reviewScene, feedbackScene, disputeScene, accountDeletionScene, communityLicensingScene, communityWithdrawScene] as any);
+const stage = new Scenes.Stage<SafeeelyContext>([registrationScene, transactionScene, reviewScene, feedbackScene, disputeScene, accountDeletionScene, communityLicensingScene, communityWithdrawScene, reportScene] as any);
 
 bot.use(session());
 bot.use(stage.middleware());
@@ -480,7 +481,8 @@ bot.action('settings', async (ctx) => {
                         { text: '⚙️ Other Settings', callback_data: 'other_settings' }
                     ],
                     [
-                        { text: '💭 Send Feedback', callback_data: 'send_feedback' }
+                        { text: '💭 Send Feedback', callback_data: 'send_feedback' },
+                        { text: '🚨 Report User', callback_data: 'report_user' }
                     ],
                     [
                         { text: '🏠 Main Menu', callback_data: 'main_menu' }
@@ -685,6 +687,9 @@ bot.action(/^txn_resume\|(.+)$/, async (ctx) => {
             return ctx.reply('⏳ Waiting for the other party to take action.');
         }
     } catch (err: any) {
+        if (err?.response?.data?.error === 'ALREADY_PAID') {
+            return ctx.reply('✅ Payment already confirmed for this transaction.');
+        }
         ctx.reply(`❌ Error: ${err.message}`);
     }
 });
@@ -750,6 +755,9 @@ bot.action(/^txn_action_(.+)$/, async (ctx) => {
 
         return ctx.reply(msg, { parse_mode: 'HTML', reply_markup: markup });
     } catch (err: any) {
+        if (err?.response?.data?.error === 'ALREADY_PAID') {
+            return ctx.reply('✅ Payment already confirmed for this transaction.');
+        }
         console.error('TXN Action Error:', err.message);
         ctx.reply('❌ Error processing request.');
     }
@@ -906,6 +914,12 @@ bot.action(/^leave_review_(.+)$/, async (ctx) => {
 bot.action('send_feedback', async (ctx) => {
     try { await ctx.answerCbQuery(); } catch (e) {}
     await ctx.scene.enter('feedback_wizard', { source: 'menu' });
+});
+
+// Report user entry: from settings menu
+bot.action('report_user', async (ctx) => {
+    try { await ctx.answerCbQuery(); } catch (e) {}
+    await ctx.scene.enter('report_wizard');
 });
 
 // Feedback entry: from notification button (pf_rate_menu|source|refId)
