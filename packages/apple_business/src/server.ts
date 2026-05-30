@@ -45,13 +45,16 @@ app.get('/health', (req, res) => {
 
 // --- SESSION MANAGEMENT ---
 interface UserState {
-    state: 'IDLE' | 'ROLE_SELECTION' | 'PRODUCT_NAME' | 'PRODUCT_DESCRIPTION' | 'ATTACHMENTS' | 'CURRENCY_SELECTION' | 'PRICE_INPUT' | 'FEE_ALLOCATION' | 'COUNTERPARTY_SAFETAG' | 'CONFIRMATION' | 'INVOICE_PROMPT' | 'DISPUTE_CATEGORY' | 'DISPUTE_REASON' | 'REVIEW_RATING' | 'REVIEW_COMMENT' | 'FEEDBACK_RATING' | 'FEEDBACK_COMMENT' | 'REPORT_SAFETAG' | 'REPORT_REASON' | 'REPORT_DESCRIPTION';
+    state: 'IDLE' | 'ROLE_SELECTION' | 'PRODUCT_NAME' | 'PRODUCT_DESCRIPTION' | 'ATTACHMENTS' | 'CURRENCY_SELECTION' | 'TRANSACTION_TYPE' | 'PRICE_INPUT' | 'MILESTONE_TITLE' | 'MILESTONE_AMOUNT' | 'MILESTONE_ADD_MORE' | 'FEE_ALLOCATION' | 'COUNTERPARTY_SAFETAG' | 'CONFIRMATION' | 'INVOICE_PROMPT' | 'DISPUTE_CATEGORY' | 'DISPUTE_REASON' | 'REVIEW_RATING' | 'REVIEW_COMMENT' | 'FEEDBACK_RATING' | 'FEEDBACK_COMMENT' | 'REPORT_SAFETAG' | 'REPORT_REASON' | 'REPORT_DESCRIPTION' | 'SELLER_MILESTONE_SELECT' | 'SELLER_MILESTONE_CONFIRM' | 'BUYER_MILESTONE_SELECT' | 'BUYER_MILESTONE_CONFIRM';
     formData: {
         role?: 'buyer' | 'seller';
         product_name?: string;
         description?: string;
         amount?: number;
         currency?: string;
+        transaction_type?: 'ONE_TIME' | 'MILESTONE';
+        milestones?: Array<{ title: string; amount: number }>;
+        current_milestone_title?: string;
         fee_allocation?: 'buyer' | 'seller' | 'split';
         other_safetag?: string;
         other_id?: string;
@@ -68,6 +71,11 @@ interface UserState {
         send_invoice?: boolean;
         report_safetag?: string;
         report_reason?: string;
+        settlement_txn_id?: string;
+        settlement_milestones?: Array<{ id: string; title: string; amount: number; status: string }>;
+        settlement_milestone_id?: string;
+        settlement_milestone_title?: string;
+        settlement_milestone_amount?: number;
     };
 }
 
@@ -362,18 +370,112 @@ app.post('/webhook/:token', (req, res) => {
                     return;
                 }
 
-                // Step 5: Currency -> Step 6: Amount
+                // Step 5: Currency -> Step 6: Transaction Type
                 if (session.state === 'CURRENCY_SELECTION') {
                     session.formData.currency = messageText.includes('ngn') ? 'NGN' : (messageText.includes('usdt') ? 'USDT' : 'USD');
-                    session.state = 'PRICE_INPUT';
+                    session.state = 'TRANSACTION_TYPE';
                     await sendJivoChatMessage(clientId, chatId, {
-                        type: 'TEXT',
-                        text: `🛒 Step 5/8: Amount\n\n💰 How much is the price?\n\nEnter the amount in ${session.formData.currency}:`
+                        type: 'BUTTONS',
+                        title: '🛒 Step 5/9: Transaction Type',
+                        text: '💡 How would you like to structure this transaction?',
+                        force_reply: true,
+                        buttons: [
+                            { text: '1️⃣ One-Time Payment', title: 'One-Time Payment', description: 'Single payment on delivery', id: 'type_one_time' },
+                            { text: '2️⃣ Milestone-Based', title: 'Milestone-Based', description: 'Pay in phases as work progresses', id: 'type_milestone' }
+                        ]
                     });
                     return;
                 }
 
-                // Step 6: Amount -> Step 7: Fee Allocation
+                // Step 6a (ONE_TIME): Transaction Type -> Amount
+                if (session.state === 'TRANSACTION_TYPE') {
+                    const isMilestone = messageText.includes('milestone') || messageText === 'type_milestone';
+                    session.formData.transaction_type = isMilestone ? 'MILESTONE' : 'ONE_TIME';
+                    if (isMilestone) {
+                        session.formData.milestones = [];
+                        session.state = 'MILESTONE_TITLE';
+                        await sendJivoChatMessage(clientId, chatId, {
+                            type: 'TEXT',
+                            text: `📍 Milestone Setup — Phase 1\n\nEnter the title for the first milestone:\n(e.g. "Initial Deposit", "Design Phase", "Final Delivery")`
+                        });
+                    } else {
+                        session.state = 'PRICE_INPUT';
+                        await sendJivoChatMessage(clientId, chatId, {
+                            type: 'TEXT',
+                            text: `🛒 Step 6/9: Amount\n\n💰 How much is the price?\n\nEnter the amount in ${session.formData.currency}:`
+                        });
+                    }
+                    return;
+                }
+
+                // Milestone: collect phase title
+                if (session.state === 'MILESTONE_TITLE') {
+                    session.formData.current_milestone_title = body.message.text;
+                    session.state = 'MILESTONE_AMOUNT';
+                    const phaseNum = (session.formData.milestones?.length || 0) + 1;
+                    await sendJivoChatMessage(clientId, chatId, {
+                        type: 'TEXT',
+                        text: `📍 Phase ${phaseNum}: "${session.formData.current_milestone_title}"\n\n💰 Enter the amount for this phase in ${session.formData.currency}:`
+                    });
+                    return;
+                }
+
+                // Milestone: collect phase amount
+                if (session.state === 'MILESTONE_AMOUNT') {
+                    const amt = parseFloat(messageText);
+                    if (isNaN(amt) || amt <= 0) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '❌ Invalid amount. Please enter a valid number:' });
+                        return;
+                    }
+                    session.formData.milestones = session.formData.milestones || [];
+                    session.formData.milestones.push({ title: session.formData.current_milestone_title!, amount: amt });
+                    const total = session.formData.milestones.reduce((s, m) => s + m.amount, 0);
+                    const list  = session.formData.milestones.map((m, i) => `  ${i + 1}. ${m.title} — ${m.amount} ${session.formData.currency}`).join('\n');
+                    session.state = 'MILESTONE_ADD_MORE';
+                    await sendJivoChatMessage(clientId, chatId, {
+                        type: 'BUTTONS',
+                        title: '📍 Milestone Added',
+                        text: `✅ Phase added!\n\n${list}\n\n💰 Total so far: ${total} ${session.formData.currency}\n\nAdd another phase or finish setup?`,
+                        force_reply: true,
+                        buttons: [
+                            { text: '➕ Add Another Phase', title: 'Add Another Phase', description: 'Add one more milestone', id: 'add_milestone' },
+                            { text: '✅ Finish Setup', title: 'Finish Setup', description: 'Proceed to fee allocation', id: 'finish_milestones' }
+                        ]
+                    });
+                    return;
+                }
+
+                // Milestone: add more or finish
+                if (session.state === 'MILESTONE_ADD_MORE') {
+                    if (messageText === 'add_milestone' || messageText.includes('add')) {
+                        session.state = 'MILESTONE_TITLE';
+                        const phaseNum = (session.formData.milestones?.length || 0) + 1;
+                        await sendJivoChatMessage(clientId, chatId, {
+                            type: 'TEXT',
+                            text: `📍 Phase ${phaseNum} Title\n\nEnter the title for this milestone:`
+                        });
+                    } else {
+                        // Proceed to fee allocation — total is sum of all milestones
+                        const total = session.formData.milestones!.reduce((s, m) => s + m.amount, 0);
+                        session.formData.amount = total;
+                        const fee = total * 0.05;
+                        session.state = 'FEE_ALLOCATION';
+                        await sendJivoChatMessage(clientId, chatId, {
+                            type: 'BUTTONS',
+                            title: '🛒 Fee Allocation',
+                            text: `💵 Who pays the 5% escrow fee?\n\nTotal: ${total} ${session.formData.currency}\nEscrow Fee: ${fee.toFixed(2)} ${session.formData.currency}`,
+                            force_reply: true,
+                            buttons: [
+                                { text: '👤 Buyer (pays 100%)', title: 'Buyer (pays 100%)', description: 'Buyer covers the entire fee', id: 'buyer' },
+                                { text: '👤 Seller (pays 100%)', title: 'Seller (pays 100%)', description: 'Seller covers the entire fee', id: 'seller' },
+                                { text: '🤝 Split (50/50)', title: 'Split (50/50)', description: 'Both parties share the fee', id: 'split' }
+                            ]
+                        });
+                    }
+                    return;
+                }
+
+                // Step 6b (ONE_TIME): Amount -> Step 7: Fee Allocation
                 if (session.state === 'PRICE_INPUT') {
                     const amount = parseFloat(messageText);
                     if (isNaN(amount) || amount <= 0) {
@@ -385,7 +487,7 @@ app.post('/webhook/:token', (req, res) => {
                     session.state = 'FEE_ALLOCATION';
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'BUTTONS',
-                        title: '🛒 Step 6/8: Fee Allocation',
+                        title: '🛒 Step 7/9: Fee Allocation',
                         text: `💵 Who pays the 5% transaction fee?\n\nAmount: ${amount} ${session.formData.currency}\nEscrow Fee: ${fee.toFixed(2)} ${session.formData.currency}`,
                         force_reply: true,
                         buttons: [
@@ -397,14 +499,14 @@ app.post('/webhook/:token', (req, res) => {
                     return;
                 }
 
-                // Step 7: Fee Allocation -> Step 8: Counterparty Safetag
+                // Fee Allocation -> Counterparty Safetag
                 if (session.state === 'FEE_ALLOCATION') {
                     session.formData.fee_allocation = messageText.includes('buyer') ? 'buyer' : (messageText.includes('split') ? 'split' : 'seller');
                     session.state = 'COUNTERPARTY_SAFETAG';
                     const role = session.formData.role;
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'TEXT',
-                        text: `👤 Step 7/8: Counterparty\n\nEnter the ${role === 'buyer' ? 'seller' : 'buyer'}'s Safetag (e.g., @user_123):`
+                        text: `👤 Counterparty\n\nEnter the ${role === 'buyer' ? 'seller' : 'buyer'}'s Safetag (e.g., @user_123):`
                     });
                     return;
                 }
@@ -476,16 +578,20 @@ app.post('/webhook/:token', (req, res) => {
                         }
 
                         // 4. Review & Confirm Buttons
-                        const { product_name, description, amount, currency, fee_allocation } = session.formData;
+                        const { product_name, description, amount, currency, fee_allocation, transaction_type, milestones } = session.formData;
                         const fee = amount! * 0.05;
                         const total = fee_allocation === 'buyer' ? amount! + fee : (fee_allocation === 'split' ? amount! + (fee / 2) : amount!);
 
+                        const milestoneSection = transaction_type === 'MILESTONE' && milestones?.length
+                            ? '\n\n📍 Milestones:\n' + milestones.map((m, i) => `  ${i + 1}. ${m.title} — ${m.amount} ${currency}`).join('\n')
+                            : '';
+
                         session.state = 'CONFIRMATION';
-                        const summary = `📋 Transaction Summary\n\n🛒 Product: ${product_name}\n📝 Description: ${description}\n💰 Amount: ${amount} ${currency}\n💵 Fee: ${fee.toFixed(2)} ${currency} (${fee_allocation})\n💳 Total: ${total.toFixed(2)} ${currency}\n👤 ${role === 'buyer' ? 'Seller' : 'Buyer'}: ${otherTag}`;
+                        const summary = `📋 Transaction Summary\n\n🛒 Product: ${product_name}\n📝 Description: ${description}${milestoneSection}\n\n💰 Total: ${amount} ${currency}\n💵 Fee: ${fee.toFixed(2)} ${currency} (${fee_allocation})\n💳 You Pay: ${total.toFixed(2)} ${currency}\n👤 ${role === 'buyer' ? 'Seller' : 'Buyer'}: ${otherTag}`;
 
                         await sendJivoChatMessage(clientId, chatId, {
                             type: 'BUTTONS',
-                            title: '📋 Step 8/8: Review & Confirm',
+                            title: '📋 Review & Confirm',
                             text: summary,
                             force_reply: true,
                             buttons: [
@@ -526,12 +632,12 @@ app.post('/webhook/:token', (req, res) => {
                     return;
                 }
 
-                // Step 8: Finalize after invoice choice
+                // Finalize after invoice choice
                 if (session.state === 'INVOICE_PROMPT') {
                     if (messageText === 'invoice_yes' || messageText === 'invoice_no') {
                         session.formData.send_invoice = messageText === 'invoice_yes';
                         try {
-                            const { role, product_name, description, amount, currency, fee_allocation, other_safetag, send_invoice } = session.formData;
+                            const { role, product_name, description, amount, currency, fee_allocation, other_safetag, send_invoice, transaction_type, milestones } = session.formData;
                             const res = await axios.post(`${API_URL}/transactions/create`, {
                                 buyer_safetag: role === 'buyer' ? safetag : other_safetag,
                                 seller_safetag: role === 'seller' ? safetag : other_safetag,
@@ -542,6 +648,7 @@ app.post('/webhook/:token', (req, res) => {
                                 fee_allocation,
                                 initiator_safetag: safetag,
                                 send_invoice: send_invoice || false,
+                                ...(transaction_type === 'MILESTONE' && milestones?.length ? { transaction_type: 'MILESTONE', milestones } : {}),
                             });
                             const txnCode = res.data.txn_code;
                             await sendJivoChatMessage(clientId, chatId, {
@@ -562,6 +669,100 @@ app.post('/webhook/:token', (req, res) => {
                             }
                             resetSession(clientId);
                         }
+                    }
+                    return;
+                }
+
+                // --- SELLER_MILESTONE_SELECT: seller types number to pick which milestone to mark complete ---
+                if (session.state === 'SELLER_MILESTONE_SELECT') {
+                    const pending = (session.formData.settlement_milestones || []).filter((m: any) => m.status === 'PENDING');
+                    const idx = parseInt(messageText, 10) - 1;
+                    if (isNaN(idx) || idx < 0 || idx >= pending.length) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ Please type a number between 1 and ${pending.length}.` });
+                        return;
+                    }
+                    const chosen = pending[idx];
+                    session.formData.settlement_milestone_id = chosen.id;
+                    session.formData.settlement_milestone_title = chosen.title;
+                    session.formData.settlement_milestone_amount = chosen.amount;
+                    session.state = 'SELLER_MILESTONE_CONFIRM';
+                    await sendJivoChatMessage(clientId, chatId, {
+                        type: 'BUTTONS',
+                        title: '📦 Confirm Milestone Delivery',
+                        text: `You're marking this milestone as delivered:\n\n📍 ${chosen.title}\n💰 ${chosen.amount} ${session.formData.currency || ''}\n\nConfirm?`,
+                        force_reply: true,
+                        buttons: [
+                            { text: '✅ Confirm Delivery', title: 'Confirm Delivery', description: 'Mark this milestone complete', id: 'confirm_milestone' },
+                            { text: '❌ Cancel', title: 'Cancel', description: 'Go back', id: 'cancel_milestone' }
+                        ]
+                    });
+                    return;
+                }
+
+                // --- SELLER_MILESTONE_CONFIRM: seller confirms the delivery ---
+                if (session.state === 'SELLER_MILESTONE_CONFIRM') {
+                    if (messageText === 'confirm_milestone') {
+                        const { settlement_txn_id, settlement_milestone_id } = session.formData;
+                        try {
+                            await axios.patch(`${API_URL}/transactions/${settlement_txn_id}/milestones/${settlement_milestone_id}/status`, { status: 'COMPLETED', updater_safetag: safetag }, { headers: BOT_AUTH_HEADERS });
+                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `📦 Milestone "${session.formData.settlement_milestone_title}" marked as complete! The buyer has been notified to review and release funds.` });
+                        } catch (err: any) {
+                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to mark milestone complete.'}` });
+                        }
+                        session.state = 'IDLE';
+                        session.formData.settlement_txn_id = undefined;
+                        session.formData.settlement_milestones = undefined;
+                        session.formData.settlement_milestone_id = undefined;
+                    } else {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '❌ Action cancelled.' });
+                        session.state = 'IDLE';
+                    }
+                    return;
+                }
+
+                // --- BUYER_MILESTONE_SELECT: buyer types number to pick which milestone to release ---
+                if (session.state === 'BUYER_MILESTONE_SELECT') {
+                    const completed = (session.formData.settlement_milestones || []).filter((m: any) => m.status === 'COMPLETED');
+                    const idx = parseInt(messageText, 10) - 1;
+                    if (isNaN(idx) || idx < 0 || idx >= completed.length) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ Please type a number between 1 and ${completed.length}.` });
+                        return;
+                    }
+                    const chosen = completed[idx];
+                    session.formData.settlement_milestone_id = chosen.id;
+                    session.formData.settlement_milestone_title = chosen.title;
+                    session.formData.settlement_milestone_amount = chosen.amount;
+                    session.state = 'BUYER_MILESTONE_CONFIRM';
+                    await sendJivoChatMessage(clientId, chatId, {
+                        type: 'BUTTONS',
+                        title: '💸 Confirm Milestone Release',
+                        text: `You're releasing funds for this milestone:\n\n📍 ${chosen.title}\n💰 ${chosen.amount} ${session.formData.currency || ''}\n\nThis will transfer the funds to the seller immediately.`,
+                        force_reply: true,
+                        buttons: [
+                            { text: '💸 Release Funds', title: 'Release Funds', description: 'Send funds to seller', id: 'confirm_release' },
+                            { text: '❌ Cancel', title: 'Cancel', description: 'Go back', id: 'cancel_release' }
+                        ]
+                    });
+                    return;
+                }
+
+                // --- BUYER_MILESTONE_CONFIRM: buyer confirms the release ---
+                if (session.state === 'BUYER_MILESTONE_CONFIRM') {
+                    if (messageText === 'confirm_release') {
+                        const { settlement_txn_id, settlement_milestone_id } = session.formData;
+                        try {
+                            await axios.patch(`${API_URL}/transactions/${settlement_txn_id}/milestones/${settlement_milestone_id}/status`, { status: 'RELEASED', updater_safetag: safetag }, { headers: BOT_AUTH_HEADERS });
+                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `💸 Funds released for "${session.formData.settlement_milestone_title}"! The seller has been notified.` });
+                        } catch (err: any) {
+                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to release milestone.'}` });
+                        }
+                        session.state = 'IDLE';
+                        session.formData.settlement_txn_id = undefined;
+                        session.formData.settlement_milestones = undefined;
+                        session.formData.settlement_milestone_id = undefined;
+                    } else {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '❌ Action cancelled.' });
+                        session.state = 'IDLE';
                     }
                     return;
                 }
@@ -810,13 +1011,21 @@ app.post('/webhook/:token', (req, res) => {
                         const t = res.data;
                         const isBuyer = safetag === t.buyer.safetag;
                         const other = isBuyer ? t.seller.safetag : t.buyer.safetag;
+                        const isMilestone = t.transaction_type === 'MILESTONE';
                         const statusLabels: Record<string, string> = {
                             PENDING_SELLER_ACCEPTANCE: '⏳ Awaiting Acceptance', ACCEPTED: '✅ Accepted',
                             PAID: '💳 Paid', AWAITING_PROOF: '📎 Awaiting Proof',
                             COMPLETED_BY_SELLER: '📦 Marked Complete', COMPLETED: '✅ Completed',
                             DISPUTED: '⚠️ Disputed', CANCELLED: '❌ Cancelled', FINALIZED: '🎉 Finalized'
                         };
-                        const detail = `📋 Transaction Details\n\n🆔 ID: ${t.txn_code}\n📦 Product: ${t.product_name}\n📝 Description: ${t.description || 'N/A'}\n💰 Amount: ${t.amount} ${t.currency}\n👤 ${isBuyer ? 'Seller' : 'Buyer'}: ${other}\n📊 Status: ${statusLabels[t.status] || t.status}`;
+                        let milestoneText = '';
+                        if (t.milestones?.length) {
+                            milestoneText = '\n\n📍 Milestones:\n' + t.milestones.map((m: any, i: number) => {
+                                const emoji = m.status === 'RELEASED' ? '✅' : m.status === 'COMPLETED' ? '📦' : '⏳';
+                                return `${emoji} ${i + 1}. ${m.title} — ${m.amount} ${t.currency}`;
+                            }).join('\n');
+                        }
+                        const detail = `📋 Transaction Details\n\n🆔 ID: ${t.txn_code}\n📦 Product: ${t.product_name}\n📝 Description: ${t.description || 'N/A'}\n💰 Amount: ${t.amount} ${t.currency}\n👤 ${isBuyer ? 'Seller' : 'Buyer'}: ${other}\n📊 Status: ${statusLabels[t.status] || t.status}${milestoneText}`;
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: detail });
                         if (t.status === 'PENDING_SELLER_ACCEPTANCE' && !isBuyer) {
                             await sendJivoChatMessage(clientId, chatId, { type: 'BUTTONS', title: 'Actions', text: 'What would you like to do?', force_reply: true, buttons: [
@@ -825,12 +1034,36 @@ app.post('/webhook/:token', (req, res) => {
                             ]});
                         } else if (t.status === 'ACCEPTED' && isBuyer) {
                             await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `💳 Make your payment here:\n${FRONTEND_URL}/pay/${txnId}` });
-                        } else if (t.status === 'PAID' && !isBuyer) {
+                        } else if (isMilestone && !isBuyer && t.status === 'PAID') {
+                            const pending = (t.milestones || []).filter((m: any) => m.status === 'PENDING');
+                            if (pending.length > 0) {
+                                session.formData.settlement_txn_id = txnId;
+                                session.formData.settlement_milestones = t.milestones;
+                                session.formData.currency = t.currency;
+                                session.state = 'SELLER_MILESTONE_SELECT';
+                                const list = pending.map((m: any, i: number) => `${i + 1}. ${m.title} — ${m.amount} ${t.currency}`).join('\n');
+                                await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `📦 Which milestone have you delivered?\n\n${list}\n\nType the number to mark it complete:` });
+                            } else {
+                                await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: 'ℹ️ All milestones are awaiting buyer release.' });
+                            }
+                        } else if (isMilestone && isBuyer && ['PAID', 'COMPLETED_BY_SELLER'].includes(t.status)) {
+                            const completed = (t.milestones || []).filter((m: any) => m.status === 'COMPLETED');
+                            if (completed.length > 0) {
+                                session.formData.settlement_txn_id = txnId;
+                                session.formData.settlement_milestones = t.milestones;
+                                session.formData.currency = t.currency;
+                                session.state = 'BUYER_MILESTONE_SELECT';
+                                const list = completed.map((m: any, i: number) => `${i + 1}. ${m.title} — ${m.amount} ${t.currency}`).join('\n');
+                                await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `💸 Which milestone would you like to release funds for?\n\n${list}\n\nType the number to release:` });
+                            } else {
+                                await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: 'ℹ️ No milestones are ready to release yet. Ask the seller to mark a milestone as delivered first.' });
+                            }
+                        } else if (!isMilestone && t.status === 'PAID' && !isBuyer) {
                             await sendJivoChatMessage(clientId, chatId, { type: 'BUTTONS', title: 'Actions', text: 'Ready to deliver? You can also refund the buyer if you cannot fulfil.', force_reply: true, buttons: [
                                 { text: '📦 Mark as Delivered', id: `txn_action_complete_prompt|${txnId}`, description: 'Mark order as complete', subtitle: 'Mark order as complete' },
                                 { text: '💸 Refund Buyer',      id: `txn_refund_initiate|${txnId}`,        description: 'Cancel and refund',      subtitle: 'Cancel and refund' }
                             ]});
-                        } else if (t.status === 'COMPLETED_BY_SELLER' && isBuyer) {
+                        } else if (!isMilestone && t.status === 'COMPLETED_BY_SELLER' && isBuyer) {
                             await sendJivoChatMessage(clientId, chatId, { type: 'BUTTONS', title: 'Actions', text: 'Have you received the delivery?', force_reply: true, buttons: [
                                 { text: '✅ Confirm Receipt', id: `txn_action_confirm_receipt|${txnId}`, description: 'Confirm you received the item', subtitle: 'Confirm you received the item' },
                                 { text: '❌ Raise Dispute', id: `txn_dispute_${txnId}`, description: 'Report a problem', subtitle: 'Report a problem' }

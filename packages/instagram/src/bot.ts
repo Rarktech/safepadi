@@ -371,9 +371,10 @@ async function showTransactionDetail(psid: string, txnId: string) {
 
         let milestoneText = '';
         if (t.milestones?.length) {
-            milestoneText = '\n\n📍 Milestones:\n' + t.milestones.map((m: any, i: number) =>
-                `${i + 1}. ${m.title} — ${m.amount} ${t.currency} [${m.status}]`
-            ).join('\n');
+            milestoneText = '\n\n📍 Milestones:\n' + t.milestones.map((m: any, i: number) => {
+                const emoji = m.status === 'RELEASED' ? '✅' : m.status === 'COMPLETED' ? '📦' : '⏳';
+                return `${emoji} ${i + 1}. ${m.title} — ${m.amount} ${t.currency}`;
+            }).join('\n');
         }
 
         const detail =
@@ -388,7 +389,8 @@ async function showTransactionDetail(psid: string, txnId: string) {
 
         await sendMsg(psid, { text: detail });
 
-        // Contextual actions
+        // Contextual actions — milestone transactions get per-milestone quick replies
+        const isMilestone = t.transaction_type === 'MILESTONE';
         const actions: Array<{ title: string; payload: string }> = [];
         if (t.status === 'PENDING_SELLER_ACCEPTANCE' && role === 'seller') {
             actions.push({ title: '✅ Accept',     payload: `ACCEPT_TXN_${t.id}` });
@@ -404,17 +406,40 @@ async function showTransactionDetail(psid: string, txnId: string) {
             return;
         }
         if (t.status === 'PAID' && role === 'seller') {
-            actions.push({ title: '📦 Mark Complete', payload: `COMPLETE_TXN_${t.id}` });
-            actions.push({ title: '🚩 Dispute',       payload: `DISPUTE_TXN_${t.id}` });
+            if (isMilestone) {
+                const pending = (t.milestones || []).filter((m: any) => m.status === 'PENDING');
+                // Quick replies max 13 total; reserve 2 for dispute + back, show up to 11 milestones
+                for (const m of pending.slice(0, 11)) {
+                    actions.push({ title: `📦 ${m.title}`.substring(0, 20), payload: `COMPLETE_MILE|${t.id}|${m.id}` });
+                }
+                if (pending.length > 11) {
+                    await sendMsg(psid, { text: `ℹ️ Showing 11 of ${pending.length} pending milestones. Complete these first, then tap My Txns to see remaining phases.` });
+                }
+            } else {
+                actions.push({ title: '📦 Mark Complete', payload: `COMPLETE_TXN_${t.id}` });
+            }
+            actions.push({ title: '🚩 Dispute', payload: `DISPUTE_TXN_${t.id}` });
         }
-        if (t.status === 'AWAITING_PROOF' && role === 'buyer') {
+        if (t.status === 'AWAITING_PROOF' && role === 'buyer' && !isMilestone) {
             actions.push({ title: '✅ Mark Received', payload: `RECEIVED_TXN_${t.id}` });
             actions.push({ title: '🚩 Dispute',       payload: `DISPUTE_TXN_${t.id}` });
+        }
+        if (isMilestone && role === 'buyer' && ['PAID', 'COMPLETED_BY_SELLER'].includes(t.status)) {
+            const completed = (t.milestones || []).filter((m: any) => m.status === 'COMPLETED');
+            for (const m of completed.slice(0, 11)) {
+                actions.push({ title: `💸 ${m.title}`.substring(0, 20), payload: `RELEASE_MILE|${t.id}|${m.id}` });
+            }
+            if (completed.length > 11) {
+                await sendMsg(psid, { text: `ℹ️ Showing 11 of ${completed.length} completed milestones. Release these first, then tap My Txns to see remaining phases.` });
+            }
+            if (!actions.find(a => a.payload === `DISPUTE_TXN_${t.id}`)) {
+                actions.push({ title: '🚩 Dispute', payload: `DISPUTE_TXN_${t.id}` });
+            }
         }
         if (t.status === 'COMPLETED') {
             actions.push({ title: '⭐ Leave Review', payload: `REVIEW_TXN_${t.id}_${other}` });
         }
-        if (!['COMPLETED', 'CANCELLED', 'REFUNDED'].includes(t.status) && !actions.find(a => a.title === '🚩 Dispute')) {
+        if (!['COMPLETED', 'CANCELLED', 'REFUNDED', 'FINALIZED'].includes(t.status) && !actions.find(a => a.payload === `DISPUTE_TXN_${t.id}`)) {
             actions.push({ title: '🚩 Dispute', payload: `DISPUTE_TXN_${t.id}` });
         }
         actions.push({ title: '🔙 Back', payload: 'MY_TXNS' });
@@ -1300,6 +1325,28 @@ async function handlePostback(psid: string, payload: string) {
             for (const u of urlOpts) await sendMsg(psid, btnTemplate(u.label, [{ type: 'web_url', url: u.url, title: u.label.substring(0, 20) }]));
         } catch (err: any) {
             await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed to mark complete.'}` });
+        }
+
+    } else if (payload.startsWith('COMPLETE_MILE|')) {
+        const [, txnId, mId] = payload.split('|');
+        try {
+            const p = await getProfile(psid);
+            await axios.patch(`${API_URL}/transactions/${txnId}/milestones/${mId}/status`, { status: 'COMPLETED', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
+            await sendMsg(psid, { text: '📦 Milestone marked as complete! The buyer has been notified to review and release funds.' });
+            await showTransactionDetail(psid, txnId);
+        } catch (err: any) {
+            await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed to mark milestone complete.'}` });
+        }
+
+    } else if (payload.startsWith('RELEASE_MILE|')) {
+        const [, txnId, mId] = payload.split('|');
+        try {
+            const p = await getProfile(psid);
+            await axios.patch(`${API_URL}/transactions/${txnId}/milestones/${mId}/status`, { status: 'RELEASED', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
+            await sendMsg(psid, { text: '💸 Funds released for this milestone! The seller has been notified.' });
+            await showTransactionDetail(psid, txnId);
+        } catch (err: any) {
+            await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed to release milestone.'}` });
         }
 
     } else if (payload.startsWith('RECEIVED_TXN_')) {
