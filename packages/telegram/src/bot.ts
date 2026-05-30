@@ -596,6 +596,7 @@ bot.action(/^view_txn_details\|(.+)$/, async (ctx) => {
         if (t.transaction_type === 'MILESTONE' && t.milestones && t.milestones.length > 0) {
             milestoneInfo = '\n\n🪜 <b>Milestone Progress:</b>\n';
             const msActions: Array<{ txnId: string; mId: string; status: string }> = [];
+            let proofButtonAdded = false;
             t.milestones.sort((a: any, b: any) => a.index_num - b.index_num).forEach((m: any) => {
                 const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
                 milestoneInfo += `${statusEmoji} ${m.title}: <b>${m.amount} ${t.currency}</b> (${m.status})\n`;
@@ -605,6 +606,10 @@ bot.action(/^view_txn_details\|(.+)$/, async (ctx) => {
                     msActions.push({ txnId: t.id, mId: m.id, status: 'COMPLETED' });
                     buttons.push([{ text: `📦 Mark "${m.title}" Complete`, callback_data: `ms|${idx}` }]);
                 } else if (m.status === 'COMPLETED' && myTag === t.buyer.safetag) {
+                    if (!proofButtonAdded) {
+                        buttons.push([{ text: '🔍 View Delivery Proof', url: `${REVIEWS_URL}/delivery/${t.id}` }]);
+                        proofButtonAdded = true;
+                    }
                     const idx = msActions.length;
                     msActions.push({ txnId: t.id, mId: m.id, status: 'RELEASED' });
                     buttons.push([{ text: `💸 Release "${m.title}"`, callback_data: `ms|${idx}` }]);
@@ -613,10 +618,14 @@ bot.action(/^view_txn_details\|(.+)$/, async (ctx) => {
             if (msActions.length > 0) pendingMilestoneActions.set(String(ctx.from?.id), msActions);
         }
 
+        if (['COMPLETED', 'FINALIZED'].includes(t.status)) {
+            buttons.push([{ text: '✍️ Leave a Review', callback_data: `leave_review_${t.id}` }]);
+        }
+
         const msg = `📋 <b>Transaction Details</b>\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 ID: <b>${t.txn_code}</b>\n📦 Type: <b>${t.transaction_type}</b>\n🛒 Product: <b>${t.product_name}</b>\n📝 Desc: ${t.description || 'N/A'}\n💰 Total: <b>${t.amount} ${t.currency}</b>\n💵 Fee: <b>${t.fee_amount}</b> (${t.fee_allocation})\n💳 Escrow: <b>${t.total_amount}</b>\n👤 Buyer: <code>${t.buyer.safetag}</code>\n👤 Seller: <code>${t.seller.safetag}</code>\n💠 Status: <b>${t.status.replace(/_/g, ' ')}</b>${milestoneInfo}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
         const navButtons = [{ text: '🔙 Back', callback_data: 'my_txns' }];
-        
+
         const isOngoing = ['PENDING_SELLER_ACCEPTANCE', 'ACCEPTED', 'PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(t.status);
         if (isOngoing && t.transaction_type === 'ONE_TIME') {
             navButtons.push({ text: '🚀 Action', callback_data: `txn_resume|${t.id}` });
@@ -847,11 +856,28 @@ bot.action(/^ms\|(\d+)$/, async (ctx) => {
         const msActions = pendingMilestoneActions.get(String(ctx.from?.id));
         if (!msActions || !msActions[idx]) return ctx.answerCbQuery('⚠️ Session expired. Please reopen the transaction.');
         const { txnId, mId, status } = msActions[idx];
+        await ctx.answerCbQuery();
 
+        if (status === 'COMPLETED') {
+            // 2-step: show upload CTA first, seller confirms after uploading proof
+            return ctx.editMessageText(
+                `📎 <b>Upload Delivery Proof</b>\n\nPlease upload your proof of delivery so the buyer can verify before releasing funds.\n\nTap the button below to upload, then confirm when done:`,
+                {
+                    parse_mode: 'HTML',
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '📎 Upload Proof Now', url: `${REVIEWS_URL}/upload/${txnId}` }],
+                            [{ text: '✅ Mark as Complete', callback_data: `ms_confirm|${txnId}|${mId}` }],
+                            [{ text: '🔙 Cancel', callback_data: `view_txn_details|${txnId}` }]
+                        ]
+                    }
+                }
+            );
+        }
+
+        // RELEASED — buyer action: immediate PATCH + refresh
         const tgProfile = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
         await axios.patch(`${API_URL}/transactions/${txnId}/milestones/${mId}/status`, { status, updater_safetag: tgProfile.data.safetag }, { headers: BOT_AUTH_HEADERS });
-
-        await ctx.answerCbQuery(`✅ Milestone marked as ${status.toLowerCase()}!`);
 
         const res = await axios.get(`${API_URL}/transactions/${txnId}`);
         const t = res.data;
@@ -860,6 +886,7 @@ bot.action(/^ms\|(\d+)$/, async (ctx) => {
         let milestoneInfo = '\n\n🪜 <b>Milestone Progress:</b>\n';
         const buttons: any[] = [];
         const newMsActions: Array<{ txnId: string; mId: string; status: string }> = [];
+        let proofButtonAdded = false;
 
         t.milestones.sort((a: any, b: any) => a.index_num - b.index_num).forEach((m: any) => {
             const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
@@ -869,6 +896,10 @@ bot.action(/^ms\|(\d+)$/, async (ctx) => {
                 newMsActions.push({ txnId: t.id, mId: m.id, status: 'COMPLETED' });
                 buttons.push([{ text: `📦 Mark "${m.title}" Complete`, callback_data: `ms|${newIdx}` }]);
             } else if (m.status === 'COMPLETED' && myTag === t.buyer.safetag) {
+                if (!proofButtonAdded) {
+                    buttons.push([{ text: '🔍 View Delivery Proof', url: `${REVIEWS_URL}/delivery/${t.id}` }]);
+                    proofButtonAdded = true;
+                }
                 const newIdx = newMsActions.length;
                 newMsActions.push({ txnId: t.id, mId: m.id, status: 'RELEASED' });
                 buttons.push([{ text: `💸 Release "${m.title}"`, callback_data: `ms|${newIdx}` }]);
@@ -887,6 +918,42 @@ bot.action(/^ms\|(\d+)$/, async (ctx) => {
     } catch (err: any) {
         console.error('Milestone Update Error:', err.message);
         ctx.reply('❌ Failed to update milestone.');
+    }
+});
+
+bot.action(/^ms_confirm\|([^|]+)\|([^|]+)$/, async (ctx) => {
+    try {
+        await ctx.answerCbQuery('✅ Marking phase as complete...');
+        const txnId = ctx.match[1];
+        const mId   = ctx.match[2];
+        const tgProfile = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
+        await axios.patch(`${API_URL}/transactions/${txnId}/milestones/${mId}/status`, { status: 'COMPLETED', updater_safetag: tgProfile.data.safetag }, { headers: BOT_AUTH_HEADERS });
+
+        const res = await axios.get(`${API_URL}/transactions/${txnId}`);
+        const t = res.data;
+        const myTag = tgProfile.data.safetag;
+
+        let milestoneInfo = '\n\n🪜 <b>Milestone Progress:</b>\n';
+        const buttons: any[] = [];
+        const newMsActions: Array<{ txnId: string; mId: string; status: string }> = [];
+
+        t.milestones.sort((a: any, b: any) => a.index_num - b.index_num).forEach((m: any) => {
+            const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
+            milestoneInfo += `${statusEmoji} ${m.title}: <b>${m.amount} ${t.currency}</b> (${m.status})\n`;
+            if (m.status === 'PENDING' && myTag === t.seller.safetag && t.status === 'PAID') {
+                const newIdx = newMsActions.length;
+                newMsActions.push({ txnId: t.id, mId: m.id, status: 'COMPLETED' });
+                buttons.push([{ text: `📦 Mark "${m.title}" Complete`, callback_data: `ms|${newIdx}` }]);
+            }
+        });
+
+        pendingMilestoneActions.set(String(ctx.from?.id), newMsActions);
+        const msg = `📦 <b>Phase Marked Complete!</b>\n\nThe buyer has been notified to review your proof and release funds.\n\n📋 ID: <b>${t.txn_code}</b>\n💠 Status: <b>${t.status.replace(/_/g, ' ')}</b>${milestoneInfo}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+        buttons.push([{ text: '🔙 Back', callback_data: 'my_txns' }]);
+        return ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } });
+    } catch (err: any) {
+        console.error('Milestone Confirm Error:', err.message);
+        ctx.reply('❌ Failed to mark phase as complete. Please try again.');
     }
 });
 

@@ -657,12 +657,17 @@ client.on('interactionCreate', async (interaction) => {
                     const mButtons: any[] = [];
                     if (t.transaction_type === 'MILESTONE' && t.milestones?.length > 0) {
                         milestoneInfo = '\n\n🪜 **Milestone Progress:**\n';
+                        let proofButtonAdded = false;
                         t.milestones.sort((a: any, b: any) => a.index_num - b.index_num).forEach((m: any) => {
                             const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
                             milestoneInfo += `${statusEmoji} ${m.title}: **${m.amount} ${t.currency}** (${m.status})\n`;
                             if (m.status === 'PENDING' && myTag === t.seller.safetag && t.status === 'PAID') {
                                 mButtons.push({ type: 2, label: `📦 Complete "${m.title.slice(0,20)}"`, style: 1, custom_id: `m_status|${t.id}|${m.id}|COMPLETED` });
                             } else if (m.status === 'COMPLETED' && myTag === t.buyer.safetag) {
+                                if (!proofButtonAdded) {
+                                    mButtons.push({ type: 2, label: '🔍 View Delivery Proof', style: 5, url: `${REVIEWS_URL}/delivery/${t.id}` });
+                                    proofButtonAdded = true;
+                                }
                                 mButtons.push({ type: 2, label: `💸 Release "${m.title.slice(0,20)}"`, style: 3, custom_id: `m_status|${t.id}|${m.id}|RELEASED` });
                             }
                         });
@@ -679,9 +684,45 @@ client.on('interactionCreate', async (interaction) => {
                     ];
                     const isOngoing = ['PENDING_SELLER_ACCEPTANCE', 'ACCEPTED', 'PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(t.status);
                     if (isOngoing) navButtons.push({ type: 2, label: '🚀 Action', style: 1, custom_id: `txn_resume|${t.id}` });
+                    if (['COMPLETED', 'FINALIZED'].includes(t.status)) navButtons.push({ type: 2, label: '✍️ Leave a Review', style: 2, custom_id: `leave_review_${t.id}` });
                     components.push({ type: 1, components: navButtons });
                     await interaction.editReply({ content: msg, components });
                 } catch (err: any) { await interaction.editReply({ content: `❌ Error: ${err.message}` }); }
+                return;
+            }
+
+            if (customId.startsWith('m_status_confirm|')) {
+                const parts = customId.split('|');
+                const txnId = parts[1];
+                const mId   = parts[2];
+                if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
+                try {
+                    const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
+                    await axios.patch(`${API_URL}/transactions/${txnId}/milestones/${mId}/status`, { status: 'COMPLETED', updater_safetag: profileRes.data.safetag }, { headers: BOT_AUTH_HEADERS });
+
+                    const myTag = profileRes.data.safetag;
+                    const res = await axios.get(`${API_URL}/transactions/${txnId}`);
+                    const t = res.data;
+
+                    let milestoneInfo = '\n\n🪜 **Milestone Progress:**\n';
+                    const mButtons: any[] = [];
+                    t.milestones.sort((a: any, b: any) => a.index_num - b.index_num).forEach((m: any) => {
+                        const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
+                        milestoneInfo += `${statusEmoji} ${m.title}: **${m.amount} ${t.currency}** (${m.status})\n`;
+                        if (m.status === 'PENDING' && myTag === t.seller.safetag && t.status === 'PAID') {
+                            mButtons.push({ type: 2, label: `📦 Complete "${m.title.slice(0,20)}"`, style: 1, custom_id: `m_status|${t.id}|${m.id}|COMPLETED` });
+                        }
+                    });
+
+                    const msg = `📦 **Phase Marked Complete!**\n\nThe buyer has been notified to review your proof and release funds.\n\n📋 ID: **${t.txn_code}**\n💠 Status: **${t.status.replace(/_/g, ' ')}**${milestoneInfo}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+                    const components: any[] = [];
+                    if (mButtons.length > 0) components.push({ type: 1, components: mButtons.slice(0, 5) });
+                    components.push({ type: 1, components: [{ type: 2, label: '🔙 Back', style: 2, custom_id: 'my_txns' }] });
+                    await interaction.editReply({ content: msg, components });
+                } catch (err: any) {
+                    console.error('Milestone Confirm Error:', err.message);
+                    await interaction.followUp({ content: '❌ Failed to mark phase as complete. Please try again.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                }
                 return;
             }
 
@@ -691,6 +732,20 @@ client.on('interactionCreate', async (interaction) => {
                 const txnId = parts[1];
                 const mId = parts[2];
                 const status = parts[3];
+
+                if (status === 'COMPLETED') {
+                    await interaction.editReply({
+                        content: `📎 **Upload Delivery Proof**\n\nPlease upload your proof of delivery so the buyer can verify before releasing funds.\n\nClick below to upload, then confirm when done:`,
+                        components: [
+                            { type: 1, components: [{ type: 2, label: '📎 Upload Proof Now', style: 5, url: `${REVIEWS_URL}/upload/${txnId}` }] },
+                            { type: 1, components: [
+                                { type: 2, label: '✅ Mark as Complete', style: 1, custom_id: `m_status_confirm|${txnId}|${mId}` },
+                                { type: 2, label: '🔙 Cancel',           style: 2, custom_id: `view_txn_details|${txnId}` }
+                            ]}
+                        ]
+                    });
+                    return;
+                }
 
                 try {
                     await axios.patch(`${API_URL}/transactions/${txnId}/milestones/${mId}/status`, { status, updater_safetag: (await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`)).data.safetag }, { headers: BOT_AUTH_HEADERS });
