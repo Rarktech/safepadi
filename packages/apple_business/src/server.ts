@@ -12,6 +12,14 @@ if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 }
 
+function formatAccountAge(createdAt: string): string {
+    const days = Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000);
+    if (days < 30) return `${days} day${days !== 1 ? 's' : ''}`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `${months} month${months !== 1 ? 's' : ''}`;
+    return `${Math.floor(months / 12)} year${Math.floor(months / 12) !== 1 ? 's' : ''}`;
+}
+
 Sentry.init({
     dsn: process.env.SENTRY_DSN_API,
     environment: process.env.NODE_ENV || 'development',
@@ -248,6 +256,30 @@ app.post('/webhook/:token', (req, res) => {
                     return;
                 }
 
+                // --- REVIEWS & RATINGS ---
+                if (messageText.includes('reviews') || messageText.includes('ratings') || messageText === '5') {
+                    try {
+                        const cleanSafetag = safetag.startsWith('@') ? safetag : `@${safetag}`;
+                        const [statsRes, badgesRes] = await Promise.all([
+                            axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(cleanSafetag)}`),
+                            axios.get(`${API_URL}/profiles/${encodeURIComponent(cleanSafetag)}/badges`),
+                        ]);
+                        const { average_rating, review_count } = statsRes.data;
+                        const badges = badgesRes.data || [];
+                        const rating = Number(average_rating || 0);
+                        const starsCount = Math.round(rating);
+                        const stars = '⭐'.repeat(starsCount) + '☆'.repeat(Math.max(0, 5 - starsCount));
+                        let badgeLine = badges.length > 0 ? `\nBadges: ${badges.map((b: any) => `${b.emoji || ''} ${b.label}`).join(' | ')}` : '';
+                        const reviewMsg = `⭐ Reviews & Ratings\n\nYour trust score: ${rating.toFixed(1)}/5 ${stars}\nBased on ${review_count} review${review_count !== 1 ? 's' : ''}.${badgeLine}\n\nTap below to view your full review history.`;
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: reviewMsg });
+                        const reviewLink = `${FRONTEND_URL}/reviews/${encodeURIComponent(cleanSafetag)}`;
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: reviewLink });
+                    } catch (e: any) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ Could not load review stats: ${e.message}` });
+                    }
+                    return;
+                }
+
                 // --- TRANSACTION WIZARD STATE MACHINE ---
 
                 // Transition: Menu -> Transaction Wizard
@@ -384,15 +416,25 @@ app.post('/webhook/:token', (req, res) => {
                         const res = await axios.get(`${API_URL}/profiles/by_safetag/${encodeURIComponent(otherTag)}`);
                         session.formData.other_safetag = res.data.safetag;
                         session.formData.other_id = res.data.id;
-                        
+
                         const role = session.formData.role;
                         const isVerified = res.data.kyc_status === 'VERIFIED';
                         const verifiedLabel = isVerified ? '✅ Verified' : '❌ Unverified';
 
+                        // Fetch completed trades count for counterparty preview
+                        let completedTrades = 0;
+                        try {
+                            const statsRes = await axios.get(`${API_URL}/profiles/${encodeURIComponent(otherTag)}/stats`);
+                            completedTrades = statsRes.data.completed_trades ?? 0;
+                        } catch (_) {}
+
+                        const accountAgeLine = res.data.created_at ? `\n📅 Member for: ${formatAccountAge(res.data.created_at)}` : '';
+                        const tradesLine = `\n${completedTrades === 0 ? '⚠️' : '✅'} Completed trades: ${completedTrades}`;
+
                         // 1. Text Summary
                         await sendJivoChatMessage(clientId, chatId, {
                             type: 'TEXT',
-                            text: `👤 Counterparty Found: ${res.data.safetag}\nStatus: ${verifiedLabel}\n\nReviewing their reputation before we proceed:`
+                            text: `👤 Counterparty Found: ${res.data.safetag}\nStatus: ${verifiedLabel}${accountAgeLine}${tradesLine}\n\nReviewing their reputation before we proceed:`
                         });
 
                         // 2. Standalone Profile Preview Link (Integrated Browser trigger)
@@ -402,19 +444,35 @@ app.post('/webhook/:token', (req, res) => {
                             text: profileLink
                         });
 
-                        // 3. First-transaction safety warning
+                        // 3. Risk-factor warning system
                         try {
                             const buyerSafetag = role === 'buyer' ? safetag : res.data.safetag;
                             const sellerSafetag = role === 'seller' ? safetag : res.data.safetag;
-                            const pairRes = await axios.get(`${API_URL}/transactions/pair-history?buyer=${encodeURIComponent(buyerSafetag)}&seller=${encodeURIComponent(sellerSafetag)}`);
-                            if (pairRes.data?.completed_count === 0) {
+                            const [pairRes, sellerStatsRes, sellerReviewRes] = await Promise.all([
+                                axios.get(`${API_URL}/transactions/pair-history?buyer=${encodeURIComponent(buyerSafetag)}&seller=${encodeURIComponent(sellerSafetag)}`),
+                                axios.get(`${API_URL}/profiles/${encodeURIComponent(sellerSafetag)}/stats`),
+                                axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(sellerSafetag)}`),
+                            ]);
+
+                            const pairCount = pairRes.data.completed_count ?? 0;
+                            const sellerCompletedTrades = sellerStatsRes.data.completed_trades ?? 0;
+                            const memberDays = Math.floor((Date.now() - new Date(sellerStatsRes.data.member_since).getTime()) / 86_400_000);
+                            const reviewCount = sellerReviewRes.data.review_count ?? 0;
+
+                            const risks: string[] = [];
+                            if (sellerCompletedTrades === 0) risks.push('⚠️ Seller has no completed trades on Safeeely');
+                            if (memberDays < 14) risks.push(`⚠️ Seller joined only ${memberDays} day${memberDays !== 1 ? 's' : ''} ago`);
+                            if (reviewCount === 0) risks.push('⚠️ Seller has no reviews yet');
+                            if (pairCount === 0) risks.push('⚠️ You have never completed a trade with this person before');
+
+                            if (risks.length >= 2) {
                                 await sendJivoChatMessage(clientId, chatId, {
                                     type: 'TEXT',
-                                    text: '⚠️ Safety Reminder\n\nThis is your first trade with this user. Stay safe:\n• Never pay outside Safeeely escrow\n• Check their review history before confirming\n• Insist on clear delivery proof\n• If anything feels wrong, cancel and report them'
+                                    text: `🚨 Risk Factors Detected\n\n${risks.join('\n')}\n\nThese are common patterns in scam attempts. Only proceed if you have verified this seller independently.`
                                 });
                             }
                         } catch (_) {
-                            // Fail silently — pair-history is non-critical
+                            // Fail silently — risk checks are non-critical
                         }
 
                         // 4. Review & Confirm Buttons
@@ -986,11 +1044,18 @@ app.post('/webhook/:token', (req, res) => {
                         });
                     } else {
                         console.log(`[BOT STEP] 1: User ${clientId} is new. Sending Privacy Policy.`);
-                        
+
+                        let statsLine = '';
+                        try {
+                            const statsRes = await axios.get(`${API_URL}/profiles/stats/public`);
+                            const { total_users, total_completed_trades } = statsRes.data;
+                            statsLine = `\n\n🌍 You've joined ${total_users.toLocaleString()} users who've safely completed ${total_completed_trades.toLocaleString()} trades on Safeeely.`;
+                        } catch (_) {}
+
                         // Message 1: The Text Greeting
                         await sendJivoChatMessage(clientId, chatId, {
                             type: 'TEXT',
-                            text: '👋 Welcome to Safeeely!\nYour trusted escrow service for secure social media transactions.\n\nBefore we begin, please review our Privacy Policy.'
+                            text: `👋 Welcome to Safeeely!\nYour trusted escrow service for secure social media transactions.\n\nBefore we begin, please review our Privacy Policy.${statsLine}`
                         });
 
                         // Message 2: Standalone URL to trigger the integrated browser preview

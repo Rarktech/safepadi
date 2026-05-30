@@ -135,6 +135,14 @@ const GUILD_TRADE_COOLDOWN_MS = 5 * 60 * 1000;
 const incomingGuildIds = new Collection<string, { communityId: string; expires: number }>();
 const communityWithdrawSessions = new Collection<string, { groupId: string; currency: string }>();
 
+function formatAccountAge(createdAt: string): string {
+    const days = Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000);
+    if (days < 30) return `${days} day${days !== 1 ? 's' : ''}`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `${months} month${months !== 1 ? 's' : ''}`;
+    return `${Math.floor(months / 12)} year${Math.floor(months / 12) !== 1 ? 's' : ''}`;
+}
+
 const formatMessageForDiscord = (text: string): string => {
     if (!text) return text;
     return text
@@ -272,7 +280,13 @@ client.on('messageCreate', async (message) => {
             if (pendingRegDraft.referralCode) payload.referral_code = pendingRegDraft.referralCode;
             await axios.post(`${API_URL}/profiles/register`, payload);
             regDrafts.delete(message.author.id);
-            await message.reply(`🎉 **Registration Complete!**\n\n✅ You're all set!\n\nYour Safetag: **${pendingRegDraft.safetag}**\n📧 Email: ${pendingRegDraft.email}\n\n🔐 Your account is secure and ready to use`);
+            let statsLine = '';
+            try {
+                const statsRes = await axios.get(`${API_URL}/profiles/stats/public`);
+                const { total_users, total_completed_trades } = statsRes.data;
+                statsLine = `\n\n🌍 You've joined **${total_users.toLocaleString()}** users who've safely completed **${total_completed_trades.toLocaleString()}** trades on Safeeely.`;
+            } catch (_) {}
+            await message.reply(`🎉 **Registration Complete!**\n\n✅ You're all set!\n\nYour Safetag: **${pendingRegDraft.safetag}**\n📧 Email: ${pendingRegDraft.email}\n\n🔐 Your account is secure and ready to use${statsLine}`);
             await sendMainMenu(message);
         } catch (err: any) {
             await message.reply(`❌ ${err.response?.data?.error || 'Invalid code. Please try again or click Resend Code.'}`);
@@ -941,22 +955,37 @@ client.on('interactionCreate', async (interaction) => {
                     mList = '\n📍 **Milestones:**\n' + draft.milestones.map((m, i) => `   ${i+1}. ${m.title} - ${m.amount} ${draft.currency}`).join('\n');
                 }
 
-                // Feature 3: First-transaction safety warning
-                let safetyWarning = '';
+                // Feature 3: Risk-factor warning system
+                let riskWarning = '';
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
                     const mySafetag = profileRes.data.safetag;
                     const buyerSafetag = draft.role === 'buyer' ? mySafetag : draft.other;
                     const sellerSafetag = draft.role === 'seller' ? mySafetag : draft.other;
-                    const pairRes = await axios.get(`${API_URL}/transactions/pair-history`, {
-                        params: { buyer: buyerSafetag, seller: sellerSafetag }
-                    });
-                    if (pairRes.data?.completed_count === 0) {
-                        safetyWarning = `⚠️ **Safety Reminder**\nThis is your first trade with this user. Stay safe:\n• Never pay outside Safeeely escrow\n• Check their review history before confirming\n• Insist on clear delivery proof\n• If anything feels wrong, cancel and report\n\n---\n`;
-                    }
-                } catch { /* fail silently */ }
 
-                const summary = safetyWarning + `📋 **Transaction Summary**\n\nPlease review your transaction details:\n\n` +
+                    const [pairRes, sellerStatsRes, sellerReviewRes] = await Promise.all([
+                        axios.get(`${API_URL}/transactions/pair-history?buyer=${encodeURIComponent(buyerSafetag)}&seller=${encodeURIComponent(sellerSafetag)}`),
+                        axios.get(`${API_URL}/profiles/${encodeURIComponent(sellerSafetag)}/stats`),
+                        axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(sellerSafetag)}`),
+                    ]);
+
+                    const pairCount = pairRes.data.completed_count ?? 0;
+                    const completedTrades = sellerStatsRes.data.completed_trades ?? 0;
+                    const memberDays = Math.floor((Date.now() - new Date(sellerStatsRes.data.member_since).getTime()) / 86_400_000);
+                    const reviewCount = sellerReviewRes.data.review_count ?? 0;
+
+                    const risks: string[] = [];
+                    if (completedTrades === 0) risks.push('⚠️ Seller has no completed trades on Safeeely');
+                    if (memberDays < 14) risks.push(`⚠️ Seller joined only ${memberDays} day${memberDays !== 1 ? 's' : ''} ago`);
+                    if (reviewCount === 0) risks.push('⚠️ Seller has no reviews yet');
+                    if (pairCount === 0) risks.push('⚠️ You have never completed a trade with this person before');
+
+                    if (risks.length >= 2) {
+                        riskWarning = `🚨 **Risk Factors Detected**\n\n${risks.join('\n')}\n\nThese are common patterns in scam attempts. Only proceed if you have verified this seller independently.\n\n`;
+                    }
+                } catch (_) { /* fail silently */ }
+
+                const summary = riskWarning + `📋 **Transaction Summary**\n\nPlease review your transaction details:\n\n` +
                     `🛒 Product/Service: **${draft.product}**\n` +
                     `📝 Description: **${draft.desc || 'No description'}**${mList}\n` +
                     `💰 Amount: **${amount} ${draft.currency}**\n` +
@@ -2016,7 +2045,13 @@ client.on('interactionCreate', async (interaction) => {
                     if (draft.referralCode) payload.referral_code = draft.referralCode;
                     await axios.post(`${API_URL}/profiles/register`, payload);
                     regDrafts.delete(interaction.user.id);
-                    await interaction.editReply(`🎉 **Registration Complete!**\n\n✅ You're all set!\n\nYour Safetag: **${draft.safetag}**\n📧 Email: ${draft.email}\n\n🔐 Your account is secure and ready to use`);
+                    let regStatsLine = '';
+                    try {
+                        const regStatsRes = await axios.get(`${API_URL}/profiles/stats/public`);
+                        const { total_users, total_completed_trades } = regStatsRes.data;
+                        regStatsLine = `\n\n🌍 You've joined **${total_users.toLocaleString()}** users who've safely completed **${total_completed_trades.toLocaleString()}** trades on Safeeely.`;
+                    } catch (_) {}
+                    await interaction.editReply(`🎉 **Registration Complete!**\n\n✅ You're all set!\n\nYour Safetag: **${draft.safetag}**\n📧 Email: ${draft.email}\n\n🔐 Your account is secure and ready to use${regStatsLine}`);
                     await sendMainMenu(interaction);
                 } catch (err: any) { await interaction.editReply(`❌ Failed: ${err.response?.data?.error || err.message}`); }
             } else if (customId.startsWith('otp_verify_modal|')) {
@@ -2178,12 +2213,21 @@ client.on('interactionCreate', async (interaction) => {
                         }
                     } catch (e) {}
 
+                    let completedTrades = 0;
+                    try {
+                        const tradeStatsRes = await axios.get(`${API_URL}/profiles/${encodeURIComponent(otherSafetag)}/stats`);
+                        completedTrades = tradeStatsRes.data.completed_trades ?? 0;
+                    } catch (_) {}
+
                     const profileType = draft.role === 'buyer' ? 'Seller' : 'Buyer';
+                    const accountAgeStr = profile.created_at ? formatAccountAge(profile.created_at) : 'Unknown';
 
                     const profilePreview = `👤 **${profileType} Profile**\n\n` +
                         `\`${profile.safetag}\`\n` +
                         `⭐ **Rating: ${ratingStr} ${ratingSuffix}**\n` +
-                        `${verifiedEmoji} 💳 **${verifiedText} ${profileType}**\n\n` +
+                        `${verifiedEmoji} 💳 **${verifiedText} ${profileType}**\n` +
+                        `📅 **Member for:** ${accountAgeStr}\n` +
+                        `${completedTrades === 0 ? '⚠️' : '✅'} **Completed Trades:** ${completedTrades}\n\n` +
                         `Continue with this ${profileType.toLowerCase()}?`;
 
                     await interaction.editReply({

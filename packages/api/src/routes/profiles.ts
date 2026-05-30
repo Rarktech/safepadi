@@ -319,6 +319,22 @@ router.get('/search', async (req, res) => {
     res.json(data);
 });
 
+// Get platform-wide aggregate stats (must be before /:safetag to avoid route shadowing)
+router.get('/stats/public', async (req, res) => {
+    try {
+        const [usersResult, tradesResult] = await Promise.all([
+            supabase.from('profiles').select('id', { count: 'exact', head: true }),
+            supabase.from('transactions').select('id', { count: 'exact', head: true }).in('status', ['COMPLETED', 'FINALIZED']),
+        ]);
+        res.json({
+            total_users: usersResult.count ?? 0,
+            total_completed_trades: tradesResult.count ?? 0,
+        });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Get balance for a profile
 router.get('/:safetag/balance', requireUser, requireSafetagOwner, async (req, res) => {
     try {
@@ -729,6 +745,33 @@ router.get('/:safetag/badges', async (req, res) => {
         res.json(result);
     } catch (err: any) {
         res.status(400).json({ error: err.message });
+    }
+});
+
+// Get completed trade count and member_since for a safetag (trust signals for bots)
+router.get('/:safetag/stats', async (req, res) => {
+    try {
+        const { safetag } = req.params as { safetag: string };
+        const withAt = safetag.startsWith('@') ? safetag : `@${safetag}`;
+        const withoutAt = withAt.slice(1);
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('id, created_at')
+            .or(`safetag.ilike.${withAt},safetag.ilike.${withoutAt}`)
+            .maybeSingle();
+
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+        const { count } = await supabase
+            .from('transactions')
+            .select('id', { count: 'exact', head: true })
+            .or(`buyer_id.eq.${profile.id},seller_id.eq.${profile.id}`)
+            .in('status', ['COMPLETED', 'FINALIZED']);
+
+        res.json({ completed_trades: count ?? 0, member_since: profile.created_at });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
     }
 });
 

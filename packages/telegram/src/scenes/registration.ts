@@ -201,7 +201,14 @@ export const registrationScene = new Scenes.WizardScene(
                 platform_id: ctx.from.id.toString()
             });
 
-            await ctx.reply(`🎉 Registration Complete!\n\n✅ You're all set!\n\nYour Safetag: ${response.data.safetag}\n📧 Email: ${response.data.email}\n\n🔐 Your account is secure and ready to use.`);
+            let statsLine = '';
+            try {
+                const statsRes = await axios.get(`${API_URL}/profiles/stats/public`);
+                const { total_users, total_completed_trades } = statsRes.data;
+                statsLine = `\n\n🌍 You've joined <b>${total_users.toLocaleString()}</b> users who've safely completed <b>${total_completed_trades.toLocaleString()}</b> trades on Safeeely.`;
+            } catch (_) {}
+
+            await ctx.reply(`🎉 Registration Complete!\n\n✅ You're all set!\n\nYour Safetag: ${response.data.safetag}\n📧 Email: ${response.data.email}\n\n🔐 Your account is secure and ready to use.${statsLine}`, { parse_mode: 'HTML' });
             
             // Show main menu
             await ctx.reply('🏠 <b>Main Menu</b>\n\nWhat would you like to do today?', {

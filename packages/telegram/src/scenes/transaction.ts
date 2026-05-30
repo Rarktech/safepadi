@@ -2,6 +2,14 @@ import { Scenes } from 'telegraf';
 import axios from 'axios';
 import { buildMagicLink } from '../utils/magicLink';
 
+function formatAccountAge(createdAt: string): string {
+    const days = Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000);
+    if (days < 30) return `${days} day${days !== 1 ? 's' : ''}`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `${months} month${months !== 1 ? 's' : ''}`;
+    return `${Math.floor(months / 12)} year${Math.floor(months / 12) !== 1 ? 's' : ''}`;
+}
+
 const API_URL = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://localhost:3000/api';
 let REVIEWS_URL = process.env.REVIEWS_URL || 'http://localhost:3001';
 if (REVIEWS_URL.includes('localhost')) {
@@ -301,7 +309,21 @@ export const transactionScene = new Scenes.WizardScene(
                 ctx.wizard.state.formData.other_rating = 'No';
             }
 
-            // 4. Construct safe URL for Telegram button
+            // 4. Get completed trades count
+            let completedTradesLine = '';
+            try {
+                const statsRes = await axios.get(`${API_URL}/profiles/${encodeURIComponent(profile.safetag)}/stats`);
+                const { completed_trades } = statsRes.data;
+                completedTradesLine = `\n${completed_trades === 0 ? '⚠️' : '✅'} Completed trades: <b>${completed_trades}</b>`;
+            } catch (_) {}
+
+            // 5. Account age line
+            let accountAgeLine = '';
+            if (profile.created_at) {
+                accountAgeLine = `\n📅 Member for: <b>${formatAccountAge(profile.created_at)}</b>`;
+            }
+
+            // 6. Construct safe URL for Telegram button
             let reviewsUrlBase = REVIEWS_URL;
             if (!reviewsUrlBase.startsWith('http')) reviewsUrlBase = `http://${reviewsUrlBase}`;
             const cleanBase = reviewsUrlBase.endsWith('/') ? reviewsUrlBase.slice(0, -1) : reviewsUrlBase;
@@ -310,7 +332,7 @@ export const transactionScene = new Scenes.WizardScene(
             const isVerified = profile.kyc_status === 'VERIFIED';
             const verifiedEmoji = isVerified ? '✅' : '❌';
             const verifiedText = isVerified ? 'Verified' : 'Unverified';
-            
+
             const buttons: any[] = [
                 [{ text: '✅ Yes, Continue', callback_data: 'profile_confirm' }],
                 [{ text: '❌ No, Change', callback_data: 'profile_back' }]
@@ -321,12 +343,14 @@ export const transactionScene = new Scenes.WizardScene(
             }
 
             const profileType = role === 'buyer' ? 'Seller' : 'Buyer';
-            
+
             await ctx.reply(`👤 <b>${profileType} Profile</b>\n\n` +
                 `<code>${profile.safetag}</code>\n` +
                 `⭐ <b>Rating: ${ratingStr} ${ratingSuffix}</b>\n` +
-                `${verifiedEmoji} 💳 <b>${verifiedText} ${profileType}</b>\n\n` +
-                `Continue with this ${profileType.toLowerCase()}?`, {
+                `${verifiedEmoji} 💳 <b>${verifiedText} ${profileType}</b>` +
+                `${completedTradesLine}` +
+                `${accountAgeLine}` +
+                `\n\nContinue with this ${profileType.toLowerCase()}?`, {
                 parse_mode: 'HTML',
                 disable_web_page_preview: true,
                 reply_markup: { inline_keyboard: buttons }
@@ -367,19 +391,32 @@ export const transactionScene = new Scenes.WizardScene(
         const buyerSafetag = role === 'buyer' ? mySafetag : other_safetag;
         const sellerSafetag = role === 'seller' ? mySafetag : other_safetag;
 
-        let safetyWarning = '';
+        // Risk-factor warning at confirmation step
+        let warningBlock = '';
         try {
-            const pairRes = await axios.get(`${API_URL}/transactions/pair-history`, {
-                params: { buyer: buyerSafetag, seller: sellerSafetag }
-            });
-            if (pairRes.data?.completed_count === 0) {
-                safetyWarning = `⚠️ <b>Safety Reminder</b>\nThis is your first trade with this user. Stay safe:\n• Never pay outside Safeeely escrow\n• Check their review history before confirming\n• Insist on clear delivery proof\n• If anything feels wrong, cancel and report\n\n`;
-            }
-        } catch (e: any) {
-            // Fail silently — pair-history check is best-effort
-        }
+            const [pairRes, sellerStatsRes, sellerReviewRes] = await Promise.all([
+                axios.get(`${API_URL}/transactions/pair-history?buyer=${encodeURIComponent(buyerSafetag)}&seller=${encodeURIComponent(sellerSafetag)}`),
+                axios.get(`${API_URL}/profiles/${encodeURIComponent(sellerSafetag)}/stats`),
+                axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(sellerSafetag)}`),
+            ]);
 
-        const summary = `${safetyWarning}📋 <b>Transaction Summary</b>\n\nPlease review your transaction details:\n\n` +
+            const pairCount = pairRes.data.completed_count ?? 0;
+            const completedTrades = sellerStatsRes.data.completed_trades ?? 0;
+            const memberDays = Math.floor((Date.now() - new Date(sellerStatsRes.data.member_since).getTime()) / 86_400_000);
+            const reviewCount = sellerReviewRes.data.review_count ?? 0;
+
+            const risks: string[] = [];
+            if (completedTrades === 0) risks.push('⚠️ Seller has no completed trades on Safeeely');
+            if (memberDays < 14) risks.push(`⚠️ Seller joined only ${memberDays} day${memberDays !== 1 ? 's' : ''} ago`);
+            if (reviewCount === 0) risks.push('⚠️ Seller has no reviews yet');
+            if (pairCount === 0) risks.push('⚠️ You have never completed a trade with this person before');
+
+            if (risks.length >= 2) {
+                warningBlock = `🚨 <b>Risk Factors Detected</b>\n\n${risks.join('\n')}\n\nThese are common patterns in scam attempts. Only proceed if you have verified this seller independently.\n\n`;
+            }
+        } catch (_) {}
+
+        const summary = `${warningBlock}📋 <b>Transaction Summary</b>\n\nPlease review your transaction details:\n\n` +
             `🛒 Product/Service: <b>${product_name}</b>\n` +
             `📝 Description: <b>${description || 'No description'}</b>${milestoneList}\n` +
             `💰 Amount: <b>${amount} ${currency}</b>\n` +

@@ -89,6 +89,14 @@ function genericTemplate(elements: any[]) {
     };
 }
 
+function formatAccountAge(createdAt: string): string {
+    const days = Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000);
+    if (days < 30) return `${days} day${days !== 1 ? 's' : ''}`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `${months} month${months !== 1 ? 's' : ''}`;
+    return `${Math.floor(months / 12)} year${Math.floor(months / 12) !== 1 ? 's' : ''}`;
+}
+
 function fmtCurrency(amount: number, currency: string) {
     const sym: Record<string, string> = { USD: '$', NGN: '₦', EUR: '€', GBP: '£' };
     return sym[currency]
@@ -426,8 +434,20 @@ async function showCounterpartyPreview(psid: string, counterpartyProfile: any, s
     const subtitle = [rating, verified, badges].filter(Boolean).join(' | ').substring(0, 80);
     const reviewsUrl = `${REVIEWS_URL}/${safetag.startsWith('@') ? safetag : '@' + safetag}`;
 
+    let completedTrades = 0;
+    try {
+        const statsRes = await axios.get(`${API_URL}/profiles/${encodeURIComponent(safetag)}/stats`);
+        completedTrades = statsRes.data.completed_trades ?? 0;
+    } catch (_) {}
+
+    const ageLine = counterpartyProfile.created_at
+        ? `\n📅 Member for: ${formatAccountAge(counterpartyProfile.created_at)}`
+        : '';
+    const tradesLine = `\n${completedTrades === 0 ? '⚠️' : '✅'} Completed trades: ${completedTrades}`;
+    const previewText = `${safetag}${ageLine}${tradesLine}`;
+
     await sendMsg(psid, genericTemplate([{
-        title:    safetag.substring(0, 80),
+        title:    previewText.substring(0, 80),
         subtitle: subtitle || 'New user',
         buttons:  [
             { type: 'postback', title: '✅ Confirm',       payload: 'CONFIRM_COUNTERPARTY' },
@@ -451,21 +471,31 @@ async function showTransactionSummary(psid: string) {
         ).join('\n') + `\n💰 Total: ${total} ${fd.currency}`;
     }
 
-    // Feature 3: first-trade safety warning
-    let safetyWarning = '';
+    // Feature 3: risk-factor warning system
+    let riskWarningMsg = '';
     try {
         const p = await getProfile(psid);
         const buyerSafetag  = fd.role === 'buyer' ? p.safetag : fd.counterparty_safetag;
         const sellerSafetag = fd.role === 'seller' ? p.safetag : fd.counterparty_safetag;
-        const histRes = await axios.get(`${API_URL}/transactions/pair-history?buyer=${encodeURIComponent(buyerSafetag)}&seller=${encodeURIComponent(sellerSafetag)}`);
-        if (histRes.data?.completed_count === 0) {
-            safetyWarning =
-                '⚠️ Safety Reminder\n' +
-                'This is your first trade with this user. Stay safe:\n' +
-                '• Never pay outside Safeeely escrow\n' +
-                '• Check their review history before confirming\n' +
-                '• Insist on clear delivery proof\n' +
-                '• If anything feels wrong, cancel and report\n\n';
+        const [pairRes, sellerStatsRes, sellerReviewRes] = await Promise.all([
+            axios.get(`${API_URL}/transactions/pair-history?buyer=${encodeURIComponent(buyerSafetag)}&seller=${encodeURIComponent(sellerSafetag)}`),
+            axios.get(`${API_URL}/profiles/${encodeURIComponent(sellerSafetag)}/stats`),
+            axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(sellerSafetag)}`),
+        ]);
+
+        const pairCount      = pairRes.data.completed_count ?? 0;
+        const completedTrades = sellerStatsRes.data.completed_trades ?? 0;
+        const memberDays     = Math.floor((Date.now() - new Date(sellerStatsRes.data.member_since).getTime()) / 86_400_000);
+        const reviewCount    = sellerReviewRes.data.review_count ?? 0;
+
+        const risks: string[] = [];
+        if (completedTrades === 0) risks.push('⚠️ Seller has no completed trades on Safeeely');
+        if (memberDays < 14) risks.push(`⚠️ Seller joined only ${memberDays} day${memberDays !== 1 ? 's' : ''} ago`);
+        if (reviewCount === 0) risks.push('⚠️ Seller has no reviews yet');
+        if (pairCount === 0) risks.push('⚠️ You have never completed a trade with this person before');
+
+        if (risks.length >= 2) {
+            riskWarningMsg = `🚨 Risk Factors Detected\n\n${risks.join('\n')}\n\nThese are common patterns in scam attempts. Only proceed if you have verified this seller independently.`;
         }
     } catch (_) {
         // Fail silently
@@ -481,7 +511,7 @@ async function showTransactionSummary(psid: string) {
         `👤 ${fd.role === 'buyer' ? 'Seller' : 'Buyer'}: ${fd.counterparty_safetag}\n` +
         `💠 Your Role: ${fd.role === 'buyer' ? 'Buyer 🛒' : 'Seller 🤝'}`;
 
-    if (safetyWarning) await sendMsg(psid, { text: safetyWarning });
+    if (riskWarningMsg) await sendMsg(psid, { text: riskWarningMsg });
     await sendMsg(psid, { text: summary });
     await sendMsg(psid, qr('Confirm or cancel this transaction:', [
         { title: '✅ Create',  payload: 'CREATE_TXN_CONFIRM' },
@@ -608,7 +638,13 @@ async function handleRegistration(psid: string, rawText: string) {
                 referral_code:    state.formData.referralCode
             });
             delete userStates[psid];
-            await sendMsg(psid, { text: `🎉 Registration Complete!\n\n✅ You're all set!\n\nYour Safetag: ${state.formData.safetag}\n📧 Email: ${state.formData.email}\n\n🔐 Your account is secure and ready to use` });
+            let statsLine = '';
+            try {
+                const statsRes = await axios.get(`${API_URL}/profiles/stats/public`);
+                const { total_users, total_completed_trades } = statsRes.data;
+                statsLine = `\n\n🌍 You've joined ${total_users.toLocaleString()} users who've safely completed ${total_completed_trades.toLocaleString()} trades on Safeeely.`;
+            } catch (_) {}
+            await sendMsg(psid, { text: `🎉 Registration Complete!\n\n✅ You're all set!\n\nYour Safetag: ${state.formData.safetag}\n📧 Email: ${state.formData.email}\n\n🔐 Your account is secure and ready to use${statsLine}` });
             await sendNextOptions(psid, [{ title: '🛒 Create Txn', payload: 'CREATE_TXN' }]);
         } catch (err: any) {
             delete userStates[psid];
@@ -1182,11 +1218,20 @@ async function handlePostback(psid: string, payload: string) {
     } else if (payload === 'REVIEWS') {
         try {
             const p = await getProfile(psid);
-            const reviewsUrl = `${REVIEWS_URL}/${p.safetag.startsWith('@') ? p.safetag : '@' + p.safetag}`;
-            await sendMsg(psid, btnTemplate(
-                '⭐ Reviews & Ratings\n\nView your trust score and reviews, or leave a review for a completed transaction.',
-                [{ type: 'web_url', url: reviewsUrl, title: '⭐ View My Reviews' }]
-            ));
+            const safetag = p.safetag.startsWith('@') ? p.safetag : `@${p.safetag}`;
+            const reviewsUrl = `${REVIEWS_URL}/${safetag}`;
+            const [statsRes, badgesRes] = await Promise.all([
+                axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(safetag)}`),
+                axios.get(`${API_URL}/profiles/${encodeURIComponent(safetag)}/badges`),
+            ]);
+            const { average_rating, review_count } = statsRes.data;
+            const badges = badgesRes.data || [];
+            const rating = Number(average_rating || 0);
+            const starsCount = Math.round(rating);
+            const stars = '⭐'.repeat(starsCount) + '☆'.repeat(Math.max(0, 5 - starsCount));
+            let badgeLine = badges.length > 0 ? `\n🏆 Badges: ${badges.map((b: any) => `${b.emoji || ''} ${b.label}`).join(' | ')}` : '';
+            const msg = `⭐ Reviews & Ratings\n\nYour trust score: ${rating.toFixed(1)}/5 ${stars}\nBased on ${review_count} review${review_count !== 1 ? 's' : ''}.${badgeLine}\n\nTap below to view your full review history.`;
+            await sendMsg(psid, btnTemplate(msg, [{ type: 'web_url', url: reviewsUrl, title: '⭐ View My Reviews' }]));
         } catch (_) {
             await sendMsg(psid, { text: '❌ Could not load reviews.' });
         }

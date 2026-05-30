@@ -195,6 +195,15 @@ async function getProfile(from: string) {
     return res.data;
 }
 
+function formatAccountAge(createdAt: string): string {
+    const days = Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000);
+    if (days < 30) return `${days} day${days !== 1 ? 's' : ''}`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `${months} month${months !== 1 ? 's' : ''}`;
+    const years = Math.floor(months / 12);
+    return `${years} year${years !== 1 ? 's' : ''}`;
+}
+
 // ─── Flow: balance ────────────────────────────────────────────────────────────
 
 async function showBalance(from: string) {
@@ -405,6 +414,7 @@ async function showTransactionDetail(from: string, txnId: string) {
 async function showCounterpartyPreview(from: string, safetag: string, profile: any) {
     let ratingStr = 'No reviews yet';
     let badgeList = '';
+    let completedTrades = 0;
     try {
         const statsRes = await axios.get(`${API_URL}/reviews/stats/${profile.safetag}`);
         if (statsRes.data.review_count > 0) {
@@ -417,9 +427,17 @@ async function showCounterpartyPreview(from: string, safetag: string, profile: a
             badgeList = '\n🏆 Badges: ' + badgesRes.data.map((b: any) => `${b.emoji} ${b.label}`).join(' | ');
         }
     } catch (_) {}
+    try {
+        const profileStatsRes = await axios.get(`${API_URL}/profiles/${encodeURIComponent(profile.safetag)}/stats`);
+        completedTrades = profileStatsRes.data.completed_trades ?? 0;
+    } catch (_) {}
+
+    const kycLine = profile.kyc_verified ? '✅ KYC Verified' : '⚠️ KYC Not Verified';
+    const ageLine = profile.created_at ? `\n📅 Member for: ${formatAccountAge(profile.created_at)}` : '';
+    const tradesLine = `\n${completedTrades === 0 ? '⚠️' : '✅'} Completed trades: ${completedTrades}`;
 
     await sendButtons(from,
-        `👤 *Counterparty Profile*\n\nSafetag: ${safetag}\n⭐ Rating: ${ratingStr}${badgeList}\n\nDo you want to proceed with this transaction?`,
+        `👤 *Counterparty Profile*\n\nSafetag: ${safetag}\n⭐ Rating: ${ratingStr}\n${kycLine}${ageLine}${tradesLine}${badgeList}\n\nDo you want to proceed with this transaction?`,
         [
             { id: 'CONFIRM_COUNTERPARTY', title: '✅ Confirm'  },
             { id: 'CANCEL_TXN',           title: '❌ Cancel'   }
@@ -443,26 +461,36 @@ async function showTransactionSummary(from: string) {
         ).join('\n') + `\n💰 Total: ${total} ${fd.currency}`;
     }
 
-    // ── Feature 3: first-trade safety reminder ────────────────────────────────
-    let safetyReminder = '';
+    // ── Feature 3: risk-factor warning system ────────────────────────────────
     try {
         const myProfile = await getProfile(from);
-        const buyer  = fd.role === 'buyer'  ? myProfile.safetag : fd.counterparty_safetag;
-        const seller = fd.role === 'seller' ? myProfile.safetag : fd.counterparty_safetag;
-        const pairRes = await axios.get(`${API_URL}/transactions/pair-history`, { params: { buyer, seller } });
-        if (pairRes.data?.completed_count === 0) {
-            safetyReminder =
-                `⚠️ *Safety Reminder*\n` +
-                `This is your first trade with this user. Stay safe:\n` +
-                `• Never pay outside Safeeely escrow\n` +
-                `• Check their review history before confirming\n` +
-                `• Insist on clear delivery proof\n` +
-                `• If anything feels wrong, cancel and report them\n\n`;
+        const buyerSafetag  = fd.role === 'buyer'  ? myProfile.safetag : fd.counterparty_safetag;
+        const sellerSafetag = fd.role === 'seller' ? myProfile.safetag : fd.counterparty_safetag;
+
+        const [pairRes, sellerStatsRes, sellerReviewRes] = await Promise.all([
+            axios.get(`${API_URL}/transactions/pair-history?buyer=${encodeURIComponent(buyerSafetag)}&seller=${encodeURIComponent(sellerSafetag)}`),
+            axios.get(`${API_URL}/profiles/${encodeURIComponent(sellerSafetag)}/stats`),
+            axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(sellerSafetag)}`),
+        ]);
+
+        const pairCount = pairRes.data.completed_count ?? 0;
+        const completedTrades = sellerStatsRes.data.completed_trades ?? 0;
+        const memberDays = Math.floor((Date.now() - new Date(sellerStatsRes.data.member_since).getTime()) / 86_400_000);
+        const reviewCount = sellerReviewRes.data.review_count ?? 0;
+
+        const risks: string[] = [];
+        if (completedTrades === 0) risks.push('⚠️ Seller has no completed trades on Safeeely');
+        if (memberDays < 14) risks.push(`⚠️ Seller joined only ${memberDays} day${memberDays !== 1 ? 's' : ''} ago`);
+        if (reviewCount === 0) risks.push('⚠️ Seller has no reviews yet');
+        if (pairCount === 0) risks.push('⚠️ You have never completed a trade with this person before');
+
+        if (risks.length >= 2) {
+            const warningMsg = `🚨 *Risk Factors Detected*\n\n${risks.join('\n')}\n\nThese are common patterns in scam attempts. Only proceed if you have verified this seller independently.`;
+            await sendText(from, warningMsg);
         }
     } catch (_) { /* fail silently */ }
 
     const summary =
-        safetyReminder +
         `📋 *Transaction Summary*\n\n` +
         `📦 Product: ${fd.product_name}\n` +
         `📝 Description: ${fd.description || 'N/A'}\n` +
@@ -753,8 +781,13 @@ async function handleRegText(from: string, rawText: string) {
             regSessions.delete(from);
             refSessions.delete(from);
             const profile = response.data;
+            let platformStats = { total_users: 0, total_completed_trades: 0 };
+            try {
+                const statsRes = await axios.get(`${API_URL}/profiles/stats/public`);
+                platformStats = statsRes.data;
+            } catch (_) {}
             await sendText(from,
-                `🎉 *Registration Complete!*\n\n✅ You're all set!\n\n👤 Safetag: *${profile.safetag}*\n📧 Email: ${profile.email}\n\n🔐 Your account is secure and ready to use.`
+                `🎉 *Registration Complete!*\n\n✅ You're all set!\n\n👤 Safetag: *${profile.safetag}*\n📧 Email: ${profile.email}\n\n🔐 Your account is secure and ready to use.\n\n🌍 You've joined ${platformStats.total_users.toLocaleString()} users who've safely completed ${platformStats.total_completed_trades.toLocaleString()} trades on Safeeely.`
             );
             await sendMainMenu(from, '🏠 Welcome to Safeeely!');
         } catch (err: any) {
@@ -1149,9 +1182,29 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
     } else if (interactiveId === 'REVIEWS') {
         try {
             const p = await getProfile(from);
-            const reviewsUrl = `${REVIEWS_URL}/${p.safetag.startsWith('@') ? p.safetag : '@' + p.safetag}`;
-            await sendCTAUrl(from, '⭐ View your trust score, reviews, and leave feedback for completed transactions:', '⭐ View My Reviews', reviewsUrl);
-        } catch (_) { await sendText(from, '❌ Could not load reviews.'); }
+            const safetag = p.safetag.startsWith('@') ? p.safetag : `@${p.safetag}`;
+
+            const [statsRes, badgesRes] = await Promise.all([
+                axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(safetag)}`),
+                axios.get(`${API_URL}/profiles/${encodeURIComponent(safetag)}/badges`),
+            ]);
+
+            const { average_rating, review_count } = statsRes.data;
+            const badges: any[] = badgesRes.data || [];
+            const rating = Number(average_rating || 0);
+            const starsCount = Math.round(rating);
+            const stars = '⭐'.repeat(starsCount) + '☆'.repeat(Math.max(0, 5 - starsCount));
+
+            let badgeLine = '';
+            if (badges.length > 0) {
+                badgeLine = `\n🏆 *Badges:* ${badges.map((b: any) => `${b.emoji || ''} ${b.label}`).join(' | ')}`;
+            }
+
+            const msg = `⭐ *Reviews & Ratings*\n\nYour trust score: *${rating.toFixed(1)}/5* ${stars}\nBased on *${review_count}* review${review_count !== 1 ? 's' : ''}.${badgeLine}\n\nTap below to view your full review history and see feedback from your trading partners.`;
+
+            const reviewsUrl = `${REVIEWS_URL}/reviews/${encodeURIComponent(safetag)}`;
+            await sendCTAUrl(from, msg, '⭐ View Full Reviews', reviewsUrl);
+        } catch (_) { await sendText(from, '❌ Could not load your reviews. Please try again.'); }
 
     // My transactions
     } else if (interactiveId === 'MY_TXNS') {
