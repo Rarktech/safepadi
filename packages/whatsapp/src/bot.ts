@@ -1249,8 +1249,18 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         const txnId = interactiveId.replace('RECEIVED_TXN_', '');
         try {
             const p = await getProfile(from);
-            await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'confirm_receipt', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
-            await sendButtons(from, '✅ Transaction completed! Funds will be released to the seller.', [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]);
+            const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'confirm_receipt', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
+            const msg = (res.data.follow_up_msg || '✅ Transaction completed! Funds will be released to the seller.').replace(/<[^>]*>/g, '');
+            if (res.data.follow_up_receipt_url) {
+                try { await sendImage(from, res.data.follow_up_receipt_url); } catch (_) {}
+            }
+            const fopts: any[] = res.data.follow_up_options || [];
+            const replyOpts = fopts.filter((o: any) => !o.url);
+            const urlOpts = fopts.filter((o: any) => o.url);
+            const btns = replyOpts.slice(0, 3).map((o: any) => ({ id: o.customId || o.label, title: o.label.substring(0, 20) }));
+            if (btns.length === 0) btns.push({ id: 'MAIN_MENU', title: '🏠 Main Menu' });
+            await sendButtons(from, msg, btns);
+            for (const u of urlOpts) await sendCTAUrl(from, u.label, u.label.substring(0, 20), u.url);
         } catch (err: any) { await sendText(from, `❌ ${err.response?.data?.error || 'Failed.'}`); }
 
     } else if (interactiveId.startsWith('txn_action_complete_prompt|')) {
@@ -1322,7 +1332,16 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
             const p = await getProfile(from);
             const res = await axios.patch(`${API_URL}/transactions/${txnId}/status`, { status: 'confirm_receipt', updater_safetag: p.safetag }, { headers: BOT_AUTH_HEADERS });
             const msg = (res.data.follow_up_msg || '✅ Transaction completed! Funds will be released to the seller.').replace(/<[^>]*>/g, '');
-            await sendButtons(from, msg, [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]);
+            if (res.data.follow_up_receipt_url) {
+                try { await sendImage(from, res.data.follow_up_receipt_url); } catch (_) {}
+            }
+            const fopts: any[] = res.data.follow_up_options || [];
+            const replyOpts = fopts.filter((o: any) => !o.url);
+            const urlOpts = fopts.filter((o: any) => o.url);
+            const btns = replyOpts.slice(0, 3).map((o: any) => ({ id: o.customId || o.label, title: o.label.substring(0, 20) }));
+            if (btns.length === 0) btns.push({ id: 'MAIN_MENU', title: '🏠 Main Menu' });
+            await sendButtons(from, msg, btns);
+            for (const u of urlOpts) await sendCTAUrl(from, u.label, u.label.substring(0, 20), u.url);
         } catch (err: any) { await sendText(from, `❌ ${err.response?.data?.error || 'Failed.'}`); }
 
     } else if (interactiveId.startsWith('txn_pay_')) {

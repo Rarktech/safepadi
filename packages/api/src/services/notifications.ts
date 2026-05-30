@@ -320,12 +320,16 @@ export async function sendNotification(platform: string, platformId: string, mes
                     log(`⚠️ [WhatsApp] Receipt image failed (${imgErr.message}) — falling back to text`);
                 }
             }
-            if (!imageSent && options && options.length > 0) {
+            // Always send buttons when options exist — even after a successful image send.
+            // When image was sent the caption already carries the full message, so use a
+            // short body for the button message to avoid repeating it.
+            if (options && options.length > 0) {
                 const urlOpts = options.filter(o => o.url);
                 const replyOpts = options.filter(o => !o.url);
+                const buttonBody = imageSent ? 'Choose an action:' : cleanMsg.substring(0, 1024);
 
                 if (replyOpts.length > 0) {
-                    // Send reply buttons (non-URL options) with the message text
+                    // Send reply buttons (non-URL options)
                     const buttons = replyOpts.slice(0, 3).map((opt, i) => ({
                         type: 'reply',
                         reply: { id: (opt.customId || `opt_${i}`).substring(0, 256), title: opt.label.substring(0, 20) }
@@ -337,7 +341,7 @@ export async function sendNotification(platform: string, platformId: string, mes
                         type: 'interactive',
                         interactive: {
                             type: 'button',
-                            body: { text: cleanMsg.substring(0, 1024) },
+                            body: { text: buttonBody },
                             action: { buttons }
                         }
                     }, { headers });
@@ -365,7 +369,7 @@ export async function sendNotification(platform: string, platformId: string, mes
                         type: 'interactive',
                         interactive: {
                             type: 'cta_url',
-                            body: { text: cleanMsg.substring(0, 1024) },
+                            body: { text: buttonBody },
                             action: { name: 'cta_url', parameters: { display_text: urlOpt.label.substring(0, 20), url: urlOpt.url } }
                         }
                     }, { headers });
