@@ -510,7 +510,7 @@ router.post('/flutterwave/webhook', async (req, res) => {
                 const { data: withdrawal } = await supabase
                     .from('withdrawals')
                     .select('id')
-                    .eq('reference', reference)
+                    .eq('idempotency_key', reference)   // Flutterwave echoes back our orderId (UUID), not WD-* reference
                     .maybeSingle();
                 if (withdrawal) {
                     await queryAndSyncStatus(withdrawal.id).catch(e =>

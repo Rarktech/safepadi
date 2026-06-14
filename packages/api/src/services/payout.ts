@@ -85,7 +85,8 @@ export async function disburseFunds(withdrawalId: string): Promise<void> {
         }
 
         const updateFields: Record<string, unknown> = {
-            provider_order_no: result.providerOrderNo || result.providerTransferId,
+            // Store numeric transfer ID so GET /v3/transfers/:id works in reconciliation
+            provider_order_no: result.providerTransferId || result.providerOrderNo,
             provider_response: result.rawResponse,
         };
 

@@ -901,7 +901,7 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
                     const isCrypto = CRYPTO_CURRENCIES.has(currency);
                     const requiresApproval = isCrypto || sellerAmount > (AUTO_DISBURSE_THRESHOLDS[currency] ?? 500);
 
-                    const idempotencyKey = require('crypto').randomUUID();
+                    const idempotencyKey = crypto.randomUUID();
                     const { data: rpcResult } = await supabase.rpc('create_withdrawal_atomic', {
                         p_profile_id: txn.seller_id,
                         p_amount: sellerAmount,
