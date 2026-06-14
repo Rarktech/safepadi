@@ -9,6 +9,7 @@ import multer from 'multer';
 import { maybeSendFeedbackPrompt } from './feedback';
 import { requireUser, requireUserOrBot, AuthedRequest, BotOrUserRequest } from '../middleware/requireUser';
 import { buildInternalMagicLink } from '../services/magicLinkInternal';
+import { CRYPTO_CURRENCIES, AUTO_DISBURSE_THRESHOLDS } from '../constants/payouts';
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -894,8 +895,6 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
 
                     if (!defaultMethod) return; // No default method — seller must withdraw manually
 
-                    const CRYPTO_CURRENCIES = new Set(['BTC', 'ETH', 'USDT', 'USDC', 'SOL']);
-                    const AUTO_DISBURSE_THRESHOLDS: Record<string, number> = { NGN: 500000, USD: 1000, EUR: 1000, GBP: 800 };
                     const sellerAmount = Number(txn.amount);
                     const currency: string = txn.currency;
                     const isCrypto = CRYPTO_CURRENCIES.has(currency);
@@ -1844,8 +1843,9 @@ router.get('/:id/chainrails-session', async (req, res) => {
         }).eq('id', id);
 
         res.json(sessionRes.data);
-    } catch (err: any) {
-        console.error('❌ ChainRails Session Error:', JSON.stringify(err.response?.data || err.message));
+    } catch (err: unknown) {
+        const e = err as { response?: { data?: unknown }; message?: string };
+        console.error('❌ ChainRails Session Error:', JSON.stringify(e.response?.data ?? e.message));
         res.status(500).json({ error: 'Failed to initialize ChainRails session' });
     }
 });

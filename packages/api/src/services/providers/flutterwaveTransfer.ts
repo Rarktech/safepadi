@@ -46,7 +46,7 @@ export async function verifyBankAccount(bankCode: string, accountNumber: string)
         throw new Error(res.data?.message || 'Account not found');
     }
     return {
-        accountName: res.data.data.account_name,
+        accountName: res.data.data.account_name as string,
         accountNumber,
         bankCode,
     };
@@ -65,26 +65,28 @@ export async function initiatePayout(opts: PayoutOpts): Promise<PayoutResult> {
     if (opts.callbackUrl) payload.callback_url = opts.callbackUrl;
 
     const res = await axios.post(`${FLW_BASE}/transfers`, payload, { headers: headers() });
-    const d = res.data?.data;
-    const flwStatus: string = (d?.status || '').toUpperCase();
+    const d = res.data?.data as { id?: number; status?: string; reference?: string; complete_message?: string } | undefined;
+    const flwStatus = (d?.status ?? '').toUpperCase();
 
     let status: 'SUCCESS' | 'PENDING' | 'FAIL';
     if (flwStatus === 'SUCCESSFUL' || flwStatus === 'SUCCESS') status = 'SUCCESS';
     else if (flwStatus === 'FAILED' || flwStatus === 'FAIL') status = 'FAIL';
     else status = 'PENDING';
 
+    // providerTransferId = Flutterwave numeric ID (used for GET /v3/transfers/:id in reconciliation)
+    // providerOrderNo   = our reference string (echoed back; used for webhook matching)
     return {
-        providerTransferId: d?.id ? String(d.id) : null,
-        providerOrderNo: d?.reference || opts.orderId,
+        providerTransferId: d?.id != null ? String(d.id) : null,
+        providerOrderNo: d?.reference ?? opts.orderId,
         status,
-        rawResponse: res.data,
+        rawResponse: res.data as object,
     };
 }
 
 export async function queryPayoutStatus(transferId: string): Promise<PayoutStatus> {
     const res = await axios.get(`${FLW_BASE}/transfers/${transferId}`, { headers: headers() });
-    const d = res.data?.data;
-    const flwStatus: string = (d?.status || '').toUpperCase();
+    const d = res.data?.data as { id?: number; status?: string; complete_message?: string } | undefined;
+    const flwStatus = (d?.status ?? '').toUpperCase();
 
     let status: 'SUCCESS' | 'PENDING' | 'FAIL';
     if (flwStatus === 'SUCCESSFUL' || flwStatus === 'SUCCESS') status = 'SUCCESS';
@@ -93,14 +95,14 @@ export async function queryPayoutStatus(transferId: string): Promise<PayoutStatu
 
     return {
         status,
-        providerTransferId: d?.id ? String(d.id) : null,
-        failureReason: d?.complete_message || null,
+        providerTransferId: d?.id != null ? String(d.id) : null,
+        failureReason: d?.complete_message ?? null,
     };
 }
 
 export async function getBankList(): Promise<{ code: string; name: string }[]> {
     const res = await axios.get(`${FLW_BASE}/banks/NG?per_page=150`, { headers: headers() });
-    return (res.data?.data || []).map((b: any) => ({ code: b.code, name: b.name }));
+    return (res.data?.data ?? []).map((b: { code: string; name: string }) => ({ code: b.code, name: b.name }));
 }
 
 export const name = 'FlutterwaveTransfer';

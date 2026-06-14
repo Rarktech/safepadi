@@ -5,20 +5,9 @@ import { routeNotification, recordNotification } from '../services/notifications
 import { sendWithdrawalInitiatedEmail } from '../services/email';
 import { disburseFunds } from '../services/payout';
 import { requireUser, requireSafetagOwner, requireElevation, AuthedRequest } from '../middleware/requireUser';
+import { CRYPTO_CURRENCIES, AUTO_DISBURSE_THRESHOLDS, KYC_THRESHOLDS } from '../constants/payouts';
 
 const router = Router();
-
-// Auto-disburse threshold: below these amounts, funds release automatically (no admin gate)
-const AUTO_DISBURSE_THRESHOLDS: Record<string, number> = {
-    NGN: 500000,
-    USD: 1000,
-    EUR: 1000,
-    GBP: 800,
-};
-const CRYPTO_CURRENCIES = new Set(['BTC', 'ETH', 'USDT', 'USDC', 'SOL']);
-
-// KYC gate thresholds
-const KYC_THRESHOLDS: Record<string, number> = { USD: 100, NGN: 100000, BTC: 0.002, USDT: 100, EUR: 100 };
 
 // Create a withdrawal request
 router.post('/:safetag', requireUser, requireSafetagOwner, requireElevation('withdraw'), async (req, res) => {
@@ -142,9 +131,10 @@ router.post('/:safetag', requireUser, requireSafetagOwner, requireElevation('wit
         }
 
         res.status(201).json({ id: withdrawalId, reference, status, idempotency_key: idempotencyKey });
-    } catch (err: any) {
-        console.error('❌ Withdrawal error:', err.message);
-        res.status(400).json({ error: err.message });
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error('❌ Withdrawal error:', message);
+        res.status(400).json({ error: message });
     }
 });
 
@@ -161,8 +151,9 @@ router.get('/:safetag', requireUser, requireSafetagOwner, async (req, res) => {
 
         if (error) throw error;
         res.json(data || []);
-    } catch (err: any) {
-        res.status(400).json({ error: err.message });
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        res.status(400).json({ error: message });
     }
 });
 

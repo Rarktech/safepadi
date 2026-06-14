@@ -4,8 +4,20 @@ import { z } from 'zod';
 import { sendNotification, sendReferralNotification, recordNotification } from '../services/notifications';
 import { sendEmail } from '../services/email';
 import multer from 'multer';
+import rateLimit from 'express-rate-limit';
 import { requireUser, requireSafetagOwner, requireElevation, requireUserOrBot, AuthedRequest, BotOrUserRequest } from '../middleware/requireUser';
 import { requireBot, BotAuthedRequest } from '../middleware/requireBot';
+
+// 5 name-enquiry calls per user per 10 minutes — prevents account enumeration
+const verifyBankRateLimit = rateLimit({
+    windowMs: 10 * 60 * 1000,
+    max: 5,
+    keyGenerator: (req) => (req as AuthedRequest).user?.sub ?? req.ip ?? 'unknown',
+    message: { error: 'Too many bank verification requests. Please wait 10 minutes before trying again.', code: 'RATE_LIMITED' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: () => process.env.NODE_ENV === 'test',
+});
 const upload = multer({ storage: multer.memoryStorage() });
 
 function levenshtein(a: string, b: string): number {
@@ -776,7 +788,7 @@ router.get('/:safetag/stats', async (req, res) => {
 });
 
 // Verify a bank account via name enquiry (Flutterwave or PalmPay)
-router.post('/:safetag/verify-bank-account', requireUser, requireSafetagOwner, async (req, res) => {
+router.post('/:safetag/verify-bank-account', requireUser, requireSafetagOwner, verifyBankRateLimit, async (req, res) => {
     try {
         const { bankCode, accountNumber } = req.body;
         if (!bankCode || !accountNumber) {

@@ -7,11 +7,36 @@ import axios from 'axios';
 
 const BASE_URL = () => process.env.PALMPAY_BASE_URL || 'https://open-gw-daily.palmpay-inc.com';
 
+export interface PalmPayResponse {
+    respCode: string;
+    respMsg?: string;
+    data?: Record<string, unknown>;
+}
+
+export interface VerifyResult {
+    accountName: string;
+    accountNumber: string;
+    bankCode: string;
+}
+
+export interface PayoutResult {
+    providerTransferId: string | null;
+    providerOrderNo: string | null;
+    status: 'SUCCESS' | 'PENDING' | 'FAIL';
+    rawResponse: PalmPayResponse;
+}
+
+export interface PayoutStatus {
+    status: 'SUCCESS' | 'PENDING' | 'FAIL';
+    providerTransferId: string | null;
+    failureReason: string | null;
+}
+
 export function isConfigured(): boolean {
     return !!(process.env.PALMPAY_APP_ID && process.env.PALMPAY_PRIVATE_KEY && process.env.PALMPAY_PUBLIC_KEY);
 }
 
-function buildCanonicalString(params: Record<string, unknown>): string {
+export function buildCanonicalString(params: Record<string, unknown>): string {
     return Object.keys(params)
         .filter(k => params[k] !== null && params[k] !== undefined && params[k] !== '')
         .sort()
@@ -28,11 +53,16 @@ function signRequest(params: Record<string, unknown>): string {
     return sign.sign(privateKey, 'base64');
 }
 
+// PalmPay signs webhook payloads using the same canonical-sorted-param approach.
+// We verify using PalmPay's public key against the sorted params (not raw JSON body).
 export function verifyWebhook(rawBody: string, signature: string): boolean {
     try {
         const publicKey = process.env.PALMPAY_PUBLIC_KEY!;
+        // Parse the raw body and rebuild the canonical string for verification
+        const parsed: Record<string, unknown> = JSON.parse(rawBody);
+        const canonical = buildCanonicalString(parsed);
         const verify = crypto.createVerify('SHA256');
-        verify.update(rawBody);
+        verify.update(canonical);
         verify.end();
         return verify.verify(publicKey, signature, 'base64');
     } catch {
@@ -50,7 +80,7 @@ function baseParams(): Record<string, unknown> {
     };
 }
 
-async function post(path: string, body: Record<string, unknown>): Promise<any> {
+async function post(path: string, body: Record<string, unknown>): Promise<PalmPayResponse> {
     const signature = signRequest(body);
     const res = await axios.post(`${BASE_URL()}${path}`, body, {
         headers: {
@@ -61,10 +91,10 @@ async function post(path: string, body: Record<string, unknown>): Promise<any> {
         },
         timeout: 30000,
     });
-    return res.data;
+    return res.data as PalmPayResponse;
 }
 
-export async function verifyBankAccount(bankCode: string, accountNumber: string): Promise<{ accountName: string; accountNumber: string; bankCode: string }> {
+export async function verifyBankAccount(bankCode: string, accountNumber: string): Promise<VerifyResult> {
     const params = {
         ...baseParams(),
         bankCode,
@@ -74,11 +104,8 @@ export async function verifyBankAccount(bankCode: string, accountNumber: string)
     if (data?.respCode !== '00000000' && data?.respCode !== '0000') {
         throw new Error(data?.respMsg || 'Account not found');
     }
-    return {
-        accountName: data?.data?.accountName || data?.accountName,
-        accountNumber,
-        bankCode,
-    };
+    const accountName = String(data?.data?.accountName ?? '');
+    return { accountName, accountNumber, bankCode };
 }
 
 export async function initiatePayout(opts: {
@@ -88,8 +115,8 @@ export async function initiatePayout(opts: {
     accountName: string;
     amountNgn: number;
     narration: string;
-}): Promise<{ providerTransferId: string | null; providerOrderNo: string | null; status: 'SUCCESS' | 'PENDING' | 'FAIL'; rawResponse: object }> {
-    const params = {
+}): Promise<PayoutResult> {
+    const params: Record<string, unknown> = {
         ...baseParams(),
         orderId: opts.orderId,
         payeeBankCode: opts.bankCode,
@@ -102,24 +129,24 @@ export async function initiatePayout(opts: {
     };
     const data = await post('/api/v2/merchant/payment/payout', params);
 
-    const palmpayStatus = (data?.data?.orderStatus || data?.status || '').toUpperCase();
+    const palmpayStatus = String(data?.data?.orderStatus ?? data?.respCode ?? '').toUpperCase();
     let status: 'SUCCESS' | 'PENDING' | 'FAIL';
     if (palmpayStatus === 'SUCCESS' || palmpayStatus === 'SUCCESSFUL') status = 'SUCCESS';
     else if (palmpayStatus === 'FAIL' || palmpayStatus === 'FAILED') status = 'FAIL';
     else status = 'PENDING';
 
     return {
-        providerTransferId: data?.data?.orderNo || null,
-        providerOrderNo: data?.data?.orderNo || null,
+        providerTransferId: data?.data?.orderNo ? String(data.data.orderNo) : null,
+        providerOrderNo: data?.data?.orderNo ? String(data.data.orderNo) : null,
         status,
         rawResponse: data,
     };
 }
 
-export async function queryPayoutStatus(orderId: string): Promise<{ status: 'SUCCESS' | 'PENDING' | 'FAIL'; providerTransferId: string | null; failureReason: string | null }> {
+export async function queryPayoutStatus(orderId: string): Promise<PayoutStatus> {
     const params = { ...baseParams(), orderId };
     const data = await post('/api/v2/merchant/payment/queryStatus', params);
-    const palmpayStatus = (data?.data?.orderStatus || '').toUpperCase();
+    const palmpayStatus = String(data?.data?.orderStatus ?? '').toUpperCase();
 
     let status: 'SUCCESS' | 'PENDING' | 'FAIL';
     if (palmpayStatus === 'SUCCESS' || palmpayStatus === 'SUCCESSFUL') status = 'SUCCESS';
@@ -128,8 +155,8 @@ export async function queryPayoutStatus(orderId: string): Promise<{ status: 'SUC
 
     return {
         status,
-        providerTransferId: data?.data?.orderNo || null,
-        failureReason: data?.data?.failureReason || null,
+        providerTransferId: data?.data?.orderNo ? String(data.data.orderNo) : null,
+        failureReason: data?.data?.failureReason ? String(data.data.failureReason) : null,
     };
 }
 

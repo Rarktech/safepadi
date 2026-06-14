@@ -6,7 +6,9 @@
         "start": "node dist/server.js",
         "dev": "npx ts-node-dev -r tsconfig-paths/register src/server.ts",
         "build": "tsc",
-        "postinstall": "npx puppeteer browsers install chrome"
+        "postinstall": "npx puppeteer browsers install chrome",
+        "test": "jest",
+        "test:coverage": "jest --coverage"
     },
     "dependencies": {
         "@google/generative-ai": "^0.24.1",
@@ -26,6 +28,9 @@
         "puppeteer": "^24.39.1"
     },
     "devDependencies": {
-        "@types/node-cron": "^3.0.11"
+        "@types/jest": "^30.0.0",
+        "@types/node-cron": "^3.0.11",
+        "jest": "^30.4.2",
+        "ts-jest": "^29.4.11"
     }
 }
