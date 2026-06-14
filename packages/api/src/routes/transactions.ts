@@ -880,6 +880,52 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
         }
         // --- END TRANSACTION COUNT MILESTONES ---
 
+        // --- AUTO-SETTLEMENT: trigger payout if seller has a verified default payout method ---
+        if (newStatus === 'FINALIZED') {
+            setImmediate(async () => {
+                try {
+                    const { disburseFunds } = await import('../services/payout');
+                    const { data: defaultMethod } = await supabase
+                        .from('payout_methods')
+                        .select('id, type, details')
+                        .eq('profile_id', txn.seller_id)
+                        .eq('is_default', true)
+                        .maybeSingle();
+
+                    if (!defaultMethod) return; // No default method — seller must withdraw manually
+
+                    const CRYPTO_CURRENCIES = new Set(['BTC', 'ETH', 'USDT', 'USDC', 'SOL']);
+                    const AUTO_DISBURSE_THRESHOLDS: Record<string, number> = { NGN: 500000, USD: 1000, EUR: 1000, GBP: 800 };
+                    const sellerAmount = Number(txn.amount);
+                    const currency: string = txn.currency;
+                    const isCrypto = CRYPTO_CURRENCIES.has(currency);
+                    const requiresApproval = isCrypto || sellerAmount > (AUTO_DISBURSE_THRESHOLDS[currency] ?? 500);
+
+                    const idempotencyKey = require('crypto').randomUUID();
+                    const { data: rpcResult } = await supabase.rpc('create_withdrawal_atomic', {
+                        p_profile_id: txn.seller_id,
+                        p_amount: sellerAmount,
+                        p_currency: currency,
+                        p_payout_method_id: defaultMethod.id,
+                        p_details: defaultMethod.details,
+                        p_idempotency_key: idempotencyKey,
+                        p_requires_approval: requiresApproval,
+                    });
+
+                    const row = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
+                    if (row?.out_id && !requiresApproval) {
+                        await disburseFunds(row.out_id);
+                    }
+                    if (row?.out_id) {
+                        console.log(`[AutoSettle] ${txn.txn_code} → withdrawal ${row.out_id} (requires_approval=${requiresApproval})`);
+                    }
+                } catch (autoErr: any) {
+                    console.error(`[AutoSettle] Failed for ${txn.txn_code}:`, autoErr.message);
+                }
+            });
+        }
+        // --- END AUTO-SETTLEMENT ---
+
         // Notify the OTHER party
         let effectiveUpdaterTag = updater_safetag;
         if (!effectiveUpdaterTag) {

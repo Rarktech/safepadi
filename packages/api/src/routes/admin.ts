@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { sendNotification, recordNotification } from '../services/notifications';
 import { sendEmail } from '../services/email';
+import { disburseFunds } from '../services/payout';
 import { buildInternalMagicLink } from '../services/magicLinkInternal';
 import multer from 'multer';
 import fs from 'fs';
@@ -1218,7 +1219,40 @@ router.patch('/settings', async (req, res) => {
 });
 
 /**
- * Approve a withdrawal (mark COMPLETED, notify user)
+ * List all withdrawals for admin dashboard (paginated, filterable by status)
+ */
+router.get('/payouts', async (req, res) => {
+    try {
+        const { status, page = '1', limit = '50' } = req.query as Record<string, string>;
+        const pageNum = Math.max(1, parseInt(page));
+        const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
+        const offset = (pageNum - 1) * limitNum;
+
+        let query = supabase
+            .from('withdrawals')
+            .select(`
+                id, amount, currency, status, reference, requires_approval,
+                provider_order_no, failure_reason, created_at, attempted_at, settled_at,
+                details,
+                profile:profile_id(id, safetag, email),
+                payout_method:payout_method_id(id, type, details)
+            `, { count: 'exact' })
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limitNum - 1);
+
+        if (status) query = query.eq('status', status);
+
+        const { data, error, count } = await query;
+        if (error) throw error;
+
+        res.json({ data: data || [], total: count ?? 0, page: pageNum, limit: limitNum });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Approve a withdrawal — triggers automated disbursement for PENDING_APPROVAL rows
  */
 router.post('/payouts/:id/approve', async (req, res) => {
     try {
@@ -1231,7 +1265,17 @@ router.post('/payouts/:id/approve', async (req, res) => {
 
         if (error || !withdrawal) return res.status(404).json({ error: 'Withdrawal not found' });
 
-        await supabase.from('withdrawals').update({ status: 'COMPLETED' }).eq('id', id);
+        // If PENDING_APPROVAL, set to PROCESSING and trigger disbursement
+        if (withdrawal.status === 'PENDING_APPROVAL') {
+            await supabase.from('withdrawals').update({ status: 'PROCESSING' }).eq('id', id);
+            setImmediate(() => {
+                disburseFunds(id).catch(e => console.error(`[Admin Approve] disburseFunds failed for ${id}:`, e.message));
+            });
+            return res.json({ success: true, message: 'Disbursement initiated' });
+        }
+
+        // Legacy: manual admin approval path (for rows without auto-disburse)
+        await supabase.from('withdrawals').update({ status: 'PAID', settled_at: new Date().toISOString() }).eq('id', id);
 
         const profile = withdrawal.profile as any;
         const linked = (profile?.linked_accounts || []).find((l: any) => l.is_primary) || profile?.linked_accounts?.[0];

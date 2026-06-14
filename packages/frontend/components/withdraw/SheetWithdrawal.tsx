@@ -1,6 +1,6 @@
-﻿'use client';
+'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription
 } from "@/components/ui/sheet";
@@ -10,14 +10,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-    Select, SelectContent, SelectItem, SelectTrigger, SelectValue
-} from "@/components/ui/select";
 import { toast } from 'sonner';
 import api from '@/lib/api';
 import {
     ShieldCheck, ArrowRight, X, User, CreditCard, Plus, Clock, Bitcoin, DollarSign,
-    CheckCircle2, Search
+    CheckCircle2, Search, Loader2, CheckCircle
 } from 'lucide-react';
 
 import { NIGERIAN_BANKS, CRYPTO_ASSETS, INTERNATIONAL_BANKS } from '@/lib/constants/payout-data';
@@ -35,7 +32,7 @@ export const SheetWithdrawal = ({
     balances,
     safetag,
     onSuccess,
-    preselectedCurrency = 'USD'
+    preselectedCurrency = 'NGN'
 }: {
     isOpen: boolean,
     onClose: () => void,
@@ -49,7 +46,6 @@ export const SheetWithdrawal = ({
     const [amount, setAmount] = useState('');
     const [withdrawalType, setWithdrawalType] = useState<'bank' | 'crypto'>('bank');
 
-    // Added payout selection state
     const [selectedMethod, setSelectedMethod] = useState<any>(null);
     const [saveForFuture, setSaveForFuture] = useState(true);
 
@@ -57,7 +53,9 @@ export const SheetWithdrawal = ({
     const [showBankPicker, setShowBankPicker] = useState(false);
     const [selectedBank, setSelectedBank] = useState<any>(null);
     const [accountNumber, setAccountNumber] = useState('');
-    const [accountName, setAccountName] = useState('');
+    const [verifyingAccount, setVerifyingAccount] = useState(false);
+    const [verifiedAccountName, setVerifiedAccountName] = useState('');
+    const [verifyError, setVerifyError] = useState('');
 
     // Crypto state
     const [showCryptoPicker, setShowCryptoPicker] = useState(false);
@@ -69,6 +67,7 @@ export const SheetWithdrawal = ({
     const [loading, setLoading] = useState(false);
     const [savedMethods, setSavedMethods] = useState<any[]>([]);
     const [isRefreshingMethods, setIsRefreshingMethods] = useState(false);
+    const [withdrawalReference, setWithdrawalReference] = useState('');
 
     const formatWithCommas = (value: string) => {
         const num = value.replace(/,/g, '');
@@ -83,37 +82,81 @@ export const SheetWithdrawal = ({
         }
     };
 
+    // Auto-verify bank account when 10 digits are entered
+    useEffect(() => {
+        if (accountNumber.length !== 10 || !selectedBank) {
+            setVerifiedAccountName('');
+            setVerifyError('');
+            return;
+        }
+        let cancelled = false;
+        const verify = async () => {
+            setVerifyingAccount(true);
+            setVerifiedAccountName('');
+            setVerifyError('');
+            try {
+                const res = await api.post(`/profiles/${safetag}/verify-bank-account`, {
+                    bankCode: selectedBank.code,
+                    accountNumber,
+                });
+                if (!cancelled) {
+                    setVerifiedAccountName(res.data.accountName);
+                }
+            } catch (err: any) {
+                if (!cancelled) {
+                    setVerifyError(err.response?.data?.error || 'Account not found — please check the number');
+                }
+            } finally {
+                if (!cancelled) setVerifyingAccount(false);
+            }
+        };
+        verify();
+        return () => { cancelled = true; };
+    }, [accountNumber, selectedBank, safetag]);
+
     const handleWithdraw = async () => {
         setLoading(true);
         try {
             const rawAmount = Number(amount.replace(/,/g, ''));
             const methodDetails = selectedMethod ? selectedMethod.details : (
                 withdrawalType === 'bank'
-                    ? { bank_id: selectedBank.code, bank_name: selectedBank.name, account_number: accountNumber, account_name: accountName, logo: selectedBank.logo }
-                    : { asset: selectedCrypto.name, symbol: selectedCrypto.symbol, chain: cryptoChain, address: walletAddress, logo: selectedCrypto.logo }
+                    ? {
+                        bank_id: selectedBank.code,
+                        bankCode: selectedBank.code,
+                        bank_name: selectedBank.name,
+                        account_number: accountNumber,
+                        account_name: verifiedAccountName,
+                        verifiedAccountName,
+                        logo: selectedBank.logo,
+                    }
+                    : {
+                        asset: selectedCrypto.name,
+                        symbol: selectedCrypto.symbol,
+                        chain: cryptoChain,
+                        address: walletAddress,
+                        logo: selectedCrypto.logo,
+                    }
             );
 
-            // 1. Save method if new and checkbox checked
             if (!selectedMethod && saveForFuture) {
                 await api.post(`/profiles/${safetag}/payout-methods`, {
                     type: withdrawalType,
-                    details: methodDetails
+                    details: methodDetails,
                 });
             }
 
-            // 2. Create withdrawal record
-            await api.post(`/withdrawals/${safetag}`, {
+            const res = await api.post(`/withdrawals/${safetag}`, {
                 amount: rawAmount,
                 currency: selectedCurrency,
                 payout_method_id: selectedMethod?.id || null,
-                details: methodDetails
+                details: methodDetails,
             });
 
-            toast.success('Withdrawal request submitted successfully!');
+            setWithdrawalReference(res.data?.reference || '');
+            toast.success('Withdrawal request submitted!');
             onSuccess({ amount: rawAmount, currency: selectedCurrency, type: withdrawalType });
-            reset(); // This will also call onClose() via reset logic if adjusted
+            setStep(4);
         } catch (error: any) {
-            console.error('❌ Withdrawal failed:', error);
             toast.error(error.response?.data?.error || 'Failed to process withdrawal');
         } finally {
             setLoading(false);
@@ -126,10 +169,12 @@ export const SheetWithdrawal = ({
         setSelectedMethod(null);
         setSelectedBank(null);
         setAccountNumber('');
-        setAccountName('');
+        setVerifiedAccountName('');
+        setVerifyError('');
         setSelectedCrypto(null);
         setCryptoChain('');
         setWalletAddress('');
+        setWithdrawalReference('');
         onClose();
     };
 
@@ -145,13 +190,19 @@ export const SheetWithdrawal = ({
         }
     };
 
-    React.useEffect(() => {
+    useEffect(() => {
         if (isOpen) {
             fetchSavedMethods();
             setSelectedCurrency(preselectedCurrency);
             setWithdrawalType(['BTC', 'ETH', 'USDT'].includes(preselectedCurrency) ? 'crypto' : 'bank');
         }
     }, [isOpen, preselectedCurrency]);
+
+    const canProceedFromStep2 = selectedMethod || (
+        withdrawalType === 'bank'
+            ? (selectedBank && accountNumber.length === 10 && !!verifiedAccountName)
+            : (selectedCrypto && cryptoChain && walletAddress.length >= 20)
+    );
 
     return (
         <Sheet open={isOpen} onOpenChange={(open) => !open && reset()}>
@@ -294,6 +345,7 @@ export const SheetWithdrawal = ({
                                         </div>
                                     </div>
 
+                                    {/* Bank form — with auto-verify */}
                                     {!selectedMethod && selectedBank && withdrawalType === 'bank' && (
                                         <div className="space-y-6 animate-in slide-in-from-top-4 duration-300 p-6 bg-white rounded-3xl shadow-sm border border-slate-100">
                                             <div className="flex items-center gap-4 pb-4 border-b border-slate-50">
@@ -301,28 +353,56 @@ export const SheetWithdrawal = ({
                                                     <img src={selectedBank.logo} className="w-full h-full object-contain" />
                                                 </div>
                                                 <span className="font-black text-slate-900">{selectedBank.name}</span>
-                                                <button onClick={() => setSelectedBank(null)} className="ml-auto p-1.5 text-slate-400 hover:bg-slate-50 rounded-lg"><X size={16} /></button>
+                                                <button
+                                                    onClick={() => { setSelectedBank(null); setAccountNumber(''); setVerifiedAccountName(''); setVerifyError(''); }}
+                                                    className="ml-auto p-1.5 text-slate-400 hover:bg-slate-50 rounded-lg"
+                                                >
+                                                    <X size={16} />
+                                                </button>
                                             </div>
 
-                                            <div className="space-y-4">
+                                            <div className="space-y-2">
                                                 <Label className="text-xs font-bold text-slate-400">Account number</Label>
                                                 <Input
                                                     placeholder="10-digit number"
                                                     value={accountNumber}
                                                     maxLength={10}
-                                                    onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, ''))}
-                                                    className="h-14 bg-slate-50 border-none rounded-xl px-4 font-bold"
+                                                    onChange={(e) => {
+                                                        setAccountNumber(e.target.value.replace(/\D/g, ''));
+                                                        setVerifiedAccountName('');
+                                                        setVerifyError('');
+                                                    }}
+                                                    className="h-14 bg-slate-50 border-none rounded-xl px-4 font-bold tracking-widest"
                                                 />
                                             </div>
-                                            <div className="space-y-4">
-                                                <Label className="text-xs font-bold text-slate-400">Account name</Label>
-                                                <Input
-                                                    placeholder="Full name"
-                                                    value={accountName}
-                                                    onChange={(e) => setAccountName(e.target.value)}
-                                                    className="h-14 bg-slate-50 border-none rounded-xl px-4 font-bold"
-                                                />
-                                            </div>
+
+                                            {/* Verification state */}
+                                            {accountNumber.length === 10 && (
+                                                <div className="animate-in fade-in duration-200">
+                                                    {verifyingAccount && (
+                                                        <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl">
+                                                            <Loader2 size={18} className="animate-spin text-slate-400" />
+                                                            <span className="text-sm font-bold text-slate-400">Verifying account...</span>
+                                                        </div>
+                                                    )}
+                                                    {verifiedAccountName && !verifyingAccount && (
+                                                        <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+                                                            <CheckCircle size={18} className="text-emerald-500 shrink-0" />
+                                                            <div>
+                                                                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Account verified</p>
+                                                                <p className="text-sm font-black text-slate-900 mt-0.5">{verifiedAccountName}</p>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    {verifyError && !verifyingAccount && (
+                                                        <div className="flex items-center gap-3 p-4 bg-rose-50 rounded-xl border border-rose-100">
+                                                            <X size={18} className="text-rose-500 shrink-0" />
+                                                            <p className="text-sm font-bold text-rose-600">{verifyError}</p>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
                                             <div className="flex items-center gap-3">
                                                 <input
                                                     type="checkbox"
@@ -336,6 +416,7 @@ export const SheetWithdrawal = ({
                                         </div>
                                     )}
 
+                                    {/* Crypto form */}
                                     {!selectedMethod && selectedCrypto && withdrawalType === 'crypto' && (
                                         <div className="space-y-6 animate-in slide-in-from-top-4 duration-300 p-6 bg-white rounded-3xl shadow-sm border border-slate-100">
                                             <div className="flex items-center gap-4 pb-4 border-b border-slate-50">
@@ -388,13 +469,7 @@ export const SheetWithdrawal = ({
                                         <Button variant="outline" onClick={() => setStep(1)} className="h-16 flex-1 rounded-[24px] border-slate-100 font-black text-slate-400">Back</Button>
                                         <Button
                                             onClick={() => setStep(3)}
-                                            disabled={
-                                                !selectedMethod &&
-                                                (withdrawalType === 'bank'
-                                                    ? (!selectedBank || accountNumber.length < 10 || !accountName)
-                                                    : (!selectedCrypto || !cryptoChain || !walletAddress)
-                                                )
-                                            }
+                                            disabled={!canProceedFromStep2 || verifyingAccount}
                                             className="h-16 flex-[2] bg-slate-900 hover:bg-slate-800 text-white rounded-[24px] font-black shadow-xl"
                                         >
                                             Continue
@@ -414,7 +489,7 @@ export const SheetWithdrawal = ({
                                         <div className="space-y-4 pt-8 border-t border-slate-50">
                                             <div className="flex justify-between items-center text-sm">
                                                 <span className="font-bold text-slate-400">Destination</span>
-                                                <span className="font-black text-slate-900">{selectedMethod?.details.bank_name || selectedBank?.name}</span>
+                                                <span className="font-black text-slate-900">{selectedMethod?.details.bank_name || selectedBank?.name || selectedMethod?.details.symbol || selectedCrypto?.name}</span>
                                             </div>
                                             <div className="flex justify-between items-center text-sm">
                                                 <span className="font-bold text-slate-400">{withdrawalType === 'bank' ? 'Account' : 'Address'}</span>
@@ -431,8 +506,14 @@ export const SheetWithdrawal = ({
                                                     }
                                                 </span>
                                             </div>
+                                            {withdrawalType === 'bank' && (
+                                                <div className="flex justify-between items-center text-sm">
+                                                    <span className="font-bold text-slate-400">Account Name</span>
+                                                    <span className="font-black text-slate-900">{selectedMethod?.details.account_name || verifiedAccountName}</span>
+                                                </div>
+                                            )}
                                             <div className="flex justify-between items-center text-sm">
-                                                <span className="font-bold text-slate-400">Fee</span>
+                                                <span className="font-bold text-slate-400">Transfer Fee</span>
                                                 <span className="font-black text-emerald-500">Free</span>
                                             </div>
                                         </div>
@@ -453,6 +534,7 @@ export const SheetWithdrawal = ({
                         </div>
                     </div>
                 ) : (
+                    /* Step 4 — success screen */
                     <div className="flex flex-col h-full items-center justify-center p-10 text-center animate-in zoom-in-95 duration-500 bg-white">
                         <div className="w-24 h-24 bg-blue-50 rounded-[40px] flex items-center justify-center text-blue-500 shadow-2xl shadow-blue-100 mb-8 animate-pulse">
                             <Clock size={48} />
@@ -466,10 +548,12 @@ export const SheetWithdrawal = ({
                                 <span className="text-slate-400 font-bold">Amount</span>
                                 <span className="text-slate-900 font-black">{amount} {selectedCurrency}</span>
                             </div>
-                            <div className="flex justify-between text-xs">
-                                <span className="text-slate-400 font-bold">Ref</span>
-                                <span className="text-slate-900 font-mono font-bold tracking-widest text-[10px]">#WD-{Math.random().toString(36).substring(7).toUpperCase()}</span>
-                            </div>
+                            {withdrawalReference && (
+                                <div className="flex justify-between text-xs">
+                                    <span className="text-slate-400 font-bold">Ref</span>
+                                    <span className="text-slate-900 font-mono font-bold tracking-widest text-[10px]">{withdrawalReference}</span>
+                                </div>
+                            )}
                         </div>
                         <Button
                             onClick={reset}
@@ -481,7 +565,6 @@ export const SheetWithdrawal = ({
                 )}
             </SheetContent>
 
-            {/* Bank Picker Popover/Modal */}
             {/* Bank Picker Modal */}
             <Dialog open={showBankPicker} onOpenChange={setShowBankPicker}>
                 <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-md w-full p-2 bg-[#1a1c1e] text-white border-none rounded-[40px] overflow-hidden shadow-2xl">
@@ -517,6 +600,8 @@ export const SheetWithdrawal = ({
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 setSelectedBank(bank);
+                                                setAccountNumber('');
+                                                setVerifiedAccountName('');
                                                 setShowBankPicker(false);
                                                 setPickerSearch('');
                                             }}
@@ -540,6 +625,8 @@ export const SheetWithdrawal = ({
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         setSelectedBank(bank);
+                                                        setAccountNumber('');
+                                                        setVerifiedAccountName('');
                                                         setShowBankPicker(false);
                                                     }}
                                                     className="p-4 bg-[#242628] rounded-2xl flex items-center gap-3 border border-white/5 hover:border-[#10b981]/30 transition-all text-left"
@@ -562,6 +649,8 @@ export const SheetWithdrawal = ({
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         setSelectedBank(bank);
+                                                        setAccountNumber('');
+                                                        setVerifiedAccountName('');
                                                         setShowBankPicker(false);
                                                     }}
                                                     className="w-full p-4 flex items-center gap-4 rounded-2xl bg-[#242628] border border-white/5 hover:border-[#10b981]/30 transition-all text-left group"
@@ -584,6 +673,8 @@ export const SheetWithdrawal = ({
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         setSelectedBank(bank);
+                                                        setAccountNumber('');
+                                                        setVerifiedAccountName('');
                                                         setShowBankPicker(false);
                                                     }}
                                                     className="w-full p-4 flex items-center gap-4 rounded-2xl bg-[#242628] border border-white/5 hover:bg-[#2a2c2e] transition-all text-left group"
@@ -603,7 +694,6 @@ export const SheetWithdrawal = ({
                 </DialogContent>
             </Dialog>
 
-            {/* Crypto Picker Popover/Modal */}
             {/* Crypto Picker Modal */}
             <Dialog open={showCryptoPicker} onOpenChange={setShowCryptoPicker}>
                 <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-md w-full p-2 bg-[#1a1c1e] text-white border-none rounded-[40px] overflow-hidden shadow-2xl">

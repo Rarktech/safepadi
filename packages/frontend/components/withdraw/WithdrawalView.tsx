@@ -20,6 +20,11 @@ import { AlertTriangle, Trash2 } from 'lucide-react';
 import api from '@/lib/api';
 import { ConnectMethodModal } from './ConnectMethodModal';
 
+const CURRENCY_SYMBOLS: Record<string, string> = {
+    NGN: '₦', USD: '$', EUR: '€', GBP: '£',
+    BTC: '₿', USDT: '₮', ETH: 'Ξ', USDC: '$',
+};
+
 export const WithdrawalView = ({
     profile,
     balances,
@@ -31,6 +36,10 @@ export const WithdrawalView = ({
     onInternalWithdraw: (currency: string) => void,
     refreshTrigger?: number
 }) => {
+    const highestBalanceCurrency = balances.reduce(
+        (best, b) => (Number(b.amount) > Number(best?.amount || 0) ? b : best),
+        balances[0]
+    )?.currency || 'NGN';
     const [methods, setMethods] = useState<any[]>([]);
     const [loadingMethods, setLoadingMethods] = useState(true);
     const [withdrawals, setWithdrawals] = useState<any[]>([]);
@@ -145,7 +154,7 @@ export const WithdrawalView = ({
                             
                             <div className="space-y-1">
                                 <h2 className="text-3xl font-black text-slate-900 tracking-tighter">
-                                    {b.currency === 'USD' ? '$' : b.currency === 'NGN' ? '₦' : ''}
+                                    {CURRENCY_SYMBOLS[b.currency] ?? ''}
                                     {Number(b.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </h2>
                                 <p className="text-[10px] font-bold text-slate-400 tracking-wider">Available Balance</p>
@@ -166,7 +175,7 @@ export const WithdrawalView = ({
                             <p className="text-white/40 text-[10px] font-bold uppercase tracking-widest max-w-[180px]">Withdraw any of your earnings to your linked accounts</p>
                         </div>
                         <Button
-                            onClick={() => onInternalWithdraw('USD')}
+                            onClick={() => onInternalWithdraw(highestBalanceCurrency)}
                             className="bg-[#10b981] hover:bg-[#059669] text-white px-8 py-6 rounded-2xl text-xs font-black shadow-xl shadow-emerald-500/20 active:scale-[0.95] transition-all flex items-center justify-center gap-3 w-full"
                         >
                             Withdraw earnings
@@ -213,7 +222,7 @@ export const WithdrawalView = ({
                                 <div className="space-y-0.5 mt-0.5">
                                     {item.values.map((v: any) => (
                                         <p key={v.currency} className="text-base font-black text-slate-900 leading-tight">
-                                            {v.currency === 'USD' ? '$' : v.currency === 'NGN' ? '₦' : ''}
+                                            {CURRENCY_SYMBOLS[v.currency] ?? ''}
                                             {Number(v.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             <span className="text-xs font-bold text-slate-400 ml-1">{v.currency}</span>
                                         </p>
@@ -368,14 +377,14 @@ export const WithdrawalView = ({
                                         axisLine={false}
                                         tickLine={false}
                                         tick={{ fontSize: 12, fill: '#94a3b8', fontWeight: 600 }}
-                                        tickFormatter={(val) => val > 0 ? `${historyChartCurrency === 'USD' ? '$' : historyChartCurrency === 'NGN' ? '₦' : ''}${val}` : '0'}
+                                        tickFormatter={(val) => val > 0 ? `${CURRENCY_SYMBOLS[historyChartCurrency] ?? ''}${val}` : '0'}
                                     />
                                     <Tooltip
                                         content={({ active, payload }) => {
                                             if (active && payload && payload.length) {
                                                 return (
                                                     <div className="bg-slate-900 text-white p-3 rounded-xl shadow-2xl border-none font-black text-sm">
-                                                        {historyChartCurrency === 'USD' ? '$' : historyChartCurrency === 'NGN' ? '₦' : ''}{Number(payload[0].value).toLocaleString()} {historyChartCurrency}
+                                                        {CURRENCY_SYMBOLS[historyChartCurrency] ?? ''}{Number(payload[0].value).toLocaleString()} {historyChartCurrency}
                                                     </div>
                                                 );
                                             }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import {
     CreditCard,
     Search,
@@ -27,6 +27,53 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
+const ADMIN_API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
+
+function getAdminToken(): string | null {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem('adminToken');
+}
+
+function apiHeaders() {
+    const token = getAdminToken();
+    return {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+}
+
+function mapApiPayout(w: any): Payout {
+    const details = w.details || w.payout_method?.details || {};
+    const profile = w.profile || {};
+    return {
+        id: w.id,
+        reference: w.reference || '—',
+        user: {
+            name: `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || profile.safetag || '—',
+            safetag: profile.safetag || '—',
+            avatar: (profile.safetag || '??').replace('@', '').slice(0, 2).toUpperCase(),
+        },
+        amount: Number(w.amount),
+        currency: w.currency || 'NGN',
+        status: w.status,
+        method: w.payout_method?.type === 'crypto' ? 'crypto' : 'bank_transfer',
+        bank: details.bank_name || details.bankName || details.symbol || '—',
+        account_number: details.account_number || details.accountNumber || details.address || '—',
+        account_name: details.verifiedAccountName || details.account_name || details.accountName || '—',
+        requested_at: w.created_at,
+        details: {
+            narration: details.narration,
+            bank_code: details.bank_id || details.bankCode,
+            network: details.chain,
+            error: w.failure_reason,
+            provider_order_no: w.provider_order_no,
+            requires_approval: w.requires_approval,
+            settled_at: w.settled_at,
+            attempted_at: w.attempted_at,
+        },
+    };
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Payout {
     id: string;
@@ -40,110 +87,10 @@ interface Payout {
     account_number: string;
     account_name: string;
     requested_at: string;
-    details: { narration?: string; bank_code?: string; network?: string; error?: string };
+    details: { narration?: string; bank_code?: string; network?: string; error?: string; provider_order_no?: string; requires_approval?: boolean; settled_at?: string; attempted_at?: string };
 }
 
-// ─── Mock Data ────────────────────────────────────────────────────────────────
-const MOCK_PAYOUTS: Payout[] = [
-    {
-        id: "pyt-001",
-        reference: "WD-AP3X7F2K",
-        user: { name: "Emmanuel Okafor", safetag: "@emmy.safe", avatar: "EO" },
-        amount: 125000,
-        currency: "NGN",
-        status: "PROCESSING",
-        method: "bank_transfer",
-        bank: "GTBank",
-        account_number: "012****789",
-        account_name: "Emmanuel Okafor",
-        requested_at: "2026-03-18T10:22:00Z",
-        details: { bank_code: "058", narration: "Weekly earnings withdrawal" },
-    },
-    {
-        id: "pyt-002",
-        reference: "WD-BQ9Y1R5M",
-        user: { name: "Fatima Bello", safetag: "@fatima.bello", avatar: "FB" },
-        amount: 48500,
-        currency: "NGN",
-        status: "SUCCESS",
-        method: "bank_transfer",
-        bank: "Access Bank",
-        account_number: "056****321",
-        account_name: "Fatima Bello",
-        requested_at: "2026-03-17T14:05:00Z",
-        details: { bank_code: "044", narration: "Transaction earnings" },
-    },
-    {
-        id: "pyt-003",
-        reference: "WD-CR2K8S9N",
-        user: { name: "Chidi Okonkwo", safetag: "@chidi.o", avatar: "CO" },
-        amount: 0.023,
-        currency: "BTC",
-        status: "SUCCESS",
-        method: "crypto",
-        bank: "Bitcoin Wallet",
-        account_number: "1A2b3C4d5E6f7G8h9I0j",
-        account_name: "N/A",
-        requested_at: "2026-03-17T09:45:00Z",
-        details: { network: "Bitcoin", narration: "Crypto withdrawal" },
-    },
-    {
-        id: "pyt-004",
-        reference: "WD-DS5P3L7Q",
-        user: { name: "Adeola Adeleke", safetag: "@adeola.ad", avatar: "AA" },
-        amount: 320000,
-        currency: "NGN",
-        status: "FAILED",
-        method: "bank_transfer",
-        bank: "Zenith Bank",
-        account_number: "219****654",
-        account_name: "Adeola Adeleke",
-        requested_at: "2026-03-16T18:30:00Z",
-        details: { bank_code: "057", narration: "Monthly payout", error: "Account number mismatch" },
-    },
-    {
-        id: "pyt-005",
-        reference: "WD-ET7W2H4V",
-        user: { name: "Kelechi Nwosu", safetag: "@kelechi.n", avatar: "KN" },
-        amount: 75000,
-        currency: "NGN",
-        status: "PROCESSING",
-        method: "bank_transfer",
-        bank: "First Bank",
-        account_number: "301****112",
-        account_name: "Kelechi Nwosu",
-        requested_at: "2026-03-19T08:00:00Z",
-        details: { bank_code: "011", narration: "Withdrawal request" },
-    },
-    {
-        id: "pyt-006",
-        reference: "WD-FU8X6J1T",
-        user: { name: "Ngozi Eze", safetag: "@ngozi.eze", avatar: "NE" },
-        amount: 900,
-        currency: "USDT",
-        status: "SUCCESS",
-        method: "crypto",
-        bank: "USDT (TRC20) Wallet",
-        account_number: "TRX9a2b3c4d5e6f7g8h9i",
-        account_name: "N/A",
-        requested_at: "2026-03-15T12:10:00Z",
-        details: { network: "TRON (TRC20)", narration: "USDT payout" },
-    },
-    {
-        id: "pyt-007",
-        reference: "WD-GV1Y4C8S",
-        user: { name: "Babatunde Alabi", safetag: "@baba.al", avatar: "BA" },
-        amount: 210000,
-        currency: "NGN",
-        status: "PROCESSING",
-        method: "bank_transfer",
-        bank: "UBA",
-        account_number: "201****445",
-        account_name: "Babatunde Alabi",
-        requested_at: "2026-03-19T11:30:00Z",
-        details: { bank_code: "033", narration: "Platform earnings" },
-    },
-];
+const MOCK_PAYOUTS: Payout[] = [];
 
 // ─── Status Configs ───────────────────────────────────────────────────────────
 const STATUS_CONFIG: Record<string, { label: string; icon: any; pill: string; dot: string }> = {
@@ -339,7 +286,8 @@ const CURRENCY_CONFIG: Record<string, { label: string; symbol: string; color: st
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function AdminPayoutsPage() {
-    const [payouts, setPayouts] = useState(MOCK_PAYOUTS);
+    const [payouts, setPayouts] = useState<Payout[]>(MOCK_PAYOUTS);
+    const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState("ALL");
     const [dateFrom, setDateFrom] = useState("");
@@ -352,22 +300,64 @@ export default function AdminPayoutsPage() {
         setTimeout(() => setToast(null), 3200);
     };
 
-    const handleApprove = (payout: any) => {
-        setPayouts((prev) => prev.map((p) => p.id === payout.id ? { ...p, status: "SUCCESS" } : p));
-        setSelectedPayout((prev: any) => prev ? { ...prev, status: "SUCCESS" } : null);
-        showToast(`✅ Payout ${payout.reference} approved and processed.`);
+    const fetchPayouts = useCallback(async () => {
+        setLoading(true);
+        try {
+            const res = await fetch(`${ADMIN_API}/admin/payouts?limit=200`, { headers: apiHeaders() });
+            if (!res.ok) throw new Error('Failed to fetch payouts');
+            const json = await res.json();
+            setPayouts((json.data || []).map(mapApiPayout));
+        } catch (err: any) {
+            showToast(`Failed to load payouts: ${err.message}`, 'error');
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => { fetchPayouts(); }, [fetchPayouts]);
+
+    const handleApprove = async (payout: any) => {
+        try {
+            const res = await fetch(`${ADMIN_API}/admin/payouts/${payout.id}/approve`, {
+                method: 'POST',
+                headers: apiHeaders(),
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Approval failed');
+            }
+            setPayouts((prev) => prev.map((p) => p.id === payout.id ? { ...p, status: "PROCESSING" } : p));
+            setSelectedPayout((prev: any) => prev ? { ...prev, status: "PROCESSING" } : null);
+            showToast(`✅ Payout ${payout.reference} approved — disbursement initiated.`);
+            setTimeout(fetchPayouts, 3000); // refresh after 3s to catch immediate SUCCESS
+        } catch (err: any) {
+            showToast(`❌ ${err.message}`, 'error');
+        }
     };
 
-    const handleReject = (payout: any) => {
-        setPayouts((prev) => prev.map((p) => p.id === payout.id ? { ...p, status: "FAILED", details: { ...p.details, error: "Rejected by admin" } } : p));
-        setSelectedPayout((prev: any) => prev ? { ...prev, status: "FAILED", details: { ...prev.details, error: "Rejected by admin" } } : null);
-        showToast(`❌ Payout ${payout.reference} has been rejected.`, "error");
+    const handleReject = async (payout: any) => {
+        const reason = window.prompt('Rejection reason (shown to user):') || 'Rejected by admin';
+        try {
+            const res = await fetch(`${ADMIN_API}/admin/payouts/${payout.id}/reject`, {
+                method: 'POST',
+                headers: apiHeaders(),
+                body: JSON.stringify({ reason }),
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Rejection failed');
+            }
+            setPayouts((prev) => prev.map((p) => p.id === payout.id ? { ...p, status: "FAILED", details: { ...p.details, error: reason } } : p));
+            setSelectedPayout((prev: any) => prev ? { ...prev, status: "FAILED", details: { ...prev.details, error: reason } } : null);
+            showToast(`❌ Payout ${payout.reference} has been rejected.`, "error");
+        } catch (err: any) {
+            showToast(`❌ ${err.message}`, 'error');
+        }
     };
 
     const handleRetry = (payout: any) => {
-        setPayouts((prev) => prev.map((p) => p.id === payout.id ? { ...p, status: "PROCESSING" } : p));
-        setSelectedPayout((prev: any) => prev ? { ...prev, status: "PROCESSING" } : null);
-        showToast(`🔄 Payout ${payout.reference} queued for retry.`);
+        // Retry is just re-approving
+        handleApprove(payout);
     };
 
     const filtered = useMemo(() => {
@@ -445,8 +435,8 @@ export default function AdminPayoutsPage() {
                         <Button variant="outline" className="gap-2 rounded-2xl font-bold text-slate-600 border-slate-200 hover:bg-slate-50">
                             <Download className="w-4 h-4" /> Export
                         </Button>
-                        <Button className="gap-2 rounded-2xl font-bold bg-[#0a2d1d] hover:bg-[#0a2d1d]/90 text-white">
-                            <RefreshCw className="w-4 h-4" /> Refresh
+                        <Button onClick={fetchPayouts} disabled={loading} className="gap-2 rounded-2xl font-bold bg-[#0a2d1d] hover:bg-[#0a2d1d]/90 text-white">
+                            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Refresh
                         </Button>
                     </div>
                 </div>

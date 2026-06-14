@@ -361,7 +361,7 @@ export const AccountsSection = ({ balances, showBalance = true }: { balances: an
                         <CardTitle className="text-2xl font-bold tracking-tight text-white border-none shadow-none mt-1">
                             {showBalance ? (
                                 <>
-                                    <span className="text-white/40 text-lg mr-1">{b.currency === 'USD' ? '$' : b.currency === 'EUR' ? '€' : b.currency === 'NGN' ? '₦' : ''}</span>
+                                    <span className="text-white/40 text-lg mr-1">{CURRENCY_SYMBOLS[b.currency] ?? ''}</span>
                                     {b.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
                                 </>
                             ) : (

@@ -775,6 +775,23 @@ router.get('/:safetag/stats', async (req, res) => {
     }
 });
 
+// Verify a bank account via name enquiry (Flutterwave or PalmPay)
+router.post('/:safetag/verify-bank-account', requireUser, requireSafetagOwner, async (req, res) => {
+    try {
+        const { bankCode, accountNumber } = req.body;
+        if (!bankCode || !accountNumber) {
+            return res.status(400).json({ error: 'bankCode and accountNumber are required' });
+        }
+        const { verifyBankAccount } = await import('../services/payout');
+        const result = await verifyBankAccount(bankCode, String(accountNumber));
+        res.json(result);
+    } catch (err: any) {
+        console.error('❌ verify-bank-account error:', err.message);
+        const status = err.message?.toLowerCase().includes('not found') ? 400 : 502;
+        res.status(status).json({ error: err.message || 'Could not verify account' });
+    }
+});
+
 // Get payout methods for a profile
 router.get('/:safetag/payout-methods', requireUser, requireSafetagOwner, async (req, res) => {
     try {
@@ -796,20 +813,46 @@ router.get('/:safetag/payout-methods', requireUser, requireSafetagOwner, async (
 // Save a new payout method
 router.post('/:safetag/payout-methods', requireUser, requireSafetagOwner, requireElevation('payout_method'), async (req, res) => {
     try {
-        const { type, details, is_default = false } = req.body;
+        const { type, is_default = false } = req.body;
         const profileId = (req as AuthedRequest).user.sub;
+        let details: Record<string, any> = typeof req.body.details === 'string'
+            ? JSON.parse(req.body.details)
+            : req.body.details;
 
-        console.log(`🔍 Payout POST - Profile ID:`, profileId);
-        console.log(`📦 Payout Details:`, JSON.stringify(details));
+        if (!type || !details) return res.status(400).json({ error: 'type and details are required' });
+
+        if (type === 'bank') {
+            const acctNum: string = details.accountNumber || details.account_number || '';
+            const bankCode: string = details.bankCode || details.bank_id || '';
+            if (!acctNum || !bankCode) {
+                return res.status(400).json({ error: 'bankCode and accountNumber are required for bank payout methods' });
+            }
+            // If verifiedAccountName not yet present, resolve it now
+            if (!details.verifiedAccountName) {
+                try {
+                    const { verifyBankAccount } = await import('../services/payout');
+                    const verified = await verifyBankAccount(bankCode, acctNum);
+                    details = { ...details, verifiedAccountName: verified.accountName, verified: true };
+                } catch (verifyErr: any) {
+                    return res.status(400).json({ error: `Bank account verification failed: ${verifyErr.message}` });
+                }
+            }
+        } else if (type === 'crypto') {
+            const addr: string = details.address || '';
+            if (!addr || !details.chain || !details.symbol) {
+                return res.status(400).json({ error: 'address, chain, and symbol are required for crypto payout methods' });
+            }
+            // Basic address format validation (non-empty, min 20 chars, no spaces)
+            if (addr.length < 20 || /\s/.test(addr)) {
+                return res.status(400).json({ error: 'Invalid wallet address format' });
+            }
+        } else {
+            return res.status(400).json({ error: `Unknown payout method type: ${type}` });
+        }
 
         const { data, error } = await supabase
             .from('payout_methods')
-            .insert({
-                profile_id: profileId,
-                type,
-                details: typeof details === 'string' ? JSON.parse(details) : details,
-                is_default
-            })
+            .insert({ profile_id: profileId, type, details, is_default })
             .select()
             .single();
 

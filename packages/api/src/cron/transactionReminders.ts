@@ -1,6 +1,7 @@
 import { supabase } from '@safepal/shared';
 import { routeNotification } from '../services/notifications';
 import { sendPaymentReminderEmail, sendSellerAcceptanceReminderEmail, sendSellerDeliveryReminderEmail, sendReceiptConfirmationReminderEmail } from '../services/email';
+import { queryAndSyncStatus } from '../services/payout';
 import axios from 'axios';
 
 const log = (msg: string) => console.log(`[TransactionReminders] ${msg}`);
@@ -209,4 +210,29 @@ export async function runTransactionReminders(): Promise<void> {
     } catch (e: any) { log(`Bucket 8 error: ${e.message}`); }
 
     log('Done.');
+}
+
+// Bucket 9: Payout reconciliation — re-query PROCESSING withdrawals older than 2 hours
+// Catches payouts whose webhooks were missed or delayed.
+export async function runPayoutReconciliation(): Promise<void> {
+    const log9 = (msg: string) => console.log(`[PayoutReconciliation] ${msg}`);
+    log9('Starting...');
+    try {
+        const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+        const { data: stale } = await supabase
+            .from('withdrawals')
+            .select('id')
+            .eq('status', 'PROCESSING')
+            .not('attempted_at', 'is', null)
+            .lt('attempted_at', twoHoursAgo)
+            .is('settled_at', null)
+            .limit(50);
+
+        for (const w of stale || []) {
+            await queryAndSyncStatus(w.id).catch(e =>
+                log9(`Sync failed for ${w.id}: ${e.message}`)
+            );
+        }
+        log9(`Reconciled ${(stale || []).length} stale payouts`);
+    } catch (e: any) { log9(`Error: ${e.message}`); }
 }

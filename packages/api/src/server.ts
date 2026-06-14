@@ -47,7 +47,7 @@ import reportRoutes from './routes/reports';
 import cron from 'node-cron';
 import { runWeeklyDigest } from './cron/weeklyDigest';
 import { runLicenseExpiryCheck } from './cron/licenseExpiry';
-import { runTransactionReminders } from './cron/transactionReminders';
+import { runTransactionReminders, runPayoutReconciliation } from './cron/transactionReminders';
 import { runOnboardingDrip } from './cron/onboardingDrip';
 import { runReEngagement } from './cron/reEngagement';
 import { runMonthlyReferralSummary } from './cron/referralSummary';
@@ -194,6 +194,11 @@ cron.schedule('*/10 * * * *', () => {
 // Fraud enforcement — flag/block bad actors every 6 hours
 cron.schedule('0 */6 * * *', () => {
     runFraudEnforcement().catch(console.error);
+});
+
+// Payout reconciliation — re-query stale PROCESSING withdrawals every 4 hours
+cron.schedule('0 */4 * * *', () => {
+    runPayoutReconciliation().catch((err) => console.error('Payout reconciliation cron failed:', err));
 });
 
 app.listen(PORT, () => {

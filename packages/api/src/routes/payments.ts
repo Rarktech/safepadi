@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { sendNotification, routeNotification, recordNotification, sendReferralNotification } from '../services/notifications';
 import { sendPaymentConfirmedEmail } from '../services/email';
+import { queryAndSyncStatus } from '../services/payout';
+import * as palmPayProvider from '../services/providers/palmPay';
 import crypto from 'crypto';
 import axios from 'axios';
 
@@ -500,10 +502,98 @@ router.post('/flutterwave/webhook', async (req, res) => {
             }
         }
 
+        // Handle transfer (payout) completion events
+        const eventType: string = isV3 ? (req.body.event || '') : (req.body['event.type'] || '');
+        if (eventType === 'transfer.completed' || eventType === 'transfer.failed') {
+            const reference: string = isV3 ? (req.body.data?.reference || '') : (req.body.reference || '');
+            if (reference) {
+                const { data: withdrawal } = await supabase
+                    .from('withdrawals')
+                    .select('id')
+                    .eq('reference', reference)
+                    .maybeSingle();
+                if (withdrawal) {
+                    await queryAndSyncStatus(withdrawal.id).catch(e =>
+                        console.error('[Flutterwave] Transfer status sync error:', e.message)
+                    );
+                    console.log(`[Flutterwave] Transfer webhook ${eventType} for ${reference} — synced`);
+                }
+            }
+            return res.status(200).send('OK');
+        }
+
         res.status(200).send('Webhook Received');
     } catch (err: any) {
         console.error('🔥 Flutterwave Webhook Fatal Error:', err.message);
         res.status(500).send('Internal Server Error');
+    }
+});
+
+// PalmPay payout status webhook (activated when PALMPAY_APP_ID is configured)
+router.post('/palmpay/payout-webhook', async (req, res) => {
+    try {
+        const signature = req.headers['sign'] as string || req.headers['x-sign'] as string || '';
+        const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+
+        if (!palmPayProvider.isConfigured()) {
+            console.warn('[PalmPay Webhook] Provider not configured — rejecting');
+            return res.status(503).send('Not configured');
+        }
+
+        if (!palmPayProvider.verifyWebhook(rawBody, signature)) {
+            console.error('[PalmPay Webhook] Signature verification failed');
+            return res.status(401).send('Unauthorized');
+        }
+
+        const body = req.body;
+        const orderId: string = body.orderId || body.data?.orderId || '';
+        const palmpayStatus: string = (body.orderStatus || body.data?.orderStatus || body.status || '').toUpperCase();
+        const failureReason: string = body.failureReason || body.data?.failureReason || '';
+
+        if (!orderId) {
+            console.warn('[PalmPay Webhook] No orderId in body');
+            return res.json({ respCode: '00000000' });
+        }
+
+        const { data: withdrawal } = await supabase
+            .from('withdrawals')
+            .select('id, profile_id, amount, currency, reference')
+            .eq('idempotency_key', orderId)
+            .maybeSingle();
+
+        if (!withdrawal) {
+            console.warn(`[PalmPay Webhook] No withdrawal found for orderId=${orderId}`);
+            return res.json({ respCode: '00000000' });
+        }
+
+        if (palmpayStatus === 'SUCCESS' || palmpayStatus === 'SUCCESSFUL') {
+            await supabase.from('withdrawals').update({
+                status: 'PAID',
+                provider_order_no: body.data?.orderNo || orderId,
+                settled_at: new Date().toISOString(),
+            }).eq('id', withdrawal.id);
+
+            const msg = `✅ <b>Withdrawal Successful!</b>\n\n<b>${withdrawal.amount} ${withdrawal.currency}</b> has been sent to your payout method.\n\n📋 Reference: <b>${withdrawal.reference}</b>`;
+            routeNotification(withdrawal.profile_id, msg, []).catch(() => {});
+            recordNotification(withdrawal.profile_id, 'withdrawal', '✅ Withdrawal Successful', `${withdrawal.amount} ${withdrawal.currency} sent`, { withdrawal_id: withdrawal.id, amount: withdrawal.amount, currency: withdrawal.currency, reference: withdrawal.reference, link_url: '/dashboard/withdrawals' }).catch(() => {});
+            console.log(`[PalmPay Webhook] ${withdrawal.reference} → PAID`);
+        } else if (palmpayStatus === 'FAIL' || palmpayStatus === 'FAILED') {
+            await supabase.from('withdrawals').update({
+                status: 'FAILED',
+                failure_reason: failureReason || 'PalmPay reported failure',
+            }).eq('id', withdrawal.id);
+
+            const msg = `❌ <b>Withdrawal Failed</b>\n\nYour withdrawal of <b>${withdrawal.amount} ${withdrawal.currency}</b> could not be processed.\n\n📝 Reason: ${failureReason || 'Provider error'}\n\nPlease contact support or retry.`;
+            routeNotification(withdrawal.profile_id, msg, []).catch(() => {});
+            recordNotification(withdrawal.profile_id, 'withdrawal', '❌ Withdrawal Failed', `${withdrawal.amount} ${withdrawal.currency}`, { withdrawal_id: withdrawal.id, link_url: '/dashboard/withdrawals' }).catch(() => {});
+            console.log(`[PalmPay Webhook] ${withdrawal.reference} → FAILED: ${failureReason}`);
+        }
+
+        // PalmPay requires this exact response to acknowledge
+        res.json({ respCode: '00000000' });
+    } catch (err: any) {
+        console.error('[PalmPay Webhook] Error:', err.message);
+        res.status(500).send('Internal Error');
     }
 });
 
