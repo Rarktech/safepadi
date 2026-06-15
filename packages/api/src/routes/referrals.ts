@@ -2,9 +2,22 @@ import { Router } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { Browser } from 'puppeteer';
 import { getBrowser } from '../services/puppeteer';
 import { generateReferralTemplate } from '../templates/referralTemplate';
+
+// Read logo-mark.svg once at startup and embed as base64 data URL.
+const _logoPath = path.resolve(__dirname, '../../../frontend/public/logo-mark.svg');
+const _logoDataUrl = fs.existsSync(_logoPath)
+    ? `data:image/svg+xml;base64,${fs.readFileSync(_logoPath).toString('base64')}`
+    : '';
+
+// Read custom referral banner background once at startup.
+const _bgPath = path.resolve(__dirname, '../assets/referral-bg.webp');
+const _bgDataUrl = fs.existsSync(_bgPath)
+    ? `data:image/webp;base64,${fs.readFileSync(_bgPath).toString('base64')}`
+    : '';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
@@ -166,8 +179,8 @@ router.get('/:safetag/card', async (req, res) => {
         const { safetag } = req.params;
         const cleanSafetag = safetag.replace(/^@/, '');
 
-        // Supabase Storage (persistent CDN-backed cache)
-        const sKey = `referral_${cleanSafetag}.png`;
+        // Supabase Storage (persistent CDN-backed cache) — v4 key busts logoless v3 cards
+        const sKey = `referral_${cleanSafetag}_v4.png`;
         const { data: stored } = await supabase.storage.from('receipts').download(sKey);
         if (stored) {
             const buf = Buffer.from(await stored.arrayBuffer());
@@ -182,7 +195,9 @@ router.get('/:safetag/card', async (req, res) => {
 
         const htmlContent = generateReferralTemplate({
             safetag: cleanSafetag,
-            referralLink
+            referralLink,
+            logoDataUrl: _logoDataUrl,
+            bgDataUrl: _bgDataUrl
         });
 
         const browser = await getBrowser();
@@ -192,8 +207,8 @@ router.get('/:safetag/card', async (req, res) => {
             await page.setViewport({ width: 1000, height: 1150 });
             await page.setContent(htmlContent, { waitUntil: 'networkidle2' as any, timeout: 50000 });
 
-            // Allow time for Google Fonts and QRCode script to execute
-            await new Promise(r => setTimeout(r, 3000));
+            // Allow time for Google Fonts + qrcodejs CDN script to execute and canvas to render
+            await new Promise(r => setTimeout(r, 1500));
 
             const element = await page.$('.canvas');
             if (!element) {
@@ -203,7 +218,7 @@ router.get('/:safetag/card', async (req, res) => {
             const screenshot = await element.screenshot({ type: 'png' }) as Buffer;
             await page.close();
 
-            // Persist to Supabase Storage (fire-and-forget)
+            // Persist to Supabase Storage (fire-and-forget) under v2 key
             supabase.storage.from('receipts').upload(sKey, screenshot, { contentType: 'image/png', upsert: true })
                 .catch(e => console.error('[Referral Card] Storage upload error:', e));
 
