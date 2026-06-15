@@ -14,7 +14,8 @@ const _logoDataUrl = fs.existsSync(_logoPath)
     : '';
 
 // Read custom referral banner background once at startup.
-const _bgPath = path.resolve(__dirname, '../assets/referral-bg.webp');
+// Use ../../src/assets so path works from both src/routes (dev) and dist/routes (prod).
+const _bgPath = path.resolve(__dirname, '../../src/assets/referral-bg.webp');
 const _bgDataUrl = fs.existsSync(_bgPath)
     ? `data:image/webp;base64,${fs.readFileSync(_bgPath).toString('base64')}`
     : '';
@@ -179,8 +180,8 @@ router.get('/:safetag/card', async (req, res) => {
         const { safetag } = req.params;
         const cleanSafetag = safetag.replace(/^@/, '');
 
-        // Supabase Storage (persistent CDN-backed cache) — v4 key busts logoless v3 cards
-        const sKey = `referral_${cleanSafetag}_v4.png`;
+        // Supabase Storage (persistent CDN-backed cache) — v5 key busts white-bg v4 cards
+        const sKey = `referral_${cleanSafetag}_v5.png`;
         const { data: stored } = await supabase.storage.from('receipts').download(sKey);
         if (stored) {
             const buf = Buffer.from(await stored.arrayBuffer());
