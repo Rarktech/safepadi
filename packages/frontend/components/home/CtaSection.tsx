@@ -1,114 +1,55 @@
 "use client";
+import { useEffect, useRef } from "react";
 
-import React, { useState } from 'react';
-import { Lock, ShoppingCart, ShieldCheck, Tag } from 'lucide-react';
+export function CtaSection() {
+  const ctaRef = useRef<HTMLDivElement>(null);
 
-export const CtaSection = () => {
-    const [phone, setPhone] = useState('');
-    const [loading, setLoading] = useState(false);
-    const [success, setSuccess] = useState(false);
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setLoading(true);
-        try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
-            const res = await fetch(`${apiUrl}/waitlist`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone }),
-            });
-
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to join waitlist');
-
-            setSuccess(true);
-            setPhone('');
-        } catch (error) {
-            console.error('Waitlist submission error:', error);
-            alert('Failed to join waitlist. Please try again.');
-        } finally {
-            setLoading(false);
+  useEffect(() => {
+    const el = ctaRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((en) => {
+        if (en.isIntersecting) {
+          (en.target as HTMLElement).style.opacity = "1";
+          (en.target as HTMLElement).style.transform = "translateY(0)";
+          io.unobserve(en.target);
         }
-    };
+      });
+    }, { threshold: 0.15 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
 
-    return (
-        <section className="py-24 bg-white relative overflow-hidden flex justify-center px-4 md:px-6">
-            <div className="max-w-[1200px] w-full relative">
+  return (
+    <div style={{ background: "#0f172a", width: "100%", position: "relative", overflow: "hidden" }}>
+      {/* Barcode QR */}
+      <img
+        src="/uploads/barcode.webp"
+        alt="Scan to join Safeeely"
+        className="sf-cta-barcode"
+        style={{ position: "absolute", left: "-28px", top: "50%", transform: "translateY(-60%) rotate(-12deg)", width: "200px", height: "auto", opacity: 0.82, pointerEvents: "none", zIndex: 10, borderRadius: "16px" }}
+      />
 
-                {/* Background Card */}
-                <div className="bg-slate-900 rounded-[40px] p-8 md:p-16 text-center relative overflow-hidden shadow-2xl">
-
-                    {/* Decorative Background Elements */}
-                    <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[#67F05B]/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3"></div>
-                    <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-[#67F05B]/5 rounded-full blur-3xl translate-y-1/3 -translate-x-1/4"></div>
-
-                    {/* Floating Icons */}
-                    <div className="absolute top-12 left-12 w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-lg transform -rotate-12 animate-pulse [animation-duration:3s]">
-                        <Lock className="w-8 h-8 text-emerald-500" />
-                    </div>
-                    <div className="absolute top-20 right-24 w-14 h-14 bg-white rounded-full hidden md:flex items-center justify-center shadow-lg transform rotate-12">
-                        <Tag className="w-6 h-6 text-teal-600" />
-                    </div>
-                    <div className="absolute bottom-24 left-32 w-12 h-12 bg-white rounded-full hidden md:flex items-center justify-center shadow-lg transform -rotate-6">
-                        <ShoppingCart className="w-5 h-5 text-emerald-600" />
-                    </div>
-                    <div className="absolute bottom-16 right-16 w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-lg transform rotate-6 animate-pulse [animation-duration:4s]">
-                        <ShieldCheck className="w-8 h-8 text-teal-500" />
-                    </div>
-
-                    <div className="relative z-10 max-w-3xl mx-auto flex flex-col items-center">
-
-                        {/* Pill Badge */}
-                        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-800/80 backdrop-blur-md border border-slate-700 mb-8">
-                            <span className="w-2 h-2 rounded-full bg-[#67F05B] animate-pulse"></span>
-                            <span className="text-sm font-medium text-slate-300">Built for Modern Traders</span>
-                        </div>
-
-                        {/* Heading */}
-                        <h2 className="text-4xl md:text-5xl font-bold tracking-tight text-white mb-6 leading-tight font-['Inter']">
-                            Unlock the Power of <br /> Safeeely Escrows
-                        </h2>
-
-                        {/* Subheading */}
-                        <p className="text-lg text-slate-300 mb-10 max-w-2xl leading-relaxed">
-                            Safeeely is an all-in-one platform that helps online traders, freelancers, and businesses secure payments, build reputation, and transact globally without borders.
-                        </p>
-
-                        {/* Phone Number Waitlist Form */}
-                        {success ? (
-                            <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-full py-4 px-8 flex items-center gap-3">
-                                <ShieldCheck className="w-6 h-6 text-emerald-200" />
-                                <span className="text-white font-medium">You're on the waitlist! We'll text you soon.</span>
-                            </div>
-                        ) : (
-                            <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-md">
-                                <div className="relative w-full">
-                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                                        <span className="text-slate-400 font-medium">+</span>
-                                    </div>
-                                    <input
-                                        type="tel"
-                                        className="w-full bg-white text-slate-900 rounded-full py-4 pl-8 pr-6 shadow-xl focus:outline-none focus:ring-4 focus:ring-emerald-300/50 placeholder:text-slate-400 font-medium"
-                                        placeholder="Enter your phone number"
-                                        value={phone}
-                                        onChange={(e) => setPhone(e.target.value)}
-                                        required
-                                    />
-                                </div>
-                                <button
-                                    type="submit"
-                                    disabled={loading}
-                                    className="w-full sm:w-auto bg-[#67F05B] hover:bg-[#5ce050] text-slate-900 font-bold rounded-full py-4 px-8 shadow-xl whitespace-nowrap transition-all hover:scale-105 disabled:opacity-70 disabled:hover:scale-100 flex items-center justify-center gap-2"
-                                >
-                                    {loading ? 'Joining...' : 'Join Waitlist'}
-                                </button>
-                            </form>
-                        )}
-                        <p className="text-emerald-50/70 text-sm mt-4">We respect your privacy. No spam, ever.</p>
-                    </div>
-                </div>
-            </div>
-        </section>
-    );
-};
+      {/* CTA upper */}
+      <div
+        ref={ctaRef}
+        style={{ maxWidth: "600px", margin: "0 auto", padding: "96px 40px 72px", textAlign: "center", position: "relative", zIndex: 2, opacity: 0, transform: "translateY(32px)", transition: "opacity .75s cubic-bezier(.16,1,.3,1),transform .75s cubic-bezier(.16,1,.3,1)" }}
+      >
+        <h2 style={{ fontFamily: "'Inter Tight', sans-serif", fontWeight: 600, fontSize: "clamp(32px,4vw,44px)", lineHeight: 1.15, letterSpacing: "-.02em", color: "#fff", margin: "0 0 16px" }}>
+          Trade anywhere.<br /><span style={{ fontStyle: "italic", color: "#34d399" }}>Stay Safeee.</span>
+        </h2>
+        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: "16px", fontWeight: 400, lineHeight: 1.6, color: "#475569", margin: "0 0 36px" }}>
+          Join thousands of traders protecting every deal across WhatsApp, Telegram, Discord &amp; Instagram.
+        </p>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "12px", flexWrap: "wrap" }}>
+          <a
+            href="#"
+            style={{ background: "#10b981", color: "#fff", textDecoration: "none", borderRadius: "999px", padding: "14px 32px", fontFamily: "'Inter', sans-serif", fontSize: "15px", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 12px 28px rgba(16,185,129,.35)" }}
+          >
+            Get Started →
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}

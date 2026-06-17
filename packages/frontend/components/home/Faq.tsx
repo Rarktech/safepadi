@@ -1,142 +1,144 @@
 "use client";
+import { useEffect, useRef, useState } from "react";
 
-import React, { useState } from "react";
-import { Plus, Minus, HelpCircle, ShieldCheck, Wallet, UserCircle } from "lucide-react";
+type Tab = "general" | "buyers" | "sellers";
+type FaqItem = { q: string; a: string };
 
-const FAQ_DATA = {
-    sellers: [
-        {
-            question: "When do I actually get my money?",
-            answer: "Once you deliver the product or service and the buyer clicks 'Confirm Receipt' in the bot, the funds are instantly moved from escrow to your Safeeely wallet. No waiting days for processing—it's immediate."
-        },
-        {
-            question: "What if the buyer disappears after I deliver?",
-            answer: "Don't worry, we've got your back. If you've uploaded your proof of delivery and the buyer doesn't respond, we have a clear dispute resolution process. If they don't contest it within a set timeframe, the funds are released to you automatically."
-        },
-        {
-            question: "Is there a fee to use Safeeely?",
-            answer: "We charge a flat 5% fee to ensure every transaction is monitored and secure. The best part? You can choose to pay it yourself, have the buyer pay, or split it 50/50 during the transaction setup."
-        },
-        {
-            question: "How do I link my account to multiple platforms?",
-            answer: "It's easy. If you registered on Telegram, just open the Discord bot and use the 'Login' option. You'll get an OTP to your Telegram to verify it's you, and then both accounts will share the same Safetag and balance."
-        }
-    ],
-    buyers: [
-        {
-            question: "Is my money really safe while it's in escrow?",
-            answer: "Absolutely. When you pay, the funds don't go to the seller—they go into a secure vault. The seller can see that you've paid, but they can't touch the money until you confirm that you have exactly what you paid for."
-        },
-        {
-            question: "Can I get a refund if I'm scammed?",
-            answer: "Safeeely is designed to prevent scams entirely. If a seller doesn't deliver, you can raise a dispute. Our team reviews the evidence, and if the seller failed to deliver, the money is returned to your wallet. No questions asked."
-        },
-        {
-            question: "How do I know a seller is trustworthy?",
-            answer: "Look for the 'Verified' badge and check their 'Trust Score'. Every user has a rating based on their actual transaction history. You can even read reviews from people who have traded with them before."
-        },
-        {
-            question: "What payment methods do you support?",
-            answer: "We support a variety of ways to pay, including bank transfers (NGN), USD via cards, and USDT for our crypto-native users. We're always adding more to make it as convenient as possible for you."
-        }
-    ]
+const FAQ: Record<Tab, FaqItem[]> = {
+  general: [
+    { q: "What is Safeeely and how does it work?", a: "Safeeely is an escrow service that works inside your existing social media apps — WhatsApp, Telegram, Discord and Instagram. Send a voice note or message describing your deal, Safeeely locks the payment securely, and releases it only when both parties are satisfied. No app downloads, no new accounts." },
+    { q: "Which platforms does Safeeely support?", a: "Safeeely works natively inside WhatsApp, Telegram, Discord, and Instagram. Simply invite the Safeeely bot to your existing chat and you're ready to transact securely — no switching apps." },
+    { q: "How much does Safeeely charge?", a: "We charge less than 1/4th the fees of platforms like Upwork and Fiverr. Our pricing is transparent — no hidden costs, no surprises. You keep significantly more of every deal." },
+    { q: "Is my money safe with Safeeely?", a: "Absolutely. Funds are held in a secure escrow account and never released until both parties confirm delivery. In the event of a dispute, our AI reviews evidence from both sides and resolves it within 2 hours." },
+  ],
+  buyers: [
+    { q: "How do I start a transaction as a buyer?", a: "Simply send a voice note or text message describing the deal in your chat. Safeeely's AI will structure the transaction details and prompt you to confirm before locking any funds." },
+    { q: "When does the seller receive my payment?", a: "Your payment is held securely in escrow until you confirm you've received what was agreed. For milestone deals, each payment only releases after you approve that specific milestone." },
+    { q: "What if I'm not satisfied with what I received?", a: "Raise a dispute directly in the chat. Our AI reviews evidence from both sides and resolves within 2 hours. Complex cases escalate instantly to a human mediator — your money stays protected throughout." },
+    { q: "Can I cancel a transaction?", a: "Yes. If the seller hasn't yet delivered, you can request a mutual cancellation. If both parties agree, funds are returned immediately. Otherwise you can open a dispute and Safeeely will investigate." },
+  ],
+  sellers: [
+    { q: "How do I receive payment as a seller?", a: "Once the buyer confirms delivery, Safeeely releases your funds instantly to your linked account. You'll receive a notification in the same chat where the deal was made — no chasing payments." },
+    { q: "How quickly do I get paid after delivery?", a: "Payment is released within minutes of buyer confirmation. Safeeely processes payouts to your bank account or digital wallet same-day — no waiting periods, no holds." },
+    { q: "What fees do I pay as a seller?", a: "Safeeely's fees are less than 1/4th of what Upwork or Fiverr charge. Fees can be split between buyer and seller by agreement — you keep significantly more of every deal you close." },
+    { q: "Can I split a project into milestone payments?", a: "Yes. Break any project into milestone payments right inside your social chat. Each milestone releases independently — you get paid progressively as you deliver, and the buyer only pays for completed work." },
+  ],
 };
 
-function FaqItem({ question, answer }: { question: string; answer: string }) {
-    const [isOpen, setIsOpen] = useState(false);
+function Accordion({ items }: { items: FaqItem[] }) {
+  const [openIdx, setOpenIdx] = useState<number | null>(null);
+  const answerRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-    return (
-        <div 
-            className={`group bg-white rounded-2xl border transition-all duration-300 ${isOpen ? 'border-emerald-500 shadow-lg shadow-emerald-500/5' : 'border-slate-100'}`}
-        >
-            <button
-                onClick={() => setIsOpen(!isOpen)}
-                className="w-full text-left p-5 flex items-center justify-between gap-4"
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+      {items.map((item, i) => {
+        const isOpen = openIdx === i;
+        return (
+          <div
+            key={i}
+            style={{
+              background: isOpen ? "#f0fdf4" : "#f8fafb",
+              borderRadius: "16px",
+              padding: "20px 24px",
+              cursor: "pointer",
+              transition: "background .22s,transform .22s,box-shadow .22s",
+            }}
+            onMouseEnter={(e) => { if (!isOpen) { (e.currentTarget as HTMLElement).style.transform = "translateY(-3px)"; (e.currentTarget as HTMLElement).style.boxShadow = "0 6px 24px rgba(0,0,0,.07)"; } }}
+            onMouseLeave={(e) => { if (!isOpen) { (e.currentTarget as HTMLElement).style.transform = "translateY(0)"; (e.currentTarget as HTMLElement).style.boxShadow = "none"; } }}
+          >
+            <div
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" }}
+              onClick={() => setOpenIdx(isOpen ? null : i)}
             >
-                <span className={`font-bold tracking-tight transition-colors duration-300 ${isOpen ? 'text-emerald-600' : 'text-slate-900'}`}>
-                    {question}
-                </span>
-                <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 ${isOpen ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400 group-hover:bg-slate-200'}`}>
-                    {isOpen ? <Minus className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                </div>
-            </button>
-            <div 
-                className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}
-            >
-                <div className="px-5 pb-5 text-sm text-slate-500 leading-relaxed font-medium">
-                    {answer}
-                </div>
+              <span style={{ fontSize: "15px", fontWeight: 500, color: isOpen ? "#047857" : "#111", lineHeight: 1.4 }}>{item.q}</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform .3s ease", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}>
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
             </div>
-        </div>
-    );
+            <div
+              ref={(el) => { answerRefs.current[i] = el; }}
+              style={{
+                maxHeight: isOpen ? (answerRefs.current[i] ? answerRefs.current[i]!.scrollHeight + 40 + "px" : "500px") : "0",
+                overflow: "hidden",
+                opacity: isOpen ? 1 : 0,
+                transition: "max-height .38s ease,opacity .28s ease",
+              }}
+            >
+              <p style={{ paddingTop: "14px", fontSize: "14px", color: "#6b7280", lineHeight: 1.75, margin: 0 }}>{item.a}</p>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export function FaqSection() {
-    return (
-        <section className="py-24 bg-white">
-            <div className="container mx-auto px-6 md:px-20 lg:px-32">
-                {/* Header */}
-                <div className="text-center max-w-2xl mx-auto mb-20">
-                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-50 border border-slate-100 text-slate-500 text-[10px] font-bold tracking-tight mb-6 shadow-sm uppercase">
-                        <HelpCircle className="w-3 h-3 text-emerald-500" />
-                        <span>Got Questions?</span>
-                    </div>
-                    <h2 className="text-3xl md:text-4xl lg:text-5xl font-black text-slate-900 tracking-tight leading-[1.1] mb-5">
-                        Frequently Asked Questions
-                    </h2>
-                    <p className="text-base text-slate-400 leading-relaxed font-medium">
-                        Everything you need to know about trading safely with Safeeely. No complicated tech-jargon, just straight answers.
-                    </p>
-                </div>
+  const [activeTab, setActiveTab] = useState<Tab>("general");
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const subRef = useRef<HTMLParagraphElement>(null);
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                    {/* For Sellers */}
-                    <div className="space-y-6">
-                        <div className="flex items-center gap-3 px-2 mb-8">
-                            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-                                <Wallet className="w-5 h-5 text-blue-600" />
-                            </div>
-                            <h3 className="text-xl font-black text-slate-900 tracking-tight">For Sellers</h3>
-                        </div>
-                        <div className="space-y-4">
-                            {FAQ_DATA.sellers.map((item, i) => (
-                                <FaqItem key={i} {...item} />
-                            ))}
-                        </div>
-                    </div>
+  useEffect(() => {
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((en) => {
+        if (en.isIntersecting) {
+          (en.target as HTMLElement).style.opacity = "1";
+          (en.target as HTMLElement).style.transform = "translateY(0)";
+          io.unobserve(en.target);
+        }
+      });
+    }, { threshold: 0.2 });
+    if (headingRef.current) io.observe(headingRef.current);
+    if (subRef.current) io.observe(subRef.current);
+    return () => io.disconnect();
+  }, []);
 
-                    {/* For Buyers */}
-                    <div className="space-y-6">
-                        <div className="flex items-center gap-3 px-2 mb-8">
-                            <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
-                                <ShieldCheck className="w-5 h-5 text-emerald-600" />
-                            </div>
-                            <h3 className="text-xl font-black text-slate-900 tracking-tight">For Buyers</h3>
-                        </div>
-                        <div className="space-y-4">
-                            {FAQ_DATA.buyers.map((item, i) => (
-                                <FaqItem key={i} {...item} />
-                            ))}
-                        </div>
-                    </div>
-                </div>
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "general", label: "General" },
+    { id: "buyers", label: "For Buyers" },
+    { id: "sellers", label: "For Sellers" },
+  ];
 
-                {/* Footer Link */}
-                <div className="mt-20 text-center p-8 bg-slate-50 rounded-[2rem] border border-slate-100">
-                    <p className="text-slate-500 font-medium mb-4">
-                        Still have something on your mind? We're here to help.
-                    </p>
-                    <a 
-                        href="https://t.me/SafeeelySupport" 
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-full font-bold transition-all hover:scale-105 active:scale-95 shadow-xl"
-                    >
-                        <UserCircle className="w-5 h-5" />
-                        Chat with Support
-                    </a>
-                </div>
-            </div>
-        </section>
-    );
+  return (
+    <section style={{ background: "#fff", padding: "100px 40px 120px" }}>
+      <div style={{ maxWidth: "760px", margin: "0 auto" }}>
+        <div style={{ textAlign: "center", marginBottom: "56px" }}>
+          <h2
+            ref={headingRef}
+            style={{ fontFamily: "'Inter Tight', sans-serif", fontWeight: 700, fontSize: "clamp(36px,4vw,52px)", lineHeight: 1.1, letterSpacing: "-.03em", color: "#111111", margin: "0 0 16px", opacity: 0, transform: "translateY(32px)", transition: "opacity .7s cubic-bezier(.16,1,.3,1),transform .7s cubic-bezier(.16,1,.3,1)" }}
+          >
+            Frequently Asked<br />Questions
+          </h2>
+          <p
+            ref={subRef}
+            style={{ fontSize: "15px", color: "#6b7280", margin: 0, lineHeight: 1.6, opacity: 0, transform: "translateY(20px)", transition: "opacity .6s .15s cubic-bezier(.16,1,.3,1),transform .6s .15s cubic-bezier(.16,1,.3,1)" }}
+          >
+            Everything you need to know about using Safeeely.
+          </p>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: "flex", justifyContent: "center", gap: "8px", marginBottom: "40px" }}>
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              style={{
+                background: activeTab === t.id ? "#0f172a" : "#f1f5f9",
+                color: activeTab === t.id ? "#fff" : "#64748b",
+                border: "none", borderRadius: "999px", padding: "11px 26px",
+                fontFamily: "inherit", fontSize: "14px",
+                fontWeight: activeTab === t.id ? 600 : 500,
+                cursor: "pointer", transition: "all .22s ease",
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <Accordion key={activeTab} items={FAQ[activeTab]} />
+      </div>
+    </section>
+  );
 }

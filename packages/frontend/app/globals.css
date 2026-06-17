@@ -1,4 +1,4 @@
-﻿@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+﻿@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,600;1,700;1,800&family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -86,6 +86,79 @@
   a {
     text-decoration: none;
   }
+}
+
+/* ── Design keyframes ── */
+@keyframes bobA { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-22px) rotate(2.5deg); } }
+@keyframes bobB { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-16px) rotate(-2.5deg); } }
+@keyframes bobC { 0%,100% { transform: translateY(0) rotate(1deg); } 50% { transform: translateY(-18px) rotate(-1.5deg); } }
+@keyframes floatCard { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
+@keyframes pulseDot { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:.4; transform:scale(.8); } }
+@keyframes riseIn { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }
+@keyframes fadeUp { from { opacity:0; transform:translateY(28px); } to { opacity:1; transform:translateY(0); } }
+@keyframes fadeSlideUp { from { opacity:0; transform:translateY(36px); } to { opacity:1; transform:translateY(0); } }
+@keyframes floatPadlock { 0%,100% { transform:translateY(0) rotate(-4deg); } 50% { transform:translateY(-18px) rotate(4deg); } }
+@keyframes marquee { 0% { transform:translateX(0); } 100% { transform:translateX(-50%); } }
+@keyframes testimUp { 0% { transform:translateY(0); } 100% { transform:translateY(-50%); } }
+@keyframes testimDown { 0% { transform:translateY(-50%); } 100% { transform:translateY(0); } }
+
+/* Testimonial mask */
+.sf-testi-clip {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 18%, black 82%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 18%, black 82%, transparent 100%);
+}
+.sf-testi-clip:hover .sf-testi-track { animation-play-state: paused !important; }
+
+/* Responsive display toggles */
+.sf-hiw-desktop { display: block; }
+.sf-hiw-mobile  { display: none; }
+.sf-feat-desktop { display: block; }
+.sf-feat-mobile  { display: none; }
+.sf-mobile-coin  { display: none; }
+.sf-testi-mobile-col { display: none; }
+.sf-lost-mobile-bg { display: none; }
+.sf-footer-links { display: flex; }
+
+@media (max-width: 720px) {
+  .sf-hiw-desktop { display: none; }
+  .sf-hiw-mobile  { display: block; }
+  .sf-feat-desktop { display: none; }
+  .sf-feat-mobile  { display: block; }
+  .sf-mobile-coin  { display: block; }
+  .sf-testimonials-grid { display: none !important; }
+  .sf-testi-mobile-col { display: block !important; }
+  .sf-lost-mobile-bg { display: block; }
+  .sf-lost-section { background-image: none !important; background-color: #e2e2e0 !important; }
+  .sf-lost-text-inner { max-width:100% !important; text-align:center !important; align-items:center !important; display:flex !important; flex-direction:column !important; padding:56px 28px 56px !important; width:100% !important; }
+  .sf-lost-text-inner > div { justify-content: center !important; text-align: center !important; }
+  .sf-lost-text-inner p { text-align: center !important; margin-left: auto !important; margin-right: auto !important; }
+  .sf-lost-text-inner h2 { text-align: center !important; }
+  .sf-footer-links { flex-direction: column !important; gap: 32px !important; width: 100% !important; }
+  .sf-footer-links > div { flex-direction: row !important; flex-wrap: wrap !important; gap: 16px 28px !important; align-items: baseline; }
+  .sf-footer-links > div > div:first-child { width: 100% !important; margin-bottom: 4px !important; }
+  .sf-cta-barcode { top: 28% !important; left: -40px !important; width: 160px !important; }
+  .sf-solution-outer { height: auto !important; }
+  .sf-solution-sticky { position: relative !important; height: auto !important; overflow: visible !important; flex-direction: column !important; }
+  .sf-solution-left { width: 100% !important; padding: 40px 20px 24px !important; border-right: none !important; border-bottom: 1px solid #e2e8f0; }
+  .sf-solution-track { flex-direction: column !important; transform: none !important; padding: 20px 20px 40px !important; }
+  .sf-solution-card { width: 100% !important; height: auto !important; min-height: unset !important; }
+  .sf-problem-cards { flex-direction: column !important; }
+  .sf-problem-heading { font-size: 26px !important; margin-bottom: 32px !important; }
+  .sf-problem-section { padding: 64px 20px 56px !important; }
+  .sf-navlinks { display: none; }
+  .sf-coin-r, .sf-coin-l { display: none; }
+  .sf-vignette { display: none; }
+  .sf-card { width: 90vw !important; max-width: 380px !important; }
+  .sf-h1 { font-size: 33px !important; }
+  .sf-hero-pad { padding-top: 120px !important; }
+  .sf-cta-img { content: url('/uploads/New Project (4).webp'); object-position: center; }
+  .sf-cta-text { padding: 40px 24px !important; text-align: center; align-items: center; display: flex; flex-direction: column; width: 100%; }
+  .sf-burger { display: flex !important; }
+}
+@media (max-width: 900px) {
+  .sf-coin-r { width: 300px; right: -20px !important; }
+  .sf-coin-l { width: 265px; left: -40px !important; }
+  .sf-h1 { font-size: 42px; }
 }
 
 /* Green scrollbar */

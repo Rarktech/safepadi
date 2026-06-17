@@ -1,119 +1,87 @@
 "use client";
+import { useEffect, useRef } from "react";
 
-import React from "react";
-
-const USERS = [
-    {
-        name: "James",
-        avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop",
-        pos: "top-[-15%] left-[40%] md:top-[-20%] md:left-[45%] lg:left-[48%]",
-        bubble: "Verified Merchant",
-        animation: "animate-float-slow"
-    },
-    {
-        name: "Sarah",
-        avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&h=150&fit=crop",
-        pos: "top-[10%] right-[5%] md:top-[12%] md:right-[5%] lg:right-[8%]",
-        bubble: "Just secured a $5k deal!",
-        animation: "animate-float"
-    },
-    {
-        name: "Michael",
-        avatar: "https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=150&h=150&fit=crop",
-        pos: "bottom-[-10%] left-[20%] md:bottom-[-25%] md:left-[25%] lg:left-[30%]",
-        bubble: "Safeeely is a lifesaver",
-        animation: "animate-float-slow"
-    },
-    {
-        name: "Elena",
-        avatar: "https://images.unsplash.com/photo-1580489944761-15a19d654956?w=150&h=150&fit=crop",
-        pos: "bottom-[-5%] right-[20%] md:bottom-[-20%] md:right-[30%] lg:right-[35%]",
-        bubble: "Payment received in seconds",
-        animation: "animate-float"
-    },
-    {
-        name: "David",
-        avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop",
-        pos: "top-[40%] left-[-2%] md:top-[45%] md:left-[0%] lg:left-[3%]",
-        bubble: "",
-        animation: "animate-float-slow"
-    }
+const CARDS = [
+  { num: "01.", title: "Funds locked from the start", desc: "The moment a buyer pays, Safeeely seals the money in a secure AI-monitored vault. Nobody touches a cent until both sides confirm.", img: "/uploads/solution cards.webp" },
+  { num: "02.", title: "Lives where your deal does", desc: "No redirects, no new apps. Our bot lives inside Telegram, WhatsApp, Discord and Instagram — escrow happens right in the chat.", img: "/uploads/New Project.webp" },
+  { num: "03.", title: "Confirmed delivery, instant pay", desc: "The buyer taps confirm and funds move instantly. Crypto or fiat — the seller gets paid in seconds, not days.", img: "/uploads/solution 3.webp" },
+  { num: "04.", title: "We step in when things go wrong", desc: "Raise a dispute and our AI reviews the evidence and resolves it in under 2 hours. Complex cases escalate instantly to a human arbiter.", img: "/uploads/solution 3 (1)-a044636f.webp" },
 ];
 
 export function TrustSection() {
-    return (
-        <section className="py-24 md:py-48 lg:py-64 bg-white overflow-hidden relative min-h-[600px] flex items-center">
-            {/* Protective Container for Headings - Ensures horizontal space is reserved */}
-            <div className="container mx-auto px-6 relative">
+  const outerRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const dotsRef = useRef<HTMLDivElement[]>([]);
 
-                {/* Floating Elements - Z-INDEX 20 to be in FRONT of text */}
-                <div className="absolute inset-x-0 inset-y-[-15%] pointer-events-none z-30">
-                    {USERS.map((user, idx) => (
-                        <div
-                            key={idx}
-                            className={`absolute ${user.pos} ${user.animation} flex items-center gap-3 transition-all duration-1000 group scale-[0.5] sm:scale-[0.7] md:scale-100`}
-                        >
-                            <div className="relative">
-                                <div className="w-14 h-14 md:w-20 md:h-20 rounded-full border-4 border-white shadow-2xl overflow-hidden relative z-20">
-                                    <img src={user.avatar} className="object-cover w-full h-full" alt={user.name} />
-                                </div>
-                                {/* Status Dot for some */}
-                                {(idx === 0 || idx === 3) && (
-                                    <div className="absolute top-0 right-0 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full z-30 shadow-sm animate-pulse"></div>
-                                )}
-                            </div>
+  useEffect(() => {
+    const onScroll = () => {
+      const outer = outerRef.current;
+      const track = trackRef.current;
+      if (!outer || !track) return;
+      const r = outer.getBoundingClientRect();
+      const outerH = outer.offsetHeight;
+      const vh = window.innerHeight;
+      const scrolled = -r.top;
+      const totalScroll = outerH - vh;
+      const progress = Math.max(0, Math.min(1, scrolled / totalScroll));
+      const trackW = track.scrollWidth;
+      const containerW = track.parentElement ? track.parentElement.offsetWidth : 0;
+      const maxT = Math.max(0, trackW - containerW);
+      track.style.transform = `translateX(${(-progress * maxT).toFixed(1)}px)`;
+      const dotIdx = Math.min(3, Math.floor(progress * 4));
+      dotsRef.current.forEach((d, i) => {
+        if (!d) return;
+        d.style.width = i === dotIdx ? "24px" : "8px";
+        d.style.background = i === dotIdx ? "#0f172a" : "#e2e8f0";
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
-                            {user.bubble && (
-                                <div className="hidden xl:block">
-                                    <div className="px-4 py-2 bg-emerald-50 border border-emerald-100/50 rounded-full rounded-tl-none shadow-sm backdrop-blur-sm">
-                                        <p className="text-[10px] md:text-xs font-bold text-emerald-800 whitespace-nowrap">
-                                            {user.bubble}
-                                        </p>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    ))}
+  return (
+    <div ref={outerRef} className="sf-solution-outer" style={{ position: "relative", height: "380vh" }}>
+      <div className="sf-solution-sticky" style={{ position: "sticky", top: 0, height: "100vh", overflow: "hidden", display: "flex", background: "#f8fafb" }}>
+
+        {/* Left panel */}
+        <div className="sf-solution-left" style={{ width: "340px", flexShrink: 0, display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 44px 0 60px", borderRight: "1px solid #e2e8f0" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "6px 14px", borderRadius: "999px", background: "#f0fdf4", border: "1px solid #bbf7d0", marginBottom: "20px", alignSelf: "flex-start" }}>
+            <span style={{ width: "6px", height: "6px", borderRadius: "999px", background: "#10b981" }} />
+            <span style={{ fontSize: "11.5px", fontWeight: 700, color: "#047857", letterSpacing: ".04em" }}>The fix</span>
+          </div>
+          <h2 style={{ fontFamily: "'Inter Tight', sans-serif", fontWeight: 400, fontSize: "32px", lineHeight: 1.2, letterSpacing: "-.035em", color: "#0f172a", margin: "0 0 14px" }}>Safeeely closes the gap no payment tool ever filled.</h2>
+          <p style={{ fontSize: "14px", lineHeight: 1.65, color: "#64748b", margin: "0 0 32px" }}>From the moment a deal is struck to the second funds land — every step is covered.</p>
+          <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+            {[0, 1, 2, 3].map((i) => (
+              <div
+                key={i}
+                ref={(el) => { if (el) dotsRef.current[i] = el; }}
+                style={{ width: i === 0 ? "24px" : "8px", height: "4px", borderRadius: "999px", background: i === 0 ? "#0f172a" : "#e2e8f0", transition: "width .3s,background .3s" }}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Right: scrolling track */}
+        <div style={{ flex: 1, overflow: "hidden", display: "flex", alignItems: "center" }}>
+          <div ref={trackRef} className="sf-solution-track" style={{ display: "flex", gap: "20px", padding: "0 80px 0 40px", willChange: "transform" }}>
+            {CARDS.map((c) => (
+              <div key={c.num} className="sf-solution-card" style={{ width: "520px", flexShrink: 0, background: "#fff", borderRadius: "22px", border: "1px solid #e8ebf0", padding: "10px", display: "flex", flexDirection: "column", gap: "10px", height: "440px" }}>
+                <div style={{ flex: 1, borderRadius: "14px", overflow: "hidden", position: "relative" }}>
+                  <img src={c.img} alt={c.title} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center", display: "block" }} />
                 </div>
-
-                {/* Main Heading Content - Z-INDEX 10 to be BEHIND avatars */}
-                <div className="max-w-4xl mx-auto text-center relative z-10 px-6 md:px-0">
-                    <h2 className="text-2xl sm:text-3xl md:text-5xl lg:text-6xl font-black text-slate-900 leading-[1.1] tracking-tight">
-                        Because we know how <br className="lg:block" />
-                        important to <span className="text-emerald-500 italic relative inline-block">
-                            safeeely
-                            <svg className="absolute -bottom-2 md:-bottom-4 left-0 w-full opacity-60" viewBox="0 0 200 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M2 10C20 6 60 2 100 2C140 2 180 6 198 10" stroke="#10b981" strokeWidth="6" strokeLinecap="round" />
-                            </svg>
-                        </span> <br className="lg:block" />
-                        transact with people is!!
-                    </h2>
-                    <p className="mt-8 text-slate-500 text-sm md:text-base font-medium max-w-lg mx-auto">
-                        Trusted by thousands of freelancers, merchants, and creators worldwide to secure every exchange.
-                    </p>
+                <div style={{ background: "#fff", borderRadius: "14px", padding: "18px 20px 22px" }}>
+                  <div style={{ fontSize: "12px", fontWeight: 700, letterSpacing: ".06em", color: "#94a3b8", marginBottom: "10px" }}>{c.num}</div>
+                  <h3 style={{ fontFamily: "'Inter Tight', sans-serif", fontWeight: 700, fontSize: "22px", letterSpacing: "-.025em", color: "#0f172a", margin: "0 0 8px", lineHeight: 1.2 }}>{c.title}</h3>
+                  <p style={{ fontSize: "14px", lineHeight: 1.65, color: "#64748b", margin: 0 }}>{c.desc}</p>
                 </div>
-            </div>
-
-            {/* Background Decorative Blobs */}
-            <div className="absolute top-[10%] left-[5%] w-[40vw] h-[40vw] bg-emerald-50/40 blur-[120px] rounded-full -z-10 pointer-events-none" />
-            <div className="absolute bottom-[5%] right-[5%] w-[30vw] h-[30vw] bg-slate-50/50 blur-[100px] rounded-full -z-10 pointer-events-none" />
-
-            <style jsx global>{`
-                @keyframes float {
-                    0%, 100% { transform: translateY(0) rotate(0deg); }
-                    50% { transform: translateY(-20px) rotate(2deg); }
-                }
-                @keyframes float-slow {
-                    0%, 100% { transform: translateY(0) rotate(0deg); }
-                    50% { transform: translateY(-10px) rotate(-1deg); }
-                }
-                .animate-float {
-                    animation: float 6s ease-in-out infinite;
-                }
-                .animate-float-slow {
-                    animation: float-slow 8s ease-in-out infinite;
-                }
-            `}</style>
-        </section>
-    );
+              </div>
+            ))}
+            <div style={{ width: "60px", flexShrink: 0 }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }

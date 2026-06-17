@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
   title: "Safeeely | Secure Your Deals",
@@ -8,8 +9,6 @@ export const metadata: Metadata = {
     icon: "/logo-mark.svg",
   },
 };
-
-import { Toaster } from "@/components/ui/sonner";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

@@ -1,0 +1,62 @@
+[
+  {
+    "id": "cap_mqgks1o6_t96p5l",
+    "selector": "section.features",
+    "label": "From deposits to payouts — and everythin…",
+    "tag": "section",
+    "url": "https://www.chainrails.io/",
+    "title": "Chainrails",
+    "timestamp": "2026-06-16T11:45:10.518Z",
+    "innerText": "From deposits to payouts — and everything in between\n\nAccept, move, and manage value across, chains, tokens and fiat currencies, all from a single integration.\n\nDeposits\n\nAccept deposit from any chain, token or fiat currency. Settle directly to your preferred destination or bank.\n\nTry Demo\nWithdrawals\n\nProcess withdrawals to users across chains, tokens and fiat without managing multiple liquidity sources and integrations.\n\nTry Demo\nPayment Links\n\nCreate simple, shareable payment links that let users pay you from anywhere.\n\nTry Demo\nLiquidity Orchestration\nComing Soon\n\nIntelligently route liquidity across fiat and crypto using stablecoin rails. USD → CNGN → NGN, EUR → MXNB → MXN, and more.\n\nTry Demo",
+    "outerHTML": "<section class=\"features\" style=\"translate: none; rotate: none; scale: none; inset: 0px auto auto 0px; margin: 0px; max-width: 1225.33px; width: 1225.33px; max-height: 580.854px; height: 580.854px; padding: 61.5909px 97.2487px 81.0406px; transform: translate(0px, 0px);\"><h2>From deposits to payouts — and everything in between</h2><p>Accept, move, and manage value across, chains, tokens and fiat currencies, all from a single integration.</p><ul style=\"translate: none; rotate: none; scale: none; transform: translate(0px, 0px);\"><li style=\"translate: none; rotate: none; scale: none; transform: translate(0px, 0px);\"><div><h3>Deposits</h3><p>Accept deposit from any chain, token or fiat currency. Settle directly to your preferred destination or bank.</p><a href=\"https://demo.chainrails.io/\" target=\"_blank\" rel=\"noopener noreferrer\" data-secondary=\"true\">Try Demo <svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M14 7.99985C14 7.86724 13.9473 7.74006 13.8536 7.6463L9.68689 3.47962C9.49163 3.28436 9.17504 3.28436 8.97978 3.47962C8.78452 3.67488 8.78452 3.99146 8.97978 4.18672L12.2929 7.49985L2.5 7.49985C2.22386 7.49985 2 7.72371 2 7.99985C2 8.27599 2.22386 8.49985 2.5 8.49985H12.2929L8.97978 11.813C8.78452 12.0082 8.78452 12.3248 8.97978 12.5201C9.17504 12.7153 9.49162 12.7153 9.68689 12.5201L13.8536 8.3534C13.9473 8.25964 14 8.13246 14 7.99985Z\" fill=\"currentcolor\"></path></svg></a></div><img src=\"/images/about-image-01.webp\" alt=\"\"></li><li style=\"translate: none; rotate: none; scale: none; transform: translate(0px, 0px);\"><div><h3>Withdrawals</h3><p>Process withdrawals to users across chains, tokens and fiat without managing multiple liquidity sources and integrations.</p><a href=\"https://demo.chainrails.io/\" target=\"_blank\" rel=\"noopener noreferrer\" data-secondary=\"true\">Try Demo <svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M14 7.99985C14 7.86724 13.9473 7.74006 13.8536 7.6463L9.68689 3.47962C9.49163 3.28436 9.17504 3.28436 8.97978 3.47962C8.78452 3.67488 8.78452 3.99146 8.97978 4.18672L12.2929 7.49985L2.5 7.49985C2.22386 7.49985 2 7.72371 2 7.99985C2 8.27599 2.22386 8.49985 2.5 8.49985H12.2929L8.97978 11.813C8.78452 12.0082 8.78452 12.3248 8.97978 12.5201C9.17504 12.7153 9.49162 12.7153 9.68689 12.5201L13.8536 8.3534C13.9473 8.25964 14 8.13246 14 7.99985Z\" fill=\"currentcolor\"></path></svg></a></div><img src=\"/images/about-image-04.webp\" alt=\"\"></li><li style=\"translate: none; rotate: none; scale: none; transform: translate(0px, 0px);\"><div><h3>Payment Links</h3><p>Create simple, shareable payment links that let users pay you from anywhere.</p><a href=\"https://demo.chainrails.io/\" target=\"_blank\" rel=\"noopener noreferrer\" data-secondary=\"true\">Try Demo <svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M14 7.99985C14 7.86724 13.9473 7.74006 13.8536 7.6463L9.68689 3.47962C9.49163 3.28436 9.17504 3.28436 8.97978 3.47962C8.78452 3.67488 8.78452 3.99146 8.97978 4.18672L12.2929 7.49985L2.5 7.49985C2.22386 7.49985 2 7.72371 2 7.99985C2 8.27599 2.22386 8.49985 2.5 8.49985H12.2929L8.97978 11.813C8.78452 12.0082 8.78452 12.3248 8.97978 12.5201C9.17504 12.7153 9.49162 12.7153 9.68689 12.5201L13.8536 8.3534C13.9473 8.25964 14 8.13246 14 7.99985Z\" fill=\"currentcolor\"></path></svg></a></div><img src=\"/images/about-image-05.webp\" alt=\"\"></li><li style=\"translate: none; rotate: none; scale: none; transform: translate(0%, 2.9067%) translate3d(0px, 0px, 0px);\"><div><h3>Liquidity Orchestration <i>Coming Soon</i></h3><p>Intelligently route liquidity across fiat and crypto using stablecoin rails. USD → CNGN → NGN, EUR → MXNB → MXN, and more.</p><a href=\"https://demo.chainrails.io/\" target=\"_blank\" rel=\"noopener noreferrer\" data-secondary=\"true\">Try Demo <svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M14 7.99985C14 7.86724 13.9473 7.74006 13.8536 7.6463L9.68689 3.47962C9.49163 3.28436 9.17504 3.28436 8.97978 3.47962C8.78452 3.67488 8.78452 3.99146 8.97978 4.18672L12.2929 7.49985L2.5 7.49985C2.22386 7.49985 2 7.72371 2 7.99985C2 8.27599 2.22386 8.49985 2.5 8.49985H12.2929L8.97978 11.813C8.78452 12.0082 8.78452 12.3248 8.97978 12.5201C9.17504 12.7153 9.49162 12.7153 9.68689 12.5201L13.8536 8.3534C13.9473 8.25964 14 8.13246 14 7.99985Z\" fill=\"currentcolor\"></path></svg></a></div><img src=\"/images/about-image-06.webp\" alt=\"\"></li></ul></section>",
+    "rect": {
+      "x": 0,
+      "y": 44,
+      "width": 1225,
+      "height": 581
+    },
+    "computedStyles": {
+      "display": "block",
+      "top": "0px",
+      "left": "0px",
+      "width": "1225.32px",
+      "height": "580.844px",
+      "padding": "61.5909px 97.2487px 81.0406px",
+      "box-sizing": "border-box",
+      "background": "rgb(246, 246, 246) none repeat scroll 0% 0% / auto padding-box border-box",
+      "font-family": "\"Times New Roman\"",
+      "font-size": "8.10406px",
+      "line-height": "8.10406px",
+      "text-decoration": "none",
+      "transform": "matrix(1, 0, 0, 1, 0, 0)",
+      "transition": "all"
+    },
+    "cssRules": [
+      {
+        "selector": "html, body, div, span, applet, object, iframe, h1, h2, h3, h4, h5, h6, p, blockquote, pre, a, abbr, acronym, address, big, cite, code, del, dfn, em, img, ins, kbd, q, s, samp, small, strike, strong, sub, sup, tt, var, b, u, i, center, dl, dt, dd, ol, ul, li, fieldset, form, label, legend, table, caption, tbody, tfoot, thead, tr, th, td, article, aside, canvas, details, embed, figure, figcaption, footer, header, hgroup, menu, nav, output, ruby, section, summary, time, mark, audio, video",
+        "css": "font: inherit; vertical-align: baseline; border: 0px; margin: 0px; padding: 0px;"
+      },
+      {
+        "selector": "article, aside, details, figcaption, figure, footer, header, hgroup, menu, nav, section",
+        "css": "display: block;"
+      },
+      {
+        "selector": "*",
+        "css": "box-sizing: border-box; -webkit-user-drag: none;"
+      },
+      {
+        "selector": "input, textarea, button, select, a, div, *",
+        "css": "-webkit-tap-highlight-color: rgba(0, 0, 0, 0);"
+      },
+      {
+        "selector": ".features",
+        "css": "background-color: rgb(246, 246, 246); padding: 7.6rem 12rem 10rem;"
+      },
+      {
+        "selector": ".features",
+        "css": "padding: 6rem 4rem;",
+        "media": "(max-width: 767px)"
+      }
+    ]
+  }
+]
