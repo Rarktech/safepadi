@@ -63,7 +63,7 @@ export function StorySection() {
     <section ref={sectionRef} className="sf-problem-section" style={{ background: "#fff", padding: "100px 40px 90px" }}>
       <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
         <h2 className="sf-problem-heading" style={{ fontFamily: "'Inter Tight', sans-serif", fontWeight: 400, fontSize: "32px", lineHeight: 1.06, letterSpacing: "-.035em", color: "#0f172a", margin: "0 0 56px", maxWidth: "660px" }}>
-          The DM economy is worth billions.<br />It has <span style={{ fontStyle: "italic", color: "#10b981", fontWeight: 800 }}>no safety net.</span>
+          The DM economy is worth billions.<br />It has <span style={{ fontStyle: "italic", color: "#10b981", fontWeight: 700 }}>no safety net.</span>
         </h2>
 
         <div data-problem-cards className="sf-problem-cards" style={{ display: "flex", gap: "16px", alignItems: "stretch" }}>

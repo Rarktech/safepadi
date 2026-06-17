@@ -84,7 +84,7 @@ export function Hero() {
       {/* Content */}
       <div className="sf-hero-pad" style={{ position: "relative", zIndex: 20, display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "150px 24px 32px" }}>
         <h1 className="sf-h1" style={{ fontFamily: "'Inter Tight', sans-serif", fontWeight: 400, lineHeight: 1.06, letterSpacing: "-.035em", color: "#0f172a", margin: "0 0 20px", animation: "riseIn .8s cubic-bezier(.16,1,.3,1) .06s both", fontSize: "54px" }}>
-          Trade anywhere.<br />Stay <span style={{ color: "#10b981", fontStyle: "italic", fontWeight: 800 }}>Safeee.</span>
+          Trade anywhere.<br />Stay <span style={{ color: "#10b981", fontStyle: "italic", fontWeight: 700 }}>Safeee.</span>
         </h1>
         <p style={{ fontSize: "17.5px", lineHeight: 1.6, color: "#64748b", maxWidth: "540px", margin: "0 0 30px", fontWeight: 450 as unknown as number, animation: "riseIn .8s cubic-bezier(.16,1,.3,1) .12s both" }}>
           Secure every social-media deal, freelance gig and crypto trade through a single link — protected end to end across WhatsApp, Telegram, Discord &amp; Instagram.
