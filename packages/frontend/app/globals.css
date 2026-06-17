@@ -118,6 +118,8 @@
 .sf-testi-mobile-col { display: none; }
 .sf-lost-mobile-bg { display: none; }
 .sf-footer-links { display: flex; }
+.sf-navlinks { display: flex; }
+.sf-burger { display: none; }
 
 @media (max-width: 720px) {
   .sf-hiw-desktop { display: none; }
