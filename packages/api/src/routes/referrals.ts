@@ -180,8 +180,8 @@ router.get('/:safetag/card', async (req, res) => {
         const { safetag } = req.params;
         const cleanSafetag = safetag.replace(/^@/, '');
 
-        // Supabase Storage (persistent CDN-backed cache) — v5 key busts white-bg v4 cards
-        const sKey = `referral_${cleanSafetag}_v5.png`;
+        // Supabase Storage (persistent CDN-backed cache) — v6 key busts stale white-bg v5 cards
+        const sKey = `referral_${cleanSafetag}_v6.png`;
         const { data: stored } = await supabase.storage.from('receipts').download(sKey);
         if (stored) {
             const buf = Buffer.from(await stored.arrayBuffer());
@@ -219,7 +219,7 @@ router.get('/:safetag/card', async (req, res) => {
             const screenshot = await element.screenshot({ type: 'png' }) as Buffer;
             await page.close();
 
-            // Persist to Supabase Storage (fire-and-forget) under v2 key
+            // Persist to Supabase Storage (fire-and-forget)
             supabase.storage.from('receipts').upload(sKey, screenshot, { contentType: 'image/png', upsert: true })
                 .catch(e => console.error('[Referral Card] Storage upload error:', e));
 
