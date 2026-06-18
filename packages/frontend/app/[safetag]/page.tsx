@@ -131,8 +131,10 @@ export default function SafetagGateway() {
                 @keyframes sfFade { from { transform: translateY(10px); } to { transform: translateY(0); } }
                 @keyframes sfPop { from { transform: translateY(18px) scale(.97); } to { transform: translateY(0) scale(1); } }
                 @media (max-width: 600px) {
-                    .sf-rf-coin { display: none !important; }
                     .sf-rf-pad { padding-top: 56px !important; }
+                    .sf-rf-coin-tg { width: 100px !important; top: 78px !important; left: -34px !important; }
+                    .sf-rf-coin-dc { width: 60px !important; top: 50px !important; right: -18px !important; }
+                    .sf-rf-coin-wa { width: 96px !important; bottom: 110px !important; right: -34px !important; }
                 }
                 .sf-rf-live-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 26px rgba(15,23,42,.10); border-color: #dde2e9; }
                 .sf-rf-soon-btn:hover { border-color: #e3e7ec; background: #fff; }
@@ -144,9 +146,9 @@ export default function SafetagGateway() {
             <div style={{ position: 'absolute', top: -220, left: '50%', transform: 'translateX(-50%)', width: 900, height: 560, background: 'radial-gradient(ellipse 50% 50% at 50% 50%, rgba(16,185,129,.16) 0%, rgba(16,185,129,0) 70%)', pointerEvents: 'none', zIndex: 0 }} />
 
             {/* floating brand coins */}
-            <img className="sf-rf-coin" src="/assets/coin-telegram.webp" alt="" style={{ position: 'absolute', width: 148, height: 'auto', top: 120, left: -50, zIndex: 1, pointerEvents: 'none', animation: 'sfBobA 7s ease-in-out infinite', filter: 'drop-shadow(0 24px 32px rgba(4,120,87,.18))' }} />
-            <img className="sf-rf-coin" src="/assets/coin-discord.webp" alt="" style={{ position: 'absolute', width: 104, height: 'auto', top: 90, right: -30, zIndex: 1, pointerEvents: 'none', animation: 'sfBobB 8.4s ease-in-out infinite', filter: 'drop-shadow(0 24px 32px rgba(4,120,87,.18))' }} />
-            <img className="sf-rf-coin" src="/assets/coin-whatsapp.webp" alt="" style={{ position: 'absolute', width: 220, height: 'auto', bottom: 40, right: -64, zIndex: 1, pointerEvents: 'none', animation: 'sfBobC 9s ease-in-out infinite', filter: 'drop-shadow(0 24px 32px rgba(4,120,87,.18))' }} />
+            <img className="sf-rf-coin sf-rf-coin-tg" src="/assets/coin-telegram.webp" alt="" style={{ position: 'absolute', width: 148, height: 'auto', top: 120, left: -50, zIndex: 1, pointerEvents: 'none', animation: 'sfBobA 7s ease-in-out infinite', filter: 'drop-shadow(0 24px 32px rgba(4,120,87,.18))' }} />
+            <img className="sf-rf-coin sf-rf-coin-dc" src="/assets/coin-discord.webp" alt="" style={{ position: 'absolute', width: 104, height: 'auto', top: 90, right: -30, zIndex: 1, pointerEvents: 'none', animation: 'sfBobB 8.4s ease-in-out infinite', filter: 'drop-shadow(0 24px 32px rgba(4,120,87,.18))' }} />
+            <img className="sf-rf-coin sf-rf-coin-wa" src="/assets/coin-whatsapp.webp" alt="" style={{ position: 'absolute', width: 220, height: 'auto', bottom: 40, right: -64, zIndex: 1, pointerEvents: 'none', animation: 'sfBobC 9s ease-in-out infinite', filter: 'drop-shadow(0 24px 32px rgba(4,120,87,.18))' }} />
 
             {/* content */}
             <div className="sf-rf-pad" style={{ position: 'relative', zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '48px 22px 60px', maxWidth: 520, margin: '0 auto' }}>
