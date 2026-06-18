@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
+import Link from "next/link";
 
 export function Hero() {
   const coinRRef = useRef<HTMLDivElement>(null);
@@ -90,9 +91,9 @@ export function Hero() {
           Secure every social-media deal, freelance gig and crypto trade through a single link — protected end to end across WhatsApp, Telegram, Discord &amp; Instagram.
         </p>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "12px", flexWrap: "wrap", animation: "riseIn .8s cubic-bezier(.16,1,.3,1) .18s both" }}>
-          <a href="#" data-magnet="1" style={{ background: "#0f172a", color: "#fff", textDecoration: "none", border: "none", borderRadius: "999px", padding: "15px 28px", fontFamily: "inherit", fontWeight: 700, fontSize: "15.5px", boxShadow: "0 14px 30px rgba(15,23,42,.2)", cursor: "pointer", transition: "transform .2s ease-out", display: "inline-block" }}>
+          <Link href="/@safeeely" data-magnet="1" style={{ background: "#0f172a", color: "#fff", textDecoration: "none", border: "none", borderRadius: "999px", padding: "15px 28px", fontFamily: "inherit", fontWeight: 700, fontSize: "15.5px", boxShadow: "0 14px 30px rgba(15,23,42,.2)", cursor: "pointer", transition: "transform .2s ease-out", display: "inline-block" }}>
             Get Started
-          </a>
+          </Link>
           <a href="#" data-magnet="1" style={{ background: "#fff", color: "#0f172a", textDecoration: "none", border: "1px solid #e2e8f0", borderRadius: "999px", padding: "15px 26px", fontFamily: "inherit", fontWeight: 700, fontSize: "15.5px", boxShadow: "0 8px 18px rgba(15,23,42,.05)", cursor: "pointer", transition: "transform .2s ease-out", display: "inline-block" }}>
             See how it works
           </a>

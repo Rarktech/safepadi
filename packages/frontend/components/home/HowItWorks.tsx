@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
+import Link from "next/link";
 
 const STEPS = [
   { num: "STEP 01 / 04", title: "Agreement", desc: "Buyers and sellers agree on deal terms within our secure interface or their preferred social platform.", img: "/assets/step-agreement.png" },
@@ -81,9 +82,9 @@ export function HowItWorks() {
                 <div key={i} ref={(el) => { if (el) dotsRef.current[i] = el; }} style={{ width: i === 0 ? "28px" : "6px", height: "6px", borderRadius: "999px", background: i === 0 ? "#0f172a" : "#e2e8f0", transition: "all .3s ease" }} />
               ))}
             </div>
-            <a href="#" style={{ display: "inline-flex", alignItems: "center", gap: "8px", background: "#0f172a", color: "#fff", textDecoration: "none", borderRadius: "999px", padding: "14px 26px", fontFamily: "inherit", fontWeight: 700, fontSize: "15px", boxShadow: "0 12px 28px rgba(15,23,42,.18)", transition: "transform .2s ease-out", alignSelf: "flex-start" }}>
+            <Link href="/@safeeely" style={{ display: "inline-flex", alignItems: "center", gap: "8px", background: "#0f172a", color: "#fff", textDecoration: "none", borderRadius: "999px", padding: "14px 26px", fontFamily: "inherit", fontWeight: 700, fontSize: "15px", boxShadow: "0 12px 28px rgba(15,23,42,.18)", transition: "transform .2s ease-out", alignSelf: "flex-start" }}>
               Get Started →
-            </a>
+            </Link>
           </div>
           {/* Right: step image */}
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden", backgroundColor: "#f7f8f8" }}>

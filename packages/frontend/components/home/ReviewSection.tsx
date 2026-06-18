@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
+import Link from "next/link";
 
 const FEATURES = [
   { title: "Voice Capture", desc: "Just send a voice note to start a deal. Our AI understands, structures and locks the escrow automatically. No typing, no forms.", img: "/uploads/features 1 voice Deal initiaiton.webp" },
@@ -58,9 +59,9 @@ export function ReviewSection() {
                   <div style={{ flex: "0 0 38%", padding: "36px 40px", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
                     <h3 style={{ fontFamily: "'Inter Tight', sans-serif", fontWeight: 600, fontSize: "17px", letterSpacing: "-.01em", color: "#111", margin: "0 0 16px", lineHeight: 1.3 }}>{f.title}</h3>
                     <p style={{ fontFamily: "'Inter', sans-serif", fontSize: "13.5px", lineHeight: 1.65, color: "#888", margin: 0, flex: 1 }}>{f.desc}</p>
-                    <a href="#" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#f5f5f5", border: "none", borderRadius: "999px", padding: "9px 20px", fontFamily: "inherit", fontSize: "13px", fontWeight: 500, color: "#111", textDecoration: "none", alignSelf: "flex-start", marginTop: "32px" }}>
+                    <Link href="/@safeeely" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#f5f5f5", border: "none", borderRadius: "999px", padding: "9px 20px", fontFamily: "inherit", fontSize: "13px", fontWeight: 500, color: "#111", textDecoration: "none", alignSelf: "flex-start", marginTop: "32px" }}>
                       Get Started →
-                    </a>
+                    </Link>
                   </div>
                   <div style={{ flex: 1, padding: "12px 12px 12px 0" }}>
                     <div style={{ width: "100%", height: "100%", borderRadius: "14px", overflow: "hidden" }}>
@@ -93,9 +94,9 @@ export function ReviewSection() {
               <div style={{ padding: "24px 24px 28px" }}>
                 <h3 style={{ fontFamily: "'Inter Tight', sans-serif", fontWeight: 700, fontSize: "22px", color: "#0d0d0d", margin: "0 0 10px", letterSpacing: "-.025em" }}>{f.title}</h3>
                 <p style={{ fontSize: "14px", color: "#6b7280", lineHeight: 1.7, margin: "0 0 22px" }}>{f.desc}</p>
-                <a href="#" style={{ display: "inline-flex", alignItems: "center", gap: "6px", border: "1px solid rgba(0,0,0,.18)", borderRadius: "999px", padding: "9px 18px", fontFamily: "inherit", fontSize: "13px", fontWeight: 500, color: "#111", textDecoration: "none" }}>
+                <Link href="/@safeeely" style={{ display: "inline-flex", alignItems: "center", gap: "6px", border: "1px solid rgba(0,0,0,.18)", borderRadius: "999px", padding: "9px 18px", fontFamily: "inherit", fontSize: "13px", fontWeight: 500, color: "#111", textDecoration: "none" }}>
                   Get Started →
-                </a>
+                </Link>
               </div>
             </div>
           ))}

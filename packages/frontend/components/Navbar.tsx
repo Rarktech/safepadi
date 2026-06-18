@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 export function Navbar() {
   const [shrunk, setShrunk] = useState(false);
@@ -62,8 +63,8 @@ export function Navbar() {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "12px", flexShrink: 0 }}>
-            <a
-              href="#"
+            <Link
+              href="/@safeeely"
               style={{
                 background: "#0f172a", color: "#fff", textDecoration: "none", borderRadius: "999px",
                 padding: btnPad, fontWeight: 700, fontSize: "14px",
@@ -72,7 +73,7 @@ export function Navbar() {
               }}
             >
               Join for Free →
-            </a>
+            </Link>
             <button
               className="sf-burger"
               onClick={(e) => { e.preventDefault(); setMenuOpen((o) => !o); }}
@@ -116,8 +117,8 @@ export function Navbar() {
             {l}
           </a>
         ))}
-        <a
-          href="#"
+        <Link
+          href="/@safeeely"
           onClick={() => setMenuOpen(false)}
           style={{
             marginTop: "18px", background: "#0f172a", color: "#fff", textDecoration: "none",
@@ -125,7 +126,7 @@ export function Navbar() {
           }}
         >
           Join for Free →
-        </a>
+        </Link>
       </div>
     </>
   );

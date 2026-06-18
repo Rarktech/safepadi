@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
+import Link from "next/link";
 
 export function CtaSection() {
   const ctaRef = useRef<HTMLDivElement>(null);
@@ -42,12 +43,12 @@ export function CtaSection() {
           Join thousands of traders protecting every deal across WhatsApp, Telegram, Discord &amp; Instagram.
         </p>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "12px", flexWrap: "wrap" }}>
-          <a
-            href="#"
+          <Link
+            href="/@safeeely"
             style={{ background: "#10b981", color: "#fff", textDecoration: "none", borderRadius: "999px", padding: "14px 32px", fontFamily: "'Inter', sans-serif", fontSize: "15px", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 12px 28px rgba(16,185,129,.35)" }}
           >
             Get Started →
-          </a>
+          </Link>
         </div>
       </div>
     </div>
