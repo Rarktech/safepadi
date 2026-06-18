@@ -19,6 +19,9 @@ const _bgPath = path.resolve(__dirname, '../../src/assets/referral-bg.webp');
 const _bgDataUrl = fs.existsSync(_bgPath)
     ? `data:image/webp;base64,${fs.readFileSync(_bgPath).toString('base64')}`
     : '';
+if (!_bgDataUrl) {
+    console.warn('[Referral Card] WARNING: referral-bg.webp not found at startup — cards will render without banner background.');
+}
 
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
@@ -180,8 +183,10 @@ router.get('/:safetag/card', async (req, res) => {
         const { safetag } = req.params;
         const cleanSafetag = safetag.replace(/^@/, '');
 
-        // Supabase Storage (persistent CDN-backed cache) — v6 key busts stale white-bg v5 cards
-        const sKey = `referral_${cleanSafetag}_v6.png`;
+        // Supabase Storage (persistent CDN-backed cache) — v7 key busts v6 cards rendered with the
+        // oversized lossless+ICC-profile WebP (likely failed to decode under Render's free-tier
+        // --single-process Chromium), now replaced with a smaller lossy/no-ICC asset
+        const sKey = `referral_${cleanSafetag}_v7.png`;
         const { data: stored } = await supabase.storage.from('receipts').download(sKey);
         if (stored) {
             const buf = Buffer.from(await stored.arrayBuffer());
@@ -203,6 +208,10 @@ router.get('/:safetag/card', async (req, res) => {
 
         const browser = await getBrowser();
         const page = await browser.newPage();
+        page.on('pageerror', (err) => console.error('[Referral Card] Page error:', err));
+        page.on('console', (msg) => {
+            if (msg.type() === 'error') console.error('[Referral Card] Console error:', msg.text());
+        });
 
         try {
             await page.setViewport({ width: 1000, height: 1150 });
