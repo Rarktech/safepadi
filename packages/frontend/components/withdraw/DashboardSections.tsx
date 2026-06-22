@@ -114,13 +114,13 @@ export const MobileDashboard = ({
     return (
         <div className="min-h-screen pb-32" style={{ backgroundColor: '#F4F7F6' }}>
             {/* Wallet card — stacked currency chips + active-card balance */}
-            <div className="px-[18px] pt-6">
-                <div className="relative" style={{ height: balances.length === 1 ? 250 : 300, isolation: 'isolate' }}>
+            <div className={`px-[18px] ${balances.length >= 3 ? 'pt-10' : 'pt-6'}`}>
+                <div className="relative" style={{ height: balances.length === 1 || balances.length >= 3 ? 250 : 300, isolation: 'isolate' }}>
                     {/* Stacked chips, one per currency */}
                     <div
                         className="absolute"
                         style={{
-                            top: -15,
+                            top: balances.length >= 3 ? -28 : -15,
                             left: '5%',
                             right: '5%',
                             height: 148,
