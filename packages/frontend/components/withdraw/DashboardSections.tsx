@@ -137,7 +137,7 @@ export const MobileDashboard = ({
                                     onClick={() => onCycleWallet(i)}
                                     className="absolute left-0 right-0 flex items-center justify-between rounded-[14px] px-3"
                                     style={{
-                                        top: pos * 28,
+                                        top: balances.length === 1 ? 20 : pos * 28,
                                         height: 70,
                                         background: WALLET_CHIP_BG[b.currency] || '#475569',
                                         zIndex: 10 + pos * 10,
