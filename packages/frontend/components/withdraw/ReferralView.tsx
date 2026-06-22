@@ -1,16 +1,11 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Card as ShadcnCard, CardContent as ShadcnCardContent, CardHeader as ShadcnCardHeader, CardTitle as ShadcnCardTitle, CardDescription as ShadcnCardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Users, Link as LinkIcon, Copy, CheckCircle2, QrCode, ArrowUpRight, DollarSign, Activity } from 'lucide-react';
+import { Link as LinkIcon, Copy, CheckCircle2, QrCode, Users, TrendingUp, ArrowUpRight } from 'lucide-react';
 import { toast } from 'sonner';
-import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import api from '@/lib/api';
-import QRCode from "react-qr-code";
 import { SheetWithdrawal } from '@/components/withdraw/SheetWithdrawal';
 
 interface CurrencyEarning {
@@ -25,6 +20,19 @@ interface ReferralStats {
     recentActivity: any[];
     leaderboard: any[];
 }
+
+const SYMBOLS: Record<string, string> = { USD: '$', NGN: '₦', EUR: '€', GBP: '£' };
+const fmtAmount = (amount: number, currency: string) => {
+    const sym = SYMBOLS[currency] || '';
+    return sym + Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+const RANK_STYLES = [
+    { bg: '#fef9c3', border: '#fde68a', color: '#92400e' },
+    { bg: '#f1f5f9', border: '#e2e8f0', color: '#475569' },
+    { bg: '#fff7ed', border: '#fed7aa', color: '#c2410c' },
+];
+const DEFAULT_RANK_STYLE = { bg: '#f8f9fa', border: '#e9eaec', color: '#64748b' };
 
 export const ReferralView = ({ profile }: { profile: any }) => {
     const [copied, setCopied] = useState(false);
@@ -71,9 +79,12 @@ export const ReferralView = ({ profile }: { profile: any }) => {
         }
     };
 
+    const decodedSafetag = (profile?.safetag || 'user').startsWith('@') ? profile.safetag : `@${profile?.safetag || 'user'}`;
+    const cleanSafetag = decodedSafetag.replace(/^@/, '');
+
     const referralLink = typeof window !== 'undefined'
-        ? `${window.location.origin}/${(profile?.safetag || 'user').startsWith('@') ? profile.safetag : `@${profile?.safetag || 'user'}`}`
-        : `https://Safeeely.com/${(profile?.safetag || 'user').startsWith('@') ? profile.safetag : `@${profile?.safetag || 'user'}`}`;
+        ? `${window.location.origin}/${decodedSafetag}`
+        : `https://Safeeely.com/${decodedSafetag}`;
 
     const handleCopy = () => {
         navigator.clipboard.writeText(referralLink);
@@ -82,260 +93,408 @@ export const ReferralView = ({ profile }: { profile: any }) => {
         setTimeout(() => setCopied(false), 2000);
     };
 
-    return (
-        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
-            {/* Header / Hero */}
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-                <div className="space-y-2">
-                    <h1 className="text-4xl md:text-5xl font-black text-slate-900 tracking-tight">Referrals</h1>
-                    <p className="text-sm md:text-base font-bold text-slate-400">Earn up to 1.5% commission on two tiers forever.</p>
-                </div>
-                <Button
-                    onClick={() => setShowWithdraw(true)}
-                    className="h-14 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-black shadow-xl px-8 flex items-center justify-center gap-2"
-                >
-                    <DollarSign size={18} />
-                    Withdraw Earnings
-                </Button>
-            </div>
+    const earningsDisplay = stats.earningsByCurrency.length === 0
+        ? [{ currency: 'NGN', totalEarned: 0, displayAmount: '₦0.00' }]
+        : stats.earningsByCurrency.map(e => ({ ...e, displayAmount: fmtAmount(e.totalEarned, e.currency) }));
 
-            {/* Top Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Earnings — one card per currency, or empty state */}
-                <ShadcnCard className="bg-gradient-to-br from-[#10b981] to-[#10b981] border-none rounded-[32px] shadow-lg shadow-emerald-500/20 text-white overflow-hidden relative">
-                    <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-white/10 rounded-full blur-2xl"></div>
-                    <ShadcnCardHeader className="pb-2">
-                        <ShadcnCardDescription className="font-bold text-emerald-100 uppercase tracking-widest text-[10px]">Commissions Earned</ShadcnCardDescription>
-                        {stats.earningsByCurrency.length === 0 ? (
-                            <ShadcnCardTitle className="text-2xl font-black tracking-tight border-none shadow-none mt-1 text-emerald-100">
-                                None yet
-                            </ShadcnCardTitle>
-                        ) : (
-                            <div className="mt-1 space-y-1">
-                                {stats.earningsByCurrency.map((e) => (
-                                    <div key={e.currency} className="flex items-baseline gap-2">
-                                        <span className="text-3xl font-black tracking-tight">
-                                            {['USD','NGN','EUR','GBP'].includes(e.currency)
-                                                ? `${({USD:'$',NGN:'₦',EUR:'€',GBP:'£'} as Record<string,string>)[e.currency]}${e.totalEarned.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`
-                                                : `${parseFloat(e.totalEarned.toFixed(8))}`}
-                                        </span>
-                                        <span className="text-sm font-bold text-emerald-100">{e.currency}</span>
+    const StatCard = ({ icon, iconBg, label, value, sub, chip, dark }: { icon: React.ReactNode; iconBg: string; label: string; value: React.ReactNode; sub: string; chip?: string; dark?: boolean }) => (
+        <div className={`rounded-[18px] p-[22px] relative overflow-hidden ${dark ? 'bg-[#0f172a]' : 'bg-white border border-[#e9eaec]'}`}>
+            {dark && (
+                <>
+                    <div className="absolute -top-10 -right-10 w-[140px] h-[140px] rounded-full pointer-events-none" style={{ border: '1px solid rgba(255,255,255,.05)' }} />
+                    <div className="absolute -top-[10px] -right-[10px] w-20 h-20 rounded-full pointer-events-none" style={{ border: '1px solid rgba(255,255,255,.05)' }} />
+                </>
+            )}
+            <div className="flex items-start justify-between mb-4 relative z-10">
+                <div className={`w-9 h-9 rounded-[10px] flex items-center justify-center ${iconBg}`}>{icon}</div>
+                {chip && <span className="chip cg relative z-10">{chip}</span>}
+            </div>
+            <p className={`text-[11px] font-medium mb-2 relative z-10 ${dark ? 'text-white/35' : 'text-[#94a3b8]'}`}>{label}</p>
+            <div className="relative z-10">{value}</div>
+            <p className={`text-[11px] mt-2 relative z-10 ${dark ? 'text-white/25' : 'text-[#94a3b8]'}`}>{sub}</p>
+        </div>
+    );
+
+    return (
+        <div className="pb-24 md:pb-8">
+            {/* Desktop */}
+            <div className="hidden md:flex flex-col gap-5">
+                {/* Hero row */}
+                <div className="flex items-end justify-between gap-4">
+                    <div>
+                        <h1 className="font-['Inter_Tight',sans-serif] text-[32px] font-black text-[#0f172a] tracking-[-.03em] leading-[1.1] mb-1.5">Referrals</h1>
+                        <p className="text-sm text-[#64748b]">
+                            Earn <strong className="text-[#10b981] font-bold">{rates.tier1Percent}%</strong> on Tier 1 and{' '}
+                            <strong className="text-[#10b981] font-bold">{rates.tier2Percent}%</strong> on Tier 2 — every trade, forever.
+                        </p>
+                    </div>
+                    <button
+                        onClick={() => setShowWithdraw(true)}
+                        className="flex items-center gap-[7px] bg-[#0f172a] rounded-full px-[22px] py-[13px] text-white font-bold text-sm whitespace-nowrap shrink-0 shadow-[0_3px_12px_rgba(15,23,42,.18)]"
+                    >
+                        <ArrowUpRight className="w-[15px] h-[15px]" />
+                        Withdraw earnings
+                    </button>
+                </div>
+
+                {/* Stats row */}
+                <div className="grid grid-cols-3 gap-[14px]">
+                    <StatCard
+                        icon={<TrendingUp className="w-4 h-4 text-[#10b981]" />}
+                        iconBg="bg-[#10b981]/20"
+                        label="Commissions earned"
+                        value={
+                            <div className="flex flex-col gap-[3px]">
+                                {earningsDisplay.map(e => (
+                                    <div key={e.currency} className="flex items-baseline gap-1.5">
+                                        <p className="font-['Inter_Tight',sans-serif] text-[28px] font-extrabold text-white tracking-[-.03em] leading-none">{e.displayAmount}</p>
+                                        <span className="text-xs font-semibold text-white/40">{e.currency}</span>
                                     </div>
                                 ))}
                             </div>
-                        )}
-                    </ShadcnCardHeader>
-                    <ShadcnCardContent>
-                        <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-md">
-                            <DollarSign className="w-5 h-5 text-white" />
-                        </div>
-                    </ShadcnCardContent>
-                </ShadcnCard>
+                        }
+                        sub="From all referred trades"
+                        dark
+                    />
+                    <StatCard
+                        icon={<Users className="w-4 h-4 text-[#16a34a]" />}
+                        iconBg="bg-[#f0fdf4]"
+                        label="Tier 1 referrals"
+                        value={<p className="font-['Inter_Tight',sans-serif] text-[32px] font-extrabold text-[#0f172a] tracking-[-.03em] leading-none">{stats.tier1Count}</p>}
+                        sub="Direct sign-ups"
+                        chip={`${rates.tier1Percent}% per trade`}
+                    />
+                    <StatCard
+                        icon={<Users className="w-4 h-4 text-[#2563eb]" />}
+                        iconBg="bg-[#eff6ff]"
+                        label="Tier 2 referrals"
+                        value={<p className="font-['Inter_Tight',sans-serif] text-[32px] font-extrabold text-[#0f172a] tracking-[-.03em] leading-none">{stats.tier2Count}</p>}
+                        sub="Friends of friends"
+                        chip={`${rates.tier2Percent}% per trade`}
+                    />
+                </div>
 
-                <ShadcnCard className="bg-white border-slate-100 rounded-[32px] shadow-sm relative overflow-hidden">
-                    <ShadcnCardHeader className="pb-2">
-                        <ShadcnCardDescription className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">Tier 1 Referrals ({rates.tier1Percent}%)</ShadcnCardDescription>
-                        <ShadcnCardTitle className="text-4xl font-black tracking-tight text-slate-900 border-none shadow-none mt-1">
-                            {stats.tier1Count}
-                        </ShadcnCardTitle>
-                    </ShadcnCardHeader>
-                    <ShadcnCardContent>
-                        <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center border border-slate-100">
-                            <Users className="w-5 h-5 text-slate-400" />
-                        </div>
-                    </ShadcnCardContent>
-                </ShadcnCard>
+                {/* Link + Leaderboard */}
+                <div className="grid grid-cols-[380px_1fr] gap-[18px]">
+                    {/* Link card */}
+                    <div className="bg-[#0f172a] rounded-[20px] p-7 flex flex-col gap-5 relative overflow-hidden">
+                        <div className="absolute -top-[60px] -right-[60px] w-[200px] h-[200px] rounded-full pointer-events-none" style={{ border: '1px solid rgba(255,255,255,.04)' }} />
+                        <div className="absolute -top-5 -right-5 w-[110px] h-[110px] rounded-full pointer-events-none" style={{ border: '1px solid rgba(255,255,255,.04)' }} />
 
-                <ShadcnCard className="bg-white border-slate-100 rounded-[32px] shadow-sm relative overflow-hidden">
-                    <ShadcnCardHeader className="pb-2">
-                        <ShadcnCardDescription className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">Tier 2 Referrals ({rates.tier2Percent}%)</ShadcnCardDescription>
-                        <ShadcnCardTitle className="text-4xl font-black tracking-tight text-slate-900 border-none shadow-none mt-1">
-                            {stats.tier2Count}
-                        </ShadcnCardTitle>
-                    </ShadcnCardHeader>
-                    <ShadcnCardContent>
-                        <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center border border-slate-100">
-                            <Users className="w-5 h-5 text-slate-400" />
-                        </div>
-                    </ShadcnCardContent>
-                </ShadcnCard>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-                {/* Unified Link Card */}
-                <ShadcnCard className="lg:col-span-2 bg-slate-900 border-none rounded-[32px] shadow-xl text-white overflow-hidden relative group">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl -mx-10 -my-10 transition-transform group-hover:scale-110"></div>
-                    <ShadcnCardHeader className="p-8 pb-4 relative z-10">
-                        <ShadcnCardTitle className="text-2xl font-black tracking-tight">Your Universal Link</ShadcnCardTitle>
-                        <p className="text-sm font-medium text-slate-400 mt-2">Share this one link everywhere. It automatically routes friends to Telegram, Discord, or the web.</p>
-                    </ShadcnCardHeader>
-                    <ShadcnCardContent className="p-8 pt-4 space-y-6 relative z-10">
-                        <div className="p-4 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-between gap-4">
-                            <div className="flex items-center gap-3 overflow-hidden">
-                                <LinkIcon size={18} className="text-emerald-400 shrink-0" />
-                                <span className="font-mono text-sm font-bold text-slate-300 truncate">{referralLink}</span>
-                            </div>
+                        <div className="relative z-10">
+                            <h2 className="font-['Inter_Tight',sans-serif] text-lg font-extrabold text-white tracking-[-.01em] mb-1.5">Your referral link</h2>
+                            <p className="text-xs text-white/40 leading-[1.6]">Share this link. When friends sign up and trade, you earn forever on every transaction they make.</p>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <Button
+                        <div className="bg-white/[.06] border border-white/[.08] rounded-xl p-[14px_16px] flex items-center gap-[10px] min-w-0 relative z-10">
+                            <LinkIcon className="w-[14px] h-[14px] text-white/40 shrink-0" />
+                            <span className="text-xs font-semibold text-white/60 whitespace-nowrap overflow-hidden text-ellipsis flex-1">{referralLink}</span>
+                        </div>
+
+                        <div className="flex gap-[9px] relative z-10">
+                            <button
                                 onClick={handleCopy}
-                                className={`h-14 rounded-2xl font-black shadow-lg transition-all ${copied ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-white hover:bg-slate-50 text-slate-900'}`}
+                                className={`flex-1 flex items-center justify-center gap-[7px] rounded-[11px] p-3 font-bold text-[13.5px] transition-colors ${copied ? 'bg-[#10b981] text-white' : 'bg-white text-[#0f172a]'}`}
                             >
-                                {copied ? <CheckCircle2 size={18} className="mr-2" /> : <Copy size={18} className="mr-2" />}
-                                {copied ? 'Copied!' : 'Copy Link'}
-                            </Button>
-                            <Button
-                                variant="outline"
+                                {copied ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                                {copied ? 'Copied!' : 'Copy link'}
+                            </button>
+                            <button
                                 onClick={() => setShowQr(true)}
-                                className="h-14 bg-transparent border-white/20 hover:bg-white/10 text-white rounded-2xl font-black"
+                                className="flex-1 flex items-center justify-center gap-[7px] bg-white/[.07] border border-white/10 rounded-[11px] p-3 text-white/75 font-semibold text-[13.5px]"
                             >
-                                <QrCode size={18} className="mr-2" />
-                                Show QR
-                            </Button>
+                                <QrCode className="w-3.5 h-3.5" />
+                                QR code
+                            </button>
                         </div>
-                    </ShadcnCardContent>
-                </ShadcnCard>
 
-                {/* Leaderboard */}
-                <ShadcnCard className="lg:col-span-3 bg-white border-slate-100 rounded-[32px] shadow-sm flex flex-col items-stretch h-full min-h-[400px]">
-                    <ShadcnCardHeader className="p-8 pb-4 flex flex-row items-center justify-between">
-                        <ShadcnCardTitle className="text-xl font-black text-slate-900 tracking-tight">Top 10 Leaderboard</ShadcnCardTitle>
-                    </ShadcnCardHeader>
-                    <ShadcnCardContent className="p-8 pt-0 flex-1 overflow-y-auto">
-                        <div className="space-y-4">
-                            {stats.leaderboard.length === 0 && !loading ? (
-                                <p className="text-slate-400 font-medium text-sm text-center py-10">No referrals yet.</p>
-                            ) : (
-                                stats.leaderboard.map((lb: any, idx: number) => (
-                                    <div key={idx} className="p-4 rounded-2xl border border-slate-50 bg-slate-50/50 flex items-center justify-between hover:border-emerald-500/30 transition-all group">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-12 h-12 rounded-xl flex items-center justify-center font-black text-sm shadow-sm bg-indigo-100 text-indigo-700">
-                                                #{idx + 1}
-                                            </div>
-                                            <div>
-                                                <p className="font-bold text-slate-900">{lb.name} ({lb.user})</p>
-                                                <p className="text-xs font-bold text-slate-400 tracking-tight">Tier {lb.tier}</p>
-                                            </div>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="font-black text-emerald-600">${lb.totalEarned.toFixed(2)}</p>
-                                        </div>
+                        <div className="border-t border-white/[.07] pt-[18px] flex flex-col gap-[11px] relative z-10">
+                            <p className="text-[11px] font-semibold text-white/30 tracking-[.04em]">How it works</p>
+                            {[
+                                'Share your link with friends',
+                                'They sign up & complete trades (Tier 1)',
+                                `Their referrals trade too (Tier 2 — ${rates.tier2Percent}%)`,
+                            ].map((step, i) => (
+                                <div key={i} className="flex items-center gap-[11px]">
+                                    <div className="w-7 h-7 rounded-lg bg-[#10b981]/[.15] flex items-center justify-center shrink-0">
+                                        <span className="text-xs font-extrabold text-[#10b981]">{i + 1}</span>
                                     </div>
-                                ))
+                                    <p className="text-xs text-white/45">{step}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Leaderboard */}
+                    <div className="bg-white border border-[#e9eaec] rounded-2xl p-[24px_26px] flex flex-col">
+                        <div className="flex items-center justify-between mb-5">
+                            <div>
+                                <h2 className="font-['Inter_Tight',sans-serif] text-base font-extrabold text-[#0f172a] tracking-[-.01em]">Top 10 leaderboard</h2>
+                                <p className="text-xs text-[#94a3b8] mt-0.5">Most active referrers this month</p>
+                            </div>
+                            <span className="chip cs">Live</span>
+                        </div>
+                        <div className="flex flex-col gap-2 flex-1">
+                            {stats.leaderboard.length === 0 && !loading ? (
+                                <div className="flex-1 flex flex-col items-center justify-center py-10 text-center gap-2.5">
+                                    <div className="w-12 h-12 rounded-[13px] bg-[#f8f9fa] flex items-center justify-center">
+                                        <Users className="w-5 h-5 text-[#94a3b8]" />
+                                    </div>
+                                    <p className="text-[13px] font-bold text-[#0f172a]">No referrals yet</p>
+                                    <p className="text-xs text-[#94a3b8]">Start sharing your link to appear on the leaderboard.</p>
+                                </div>
+                            ) : (
+                                stats.leaderboard.map((lb: any, idx: number) => {
+                                    const rs = idx < 3 ? RANK_STYLES[idx] : DEFAULT_RANK_STYLE;
+                                    return (
+                                        <div key={idx} className="flex items-center gap-3 p-[13px_16px] rounded-[13px] border border-[#f1f5f9] bg-[#fafafa] hover:border-[#10b981] transition-colors">
+                                            <div className="w-[38px] h-[38px] rounded-[10px] flex items-center justify-center shrink-0" style={{ background: rs.bg, border: `1px solid ${rs.border}`, color: rs.color }}>
+                                                <span className="font-['Inter_Tight',sans-serif] text-xs font-extrabold">#{idx + 1}</span>
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-[13.5px] font-bold text-[#0f172a] truncate">{lb.name}</p>
+                                                <p className="text-[11px] text-[#94a3b8] mt-px">{lb.user} · Tier {lb.tier}</p>
+                                            </div>
+                                            <div className="text-right shrink-0">
+                                                <p className="font-['Inter_Tight',sans-serif] text-sm font-bold text-[#10b981]">${Number(lb.totalEarned).toFixed(2)}</p>
+                                                <p className="text-[10px] text-[#94a3b8] mt-px">total earned</p>
+                                            </div>
+                                        </div>
+                                    );
+                                })
                             )}
                             {loading && (
-                                <div className="space-y-4">
-                                    <div className="animate-pulse h-20 bg-slate-100 rounded-2xl"></div>
-                                    <div className="animate-pulse h-20 bg-slate-100 rounded-2xl"></div>
+                                <div className="flex flex-col gap-2">
+                                    <div className="animate-pulse h-[60px] bg-[#f1f5f9] rounded-[13px]" />
+                                    <div className="animate-pulse h-[60px] bg-[#f1f5f9] rounded-[13px]" />
                                 </div>
                             )}
                         </div>
-                    </ShadcnCardContent>
-                </ShadcnCard>
+                    </div>
+                </div>
+
+                {/* Commission history */}
+                <div className="bg-white border border-[#e9eaec] rounded-2xl overflow-hidden">
+                    <div className="p-[22px_26px_16px] flex items-center justify-between">
+                        <div>
+                            <h2 className="font-['Inter_Tight',sans-serif] text-[15px] font-extrabold text-[#0f172a] tracking-[-.01em]">Commission history</h2>
+                            <p className="text-xs text-[#94a3b8] mt-0.5">Every referral commission you've earned</p>
+                        </div>
+                        <span className="chip cs">{stats.recentActivity.length} records</span>
+                    </div>
+
+                    <div className="grid grid-cols-[1.6fr_1fr_1fr_100px_80px_90px] gap-3 px-6 py-[10px] bg-[#fafafa] border-t border-b border-[#f3f4f6]">
+                        <p className="text-[11px] font-semibold text-[#94a3b8]">Referee</p>
+                        <p className="text-[11px] font-semibold text-[#94a3b8]">Date</p>
+                        <p className="text-[11px] font-semibold text-[#94a3b8]">Transaction</p>
+                        <p className="text-[11px] font-semibold text-[#94a3b8]">Amount</p>
+                        <p className="text-[11px] font-semibold text-[#94a3b8]">Tier</p>
+                        <p className="text-[11px] font-semibold text-[#94a3b8]">Status</p>
+                    </div>
+
+                    {loading ? (
+                        <div className="py-20 text-center text-[#94a3b8] font-medium animate-pulse">Loading transaction data...</div>
+                    ) : stats.recentActivity.length === 0 ? (
+                        <div className="py-16 px-6 text-center flex flex-col items-center gap-2.5">
+                            <div className="w-12 h-12 rounded-[13px] bg-[#f8f9fa] flex items-center justify-center">
+                                <ArrowUpRight className="w-5 h-5 text-[#94a3b8]" />
+                            </div>
+                            <p className="text-[13.5px] font-bold text-[#0f172a]">No commissions yet</p>
+                            <p className="text-xs text-[#94a3b8]">Start referring to earn commissions on every trade.</p>
+                        </div>
+                    ) : (
+                        stats.recentActivity.map((tx: any) => {
+                            const userStr = tx.user || '?';
+                            const initial = userStr.charAt(userStr.startsWith('@') ? 1 : 0).toUpperCase() || '?';
+                            const maskedEmail = tx.email ? (() => {
+                                const parts = tx.email.split('@');
+                                const user = parts[0];
+                                const masked = user.length > 3 ? user.slice(0, 3) + '***' : user + '***';
+                                return `${masked}@${parts[1] || 'safeeely.com'}`;
+                            })() : 'N/A';
+                            return (
+                                <div key={tx.id} className="grid grid-cols-[1.6fr_1fr_1fr_100px_80px_90px] gap-3 items-center px-6 py-[13px] border-b border-[#f3f4f6] last:border-b-0 hover:bg-[#fafafa] transition-colors">
+                                    <div className="flex items-center gap-[10px] min-w-0">
+                                        <div className="w-[34px] h-[34px] rounded-full bg-[#f1f5f9] flex items-center justify-center font-['Inter_Tight',sans-serif] text-[13px] font-extrabold text-[#475569] shrink-0">{initial}</div>
+                                        <div className="min-w-0">
+                                            <p className="text-[12.5px] font-bold text-[#0f172a] truncate">{maskedEmail}</p>
+                                            <p className="text-[10.5px] text-[#94a3b8] mt-px">{tx.user}</p>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <p className="text-[12.5px] font-semibold text-[#0f172a]">{format(new Date(tx.date), 'MMM d, yyyy')}</p>
+                                        <p className="text-[10.5px] text-[#94a3b8] mt-px">{format(new Date(tx.date), 'p')}</p>
+                                    </div>
+                                    <div>
+                                        <code className="bg-[#f7f8f9] border border-[#e9eaec] rounded-[6px] px-2 py-[3px] text-[10.5px] font-bold text-[#475569]">{tx.txn_code}</code>
+                                    </div>
+                                    <p className="font-['Inter_Tight',sans-serif] text-[13.5px] font-bold text-[#10b981]">+{fmtAmount(tx.amount, tx.currency)}</p>
+                                    <div>
+                                        <span className={cn("chip", tx.type === 'tier1' ? 'cg' : 'cb')}>{tx.type === 'tier1' ? 'T1' : 'T2'}</span>
+                                    </div>
+                                    <div>
+                                        <span className={cn("chip", tx.status === 'COMPLETED' ? 'cg' : 'ca')}>{tx.status === 'COMPLETED' ? 'Completed' : 'Pending'}</span>
+                                    </div>
+                                </div>
+                            );
+                        })
+                    )}
+                </div>
             </div>
 
-            {/* Detailed Transaction List */}
-            <div className="space-y-4">
-                <h2 className="text-2xl font-black text-slate-900 tracking-tight pl-2">Commission History</h2>
-                <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <Table className="min-w-[800px] lg:min-w-full">
-                            <TableHeader className="bg-slate-50/50">
-                                <TableRow className="hover:bg-transparent border-slate-100">
-                                    <TableHead className="py-4 font-bold text-slate-500 uppercase text-[10px] tracking-widest pl-6">Referee</TableHead>
-                                    <TableHead className="font-bold text-slate-500 uppercase text-[10px] tracking-widest">Date</TableHead>
-                                    <TableHead className="font-bold text-slate-500 uppercase text-[10px] tracking-widest">Transaction ID</TableHead>
-                                    <TableHead className="font-bold text-slate-500 uppercase text-[10px] tracking-widest">Amount</TableHead>
-                                    <TableHead className="font-bold text-slate-500 uppercase text-[10px] tracking-widest">Type</TableHead>
-                                    <TableHead className="font-bold text-slate-500 uppercase text-[10px] tracking-widest">Status</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {stats.recentActivity.length === 0 && !loading ? (
-                                    <TableRow>
-                                        <TableCell colSpan={6} className="py-20 text-center text-slate-400 font-medium">No commission history.</TableCell>
-                                    </TableRow>
-                                ) : loading ? (
-                                    <TableRow>
-                                        <TableCell colSpan={6} className="py-20 text-center text-slate-400 font-medium animate-pulse">Loading transaction data...</TableCell>
-                                    </TableRow>
-                                ) : (
-                                    stats.recentActivity.map((tx: any) => (
-                                        <TableRow key={tx.id} className="border-slate-100 hover:bg-slate-50/50 transition-colors">
-                                            <TableCell className="py-5 pl-6">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 font-bold overflow-hidden uppercase">
-                                                        {tx.user?.charAt(1) || '?'} {/* skipping @ character */}
-                                                    </div>
-                                                    <div>
-                                                        <p className="font-bold text-sm text-slate-900">
-                                                            {tx.email ? (() => {
-                                                                const parts = tx.email.split('@');
-                                                                const user = parts[0];
-                                                                const maskedUser = user.length > 3 ? user.slice(0, 3) + '***' : user + '***';
-                                                                return `${maskedUser}@${parts[1] || 'Safeeely.com'}`;
-                                                            })() : 'N/A'}
-                                                        </p>
-                                                        <p className="text-xs text-slate-400 font-medium">{tx.user}</p>
-                                                    </div>
-                                                </div>
-                                            </TableCell>
-                                            <TableCell>
-                                                <p className="font-bold text-sm text-slate-800">{format(new Date(tx.date), 'dd MMM yyyy')}</p>
-                                                <p className="text-xs text-slate-400 font-medium">At {format(new Date(tx.date), 'p')}</p>
-                                            </TableCell>
-                                            <TableCell>
-                                                <code className="bg-slate-50 px-2 py-1 rounded text-[10px] font-mono font-bold text-slate-500">{tx.txn_code}</code>
-                                            </TableCell>
-                                            <TableCell>
-                                                <p className="font-bold text-sm text-emerald-600">
-                                                    +${Number(tx.amount).toLocaleString()} {tx.currency}
-                                                </p>
-                                            </TableCell>
-                                            <TableCell>
-                                                <span className={cn("px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider", tx.type === 'tier1' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700')}>
-                                                    {tx.type === 'tier1' ? 'T1' : 'T2'}
-                                                </span>
-                                            </TableCell>
-                                            <TableCell>
-                                                <span className={cn("px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider", tx.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700')}>
-                                                    {tx.status}
-                                                </span>
-                                            </TableCell>
-                                        </TableRow>
-                                    ))
-                                )}
-                            </TableBody>
-                        </Table>
+            {/* Mobile */}
+            <div className="md:hidden flex flex-col gap-3 p-4">
+                {/* Link hero card */}
+                <div className="bg-[#0f172a] rounded-[20px] p-[22px] relative overflow-hidden">
+                    <div className="absolute -top-[50px] -right-[50px] w-40 h-40 rounded-full pointer-events-none" style={{ border: '1px solid rgba(255,255,255,.05)' }} />
+                    <p className="text-[10.5px] font-semibold text-white/35 tracking-[.1em] mb-2 relative z-10">YOUR REFERRAL LINK</p>
+                    <p className="text-[12.5px] font-semibold text-white/55 whitespace-nowrap overflow-hidden text-ellipsis mb-4 relative z-10">{referralLink}</p>
+                    <div className="flex gap-[9px] relative z-10">
+                        <button
+                            onClick={handleCopy}
+                            className={`flex-1 flex items-center justify-center gap-[6px] rounded-[11px] p-3 font-bold text-[13px] ${copied ? 'bg-[#10b981] text-white' : 'bg-white/[.12] border border-white/[.15] text-white/85'}`}
+                        >
+                            {copied ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                            {copied ? 'Copied!' : 'Copy link'}
+                        </button>
+                        <button onClick={() => setShowQr(true)} className="flex-1 flex items-center justify-center gap-[6px] bg-white/[.08] border border-white/10 rounded-[11px] p-3 text-white/70 font-semibold text-[13px]">
+                            <QrCode className="w-3.5 h-3.5" />
+                            QR code
+                        </button>
+                        <button onClick={() => setShowWithdraw(true)} className="flex items-center justify-center w-11 h-11 bg-[#10b981] rounded-[11px] shrink-0">
+                            <ArrowUpRight className="w-4 h-4 text-white" />
+                        </button>
                     </div>
+                </div>
+
+                {/* Stats grid */}
+                <div className="grid grid-cols-2 gap-[10px]">
+                    <div className="bg-white border border-[#e9eaec] rounded-2xl p-4">
+                        <p className="text-[10.5px] font-medium text-[#94a3b8] mb-1.5">Tier 1 · {rates.tier1Percent}%</p>
+                        <p className="font-['Inter_Tight',sans-serif] text-[26px] font-extrabold text-[#0f172a] tracking-[-.03em] leading-none mb-1">{stats.tier1Count}</p>
+                        <p className="text-[10.5px] text-[#94a3b8]">Direct referrals</p>
+                    </div>
+                    <div className="bg-white border border-[#e9eaec] rounded-2xl p-4">
+                        <p className="text-[10.5px] font-medium text-[#94a3b8] mb-1.5">Tier 2 · {rates.tier2Percent}%</p>
+                        <p className="font-['Inter_Tight',sans-serif] text-[26px] font-extrabold text-[#0f172a] tracking-[-.03em] leading-none mb-1">{stats.tier2Count}</p>
+                        <p className="text-[10.5px] text-[#94a3b8]">Friends of friends</p>
+                    </div>
+                </div>
+
+                {/* Earnings strip */}
+                <div className="bg-[#0f172a] rounded-2xl p-[16px_18px] flex items-center justify-between">
+                    <div>
+                        <p className="text-[10.5px] font-medium text-white/35 mb-1">Total commissions</p>
+                        {earningsDisplay.map(e => (
+                            <p key={e.currency} className="font-['Inter_Tight',sans-serif] text-[22px] font-extrabold text-white tracking-[-.03em]">
+                                {e.displayAmount} <span className="text-[13px] text-white/40">{e.currency}</span>
+                            </p>
+                        ))}
+                    </div>
+                    <div className="w-[38px] h-[38px] rounded-[10px] bg-[#10b981]/[.15] flex items-center justify-center shrink-0">
+                        <TrendingUp className="w-[17px] h-[17px] text-[#10b981]" />
+                    </div>
+                </div>
+
+                {/* Leaderboard */}
+                <div className="mt-1">
+                    <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-['Inter_Tight',sans-serif] text-base font-extrabold text-[#0f172a]">Leaderboard</h3>
+                        <span className="chip cs">Top 10</span>
+                    </div>
+                    {stats.leaderboard.length === 0 && !loading ? (
+                        <div className="p-[28px_20px] bg-white rounded-[14px] border border-[#e9eaec] text-center">
+                            <p className="text-[13px] font-semibold text-[#94a3b8]">No referrals yet</p>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col gap-2">
+                            {stats.leaderboard.map((lb: any, idx: number) => {
+                                const rs = idx < 3 ? RANK_STYLES[idx] : DEFAULT_RANK_STYLE;
+                                return (
+                                    <div key={idx} className="flex items-center gap-3 p-[14px_16px] bg-white rounded-[14px] border border-[#e9eaec]">
+                                        <div className="w-[38px] h-[38px] rounded-[10px] flex items-center justify-center shrink-0" style={{ background: rs.bg, border: `1px solid ${rs.border}`, color: rs.color }}>
+                                            <span className="font-['Inter_Tight',sans-serif] text-xs font-extrabold">#{idx + 1}</span>
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-[13.5px] font-bold text-[#0f172a] truncate">{lb.name}</p>
+                                            <p className="text-[11px] text-[#94a3b8] mt-px">{lb.user}</p>
+                                        </div>
+                                        <p className="font-['Inter_Tight',sans-serif] text-sm font-bold text-[#10b981] shrink-0">${Number(lb.totalEarned).toFixed(2)}</p>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                {/* Commission history */}
+                <div className="mt-1">
+                    <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-['Inter_Tight',sans-serif] text-base font-extrabold text-[#0f172a]">Commission history</h3>
+                        <span className="chip cs">{stats.recentActivity.length}</span>
+                    </div>
+                    {loading ? (
+                        <div className="p-[28px_20px] bg-white rounded-[14px] border border-[#e9eaec] text-center">
+                            <p className="text-[13px] font-semibold text-[#94a3b8] animate-pulse">Loading...</p>
+                        </div>
+                    ) : stats.recentActivity.length === 0 ? (
+                        <div className="p-[28px_20px] bg-white rounded-[14px] border border-[#e9eaec] text-center">
+                            <p className="text-[13px] font-semibold text-[#94a3b8]">No commissions yet</p>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col gap-px bg-[#e9eaec] rounded-2xl overflow-hidden">
+                            {stats.recentActivity.map((tx: any) => {
+                                const userStr = tx.user || '?';
+                                const initial = userStr.charAt(userStr.startsWith('@') ? 1 : 0).toUpperCase() || '?';
+                                const maskedEmail = tx.email ? (() => {
+                                    const parts = tx.email.split('@');
+                                    const user = parts[0];
+                                    const masked = user.length > 3 ? user.slice(0, 3) + '***' : user + '***';
+                                    return `${masked}@${parts[1] || 'safeeely.com'}`;
+                                })() : 'N/A';
+                                return (
+                                    <div key={tx.id} className="flex items-center gap-3 p-[14px_16px] bg-white">
+                                        <div className="w-[38px] h-[38px] rounded-full bg-[#f1f5f9] flex items-center justify-center font-['Inter_Tight',sans-serif] text-[13px] font-extrabold text-[#475569] shrink-0">{initial}</div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-[13px] font-bold text-[#0f172a] truncate">{maskedEmail}</p>
+                                            <p className="text-[11px] text-[#94a3b8] mt-px">{format(new Date(tx.date), 'MMM d')} · {tx.txn_code}</p>
+                                        </div>
+                                        <div className="text-right shrink-0">
+                                            <p className="font-['Inter_Tight',sans-serif] text-[13px] font-bold text-[#10b981]">+{fmtAmount(tx.amount, tx.currency)}</p>
+                                            <span className={cn("chip", tx.type === 'tier1' ? 'cg' : 'cb')}>{tx.type === 'tier1' ? 'T1' : 'T2'}</span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>
             </div>
 
             {/* QR Modal */}
-            <Dialog open={showQr} onOpenChange={setShowQr}>
-                <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-sm w-full p-8 bg-white text-slate-900 border-none rounded-[40px] shadow-2xl flex flex-col items-center space-y-6">
-                    <div className="text-center space-y-2">
-                        <h3 className="text-2xl font-black tracking-tight">Scan to Join</h3>
-                        <p className="text-sm font-bold text-slate-400">{profile?.safetag?.startsWith('@') ? profile.safetag : `@${profile?.safetag}`}</p>
+            {showQr && (
+                <div className="fixed inset-0 z-[80] bg-[#0f172a]/50 backdrop-blur-[3px] flex items-center justify-center" onClick={() => setShowQr(false)}>
+                    <div className="bg-white rounded-[24px] p-8 w-[320px] shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <div className="text-center mb-5">
+                            <h3 className="font-['Inter_Tight',sans-serif] text-lg font-extrabold text-[#0f172a] tracking-[-.02em] mb-1">Scan to join Safeeely</h3>
+                            <p className="text-xs text-[#94a3b8]">{decodedSafetag}</p>
+                        </div>
+                        <div className="flex justify-center mb-4">
+                            <div className="w-[196px] h-[196px] bg-white border-2 border-[#e9eaec] rounded-[14px] p-3.5 flex items-center justify-center overflow-hidden">
+                                <img src={`/api/referrals/${cleanSafetag}/qr`} alt="Referral QR code" className="w-full h-full object-contain rounded-[6px]" />
+                            </div>
+                        </div>
+                        <div className="bg-[#f7f8f9] rounded-[10px] p-[10px_14px] mb-4 text-center">
+                            <p className="text-[11px] font-semibold text-[#94a3b8] mb-0.5">Link</p>
+                            <p className="text-xs font-bold text-[#0f172a] break-all">{referralLink}</p>
+                        </div>
+                        <button onClick={handleCopy} className="w-full bg-[#0f172a] rounded-xl p-[13px] text-white font-bold text-sm flex items-center justify-center gap-[7px]">
+                            <Copy className="w-3.5 h-3.5" />
+                            Copy link
+                        </button>
                     </div>
-
-                    {/* Actual QR code rendering */}
-                    <div className="bg-white rounded-[16px] border-2 border-slate-100 flex items-center justify-center p-4">
-                        <QRCode
-                            value={referralLink}
-                            size={180}
-                            bgColor="#ffffff"
-                            fgColor="#0f172a"
-                            level="H"
-                        />
-                    </div>
-
-                    <Button onClick={() => setShowQr(false)} className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black shadow-xl">
-                        Close
-                    </Button>
-                </DialogContent>
-            </Dialog>
+                </div>
+            )}
 
             {/* Withdrawal Sheet — same as withdraw page */}
             <SheetWithdrawal
@@ -349,6 +508,14 @@ export const ReferralView = ({ profile }: { profile: any }) => {
                     fetchStats();
                 }}
             />
+
+            <style jsx>{`
+                .chip { display: inline-flex; align-items: center; gap: 3px; padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 600; }
+                .cg { background: #f0fdf4; color: #16a34a; }
+                .cs { background: #f1f5f9; color: #475569; }
+                .cb { background: #eff6ff; color: #2563eb; }
+                .ca { background: #fffbeb; color: #d97706; }
+            `}</style>
         </div>
     );
 };

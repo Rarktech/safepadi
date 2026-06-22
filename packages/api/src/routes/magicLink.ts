@@ -2,8 +2,9 @@ import { Router, Request, Response } from 'express';
 import { supabase } from '@safepal/shared';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import { markJtiRevoked } from '../middleware/requireUser';
+import { markJtiRevoked, requireUser, AuthedRequest } from '../middleware/requireUser';
 import { requireBot, BotAuthedRequest } from '../middleware/requireBot';
+import { sendNotification } from '../services/notifications';
 
 const router = Router();
 
@@ -17,10 +18,16 @@ const SCOPE_TTL: Record<string, number> = {
     dispute:          15 * 60,
     reviews:          30 * 60,
     view_dashboard:   30 * 60,
+    delete_account:   10 * 60,
 };
 
 // Scopes that grant a short-lived elevation claim in the session JWT
-const ELEVATION_SCOPES = new Set(['withdraw', 'payout_method', 'kyc', 'unlink', 'delivery_confirm']);
+const ELEVATION_SCOPES = new Set(['withdraw', 'payout_method', 'kyc', 'unlink', 'delivery_confirm', 'delete_account']);
+
+// Scopes a logged-in user may request a confirmation link for themselves (via POST /request-elevation),
+// as opposed to scopes only a bot can issue server-to-server (withdraw, payout_method, etc. — those
+// links are sent as part of an existing bot conversation flow).
+const SELF_REQUESTABLE_SCOPES = new Set(['delete_account']);
 
 function mintToken(): { raw: string; hash: string } {
     const raw = 'mlt_' + crypto.randomBytes(32).toString('base64url');
@@ -362,6 +369,56 @@ router.get('/me', async (req: Request, res: Response) => {
             }
         });
     } catch (err: any) {
+        res.status(500).json({ error: 'Internal error' });
+    }
+});
+
+/**
+ * POST /api/auth/magic-link/request-elevation
+ * Lets an already-logged-in user request a confirmation link for a sensitive
+ * self-service action (currently just account deletion) be sent to their own
+ * linked platform — the web app has no password to step up against, so a
+ * fresh scoped magic link plays that role.
+ */
+router.post('/request-elevation', requireUser, async (req: Request, res: Response) => {
+    try {
+        const { scope } = req.body;
+        if (typeof scope !== 'string' || !SELF_REQUESTABLE_SCOPES.has(scope)) {
+            return res.status(400).json({ error: `Invalid scope: ${scope}` });
+        }
+
+        const user = (req as AuthedRequest).user;
+        const { raw, hash } = mintToken();
+        const expiresAt = new Date(Date.now() + SCOPE_TTL[scope] * 1000);
+
+        const { error: insertErr } = await supabase.from('magic_link_tokens').insert({
+            token_hash: hash,
+            profile_id: user.sub,
+            safetag: user.safetag,
+            scope,
+            issued_to_platform: user.platform,
+            issued_to_platform_id: user.platform_id,
+            expires_at: expiresAt.toISOString(),
+        });
+        if (insertErr) {
+            console.error('Failed to store self-requested magic link token:', insertErr);
+            return res.status(500).json({ error: 'Failed to generate token' });
+        }
+
+        const frontendUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
+        const url = `${frontendUrl}/withdraw/${encodeURIComponent(user.safetag)}?view=profile&t=${encodeURIComponent(raw)}`;
+        const minutes = Math.round(SCOPE_TTL[scope] / 60);
+        const scopeLabel: Record<string, string> = { delete_account: 'delete your Safeeely account' };
+
+        await sendNotification(
+            user.platform,
+            user.platform_id,
+            `🔒 **Confirm it's you**\n\nClick below to confirm you want to ${scopeLabel[scope] || 'continue'}. This link expires in ${minutes} minutes and can only be used once.\n\n${url}`
+        );
+
+        res.json({ ok: true, expires_at: expiresAt.toISOString() });
+    } catch (err: any) {
+        console.error('Request elevation error:', err);
         res.status(500).json({ error: 'Internal error' });
     }
 });

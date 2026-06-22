@@ -226,13 +226,52 @@ router.get('/:id', async (req, res) => {
 });
 
 // ==========================================
+// DELETE A LISTING
+// ==========================================
+router.delete('/:id', async (req, res) => {
+    try {
+        const profileId = (req.query.profile_id as string) || req.body?.profile_id;
+        if (!profileId) {
+            return res.status(400).json({ error: 'Missing profile_id' });
+        }
+
+        const { data: listing, error: fetchError } = await supabase
+            .from('marketplace_listings')
+            .select('id, profile_id')
+            .eq('id', req.params.id)
+            .maybeSingle();
+
+        if (fetchError) throw fetchError;
+        if (!listing) return res.status(404).json({ error: 'Listing not found' });
+        if (listing.profile_id !== profileId) {
+            return res.status(403).json({ error: 'You do not own this listing' });
+        }
+
+        const { error: deleteError } = await supabase
+            .from('marketplace_listings')
+            .delete()
+            .eq('id', req.params.id);
+
+        if (deleteError) throw deleteError;
+
+        res.status(200).json({ ok: true });
+    } catch (err: any) {
+        console.error('❌ Error deleting listing:', err.message || err);
+        res.status(500).json({ error: err.message || 'Internal server error while deleting listing' });
+    }
+});
+
+// ==========================================
 // GET LISTINGS FOR A SPECIFIC PROFILE
 // ==========================================
 router.get('/user/:profileId', async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('marketplace_listings')
-            .select('*')
+            .select(`
+                *,
+                profiles ( safetag, first_name, last_name )
+            `)
             .eq('profile_id', req.params.profileId)
             .order('created_at', { ascending: false });
 

@@ -691,7 +691,7 @@ router.post('/customers/:id/block', async (req, res) => {
         if (primaryLinked?.platform_id) {
             await sendNotification(primaryLinked.platform, primaryLinked.platform_id, dmMessage);
         }
-        recordNotification(user.id, 'system', '🚫 Account Suspended', 'Your Safeeely account has been suspended. Contact support to appeal.', { link_url: '/dashboard' }).catch(() => {});
+        recordNotification(user.id, 'system', '🚫 Account Suspended', 'Your Safeeely account has been suspended. Contact support to appeal.', { link_url: `/withdraw/${encodeURIComponent(safetag)}` }).catch(() => {});
 
         if (user.email) {
             await sendEmail({ to: user.email, subject: '🚫 Your Safeeely Account Has Been Suspended', html: emailHtml });
@@ -751,7 +751,7 @@ router.post('/customers/:id/unblock', async (req, res) => {
         if (primaryLinked?.platform_id) {
             await sendNotification(primaryLinked.platform, primaryLinked.platform_id, dmMessage);
         }
-        recordNotification(user.id, 'system', '✅ Account Reinstated', 'Your Safeeely account has been reinstated. Welcome back!', { link_url: '/dashboard' }).catch(() => {});
+        recordNotification(user.id, 'system', '✅ Account Reinstated', 'Your Safeeely account has been reinstated. Welcome back!', { link_url: `/withdraw/${encodeURIComponent(safetag)}` }).catch(() => {});
 
         if (user.email) {
             await sendEmail({ to: user.email, subject: '✅ Your Safeeely Account Has Been Reinstated', html: emailHtml });
@@ -1061,7 +1061,7 @@ router.post('/kyc/:id/approve', async (req, res) => {
             const msg = `🎉 **KYC Verified Successfully!**\n\nCongratulations @${kyc.profile.safetag}! 🥳 Your identity has been verified. You can now carry out your transactions smoothly and securely—the **Safeeely** way! 🛡️✨\n\nThank you for being part of our secure community! 🤝🌍`;
             await sendNotification(linked.platform, linked.platform_id, msg);
         }
-        recordNotification(kyc.profile_id, 'kyc', '🎉 KYC Verified!', 'Your identity has been verified — your account is now fully unlocked', { link_url: '/dashboard' }).catch(() => {});
+        recordNotification(kyc.profile_id, 'kyc', '🎉 KYC Verified!', 'Your identity has been verified — your account is now fully unlocked', { link_url: `/withdraw/${encodeURIComponent(kyc.profile.safetag)}` }).catch(() => {});
 
         res.json({ success: true, message: 'KYC approved' });
     } catch (err: any) {
@@ -1284,7 +1284,7 @@ router.post('/payouts/:id/approve', async (req, res) => {
         if (linked) {
             sendNotification(linked.platform, linked.platform_id, msg).catch(() => {});
         }
-        recordNotification(profile.id, 'withdrawal', '✅ Withdrawal Successful', `${withdrawal.amount} ${withdrawal.currency} sent to your payout method`, { withdrawal_id: id, amount: withdrawal.amount, currency: withdrawal.currency, reference: withdrawal.reference, link_url: '/dashboard/withdrawals' }).catch(() => {});
+        recordNotification(profile.id, 'withdrawal', '✅ Withdrawal Successful', `${withdrawal.amount} ${withdrawal.currency} sent to your payout method`, { withdrawal_id: id, amount: withdrawal.amount, currency: withdrawal.currency, reference: withdrawal.reference, link_url: `/withdraw/${encodeURIComponent(profile.safetag)}?view=withdraw` }).catch(() => {});
 
         if (profile?.email) {
             sendEmail({
@@ -1325,7 +1325,7 @@ router.post('/payouts/:id/reject', async (req, res) => {
         if (linked) {
             sendNotification(linked.platform, linked.platform_id, msg).catch(() => {});
         }
-        recordNotification(profile.id, 'withdrawal', '❌ Withdrawal Failed', `${withdrawal.amount} ${withdrawal.currency} — ${reason || 'contact support'}`, { withdrawal_id: id, amount: withdrawal.amount, currency: withdrawal.currency, reason, link_url: '/dashboard/withdrawals' }).catch(() => {});
+        recordNotification(profile.id, 'withdrawal', '❌ Withdrawal Failed', `${withdrawal.amount} ${withdrawal.currency} — ${reason || 'contact support'}`, { withdrawal_id: id, amount: withdrawal.amount, currency: withdrawal.currency, reason, link_url: `/withdraw/${encodeURIComponent(profile.safetag)}?view=withdraw` }).catch(() => {});
 
         if (profile?.email) {
             sendEmail({

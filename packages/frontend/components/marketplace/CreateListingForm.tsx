@@ -1,193 +1,102 @@
-"use client";
+'use client';
 
-import React, { useState } from 'react';
-import { 
-    Plus, 
-    X, 
-    Star, 
-    Briefcase, 
-    ShoppingBag, 
-    Wrench,
-    CheckCircle2,
-    DollarSign,
-    Percent,
-    ArrowRight,
-    Search,
-    ChevronDown
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useState, useEffect } from 'react';
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import { ImagePlus, X, ChevronLeft, ChevronRight, Globe, MapPin, Check } from 'lucide-react';
+import { toast } from 'sonner';
+import api from '@/lib/api';
+import {
+    ListingType, FeeHandling, ALL_CATEGORIES, SUB_CATS, COMMON_FEATURES,
+    CURRENCIES, ORIGIN_COUNTRIES, DELIVERY_COUNTRIES,
+} from './marketplace-data';
 
-type ListingType = 'product' | 'service' | 'job';
-type FeeHandling = 'seller' | 'buyer' | 'split';
+const MAX_PHOTOS = 6;
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
-
-const ALL_CATEGORIES = [
-    { label: "Electronics & Gadgets", group: "product" },
-    { label: "Home & Garden", group: "product" },
-    { label: "Fashion & Accessories", group: "product" },
-    { label: "Vehicles & Parts", group: "product" },
-    { label: "Real Estate", group: "product" },
-    { label: "E-Books & Courses", group: "product" },
-    { label: "Software & Assets", group: "product" },
-    { label: "Software Development", group: "service" },
-    { label: "Graphics & Design", group: "service" },
-    { label: "Digital Marketing", group: "service" },
-    { label: "Writing & Translation", group: "service" },
-    { label: "Video & Animation", group: "service" },
-    { label: "Consulting & Legal", group: "service" },
-    { label: "Virtual Assistance", group: "service" },
-    { label: "Engineering", group: "job" },
-    { label: "Design", group: "job" },
-    { label: "Sales", group: "job" },
-    { label: "Customer Support", group: "job" },
-];
-
-const CURRENCIES = [
-    { code: "USD", symbol: "$", type: "fiat" },
-    { code: "NGN", symbol: "₦", type: "fiat" },
-    { code: "GBP", symbol: "£", type: "fiat" },
-    { code: "EUR", symbol: "€", type: "fiat" },
-    { code: "CAD", symbol: "$", type: "fiat" },
-    { code: "AUD", symbol: "$", type: "fiat" },
-    { code: "JPY", symbol: "¥", type: "fiat" },
-    { code: "CHF", symbol: "Fr", type: "fiat" },
-    { code: "CNY", symbol: "¥", type: "fiat" },
-    { code: "INR", symbol: "₹", type: "fiat" },
-    { code: "USDT", symbol: "₮", type: "crypto" },
-    { code: "USDC", symbol: "¢", type: "crypto" },
-    { code: "BTC", symbol: "₿", type: "crypto" },
-    { code: "ETH", symbol: "Ξ", type: "crypto" },
-    { code: "SOL", symbol: "◎", type: "crypto" },
-];
-
-export function CreateListingForm({ onCancel, editId }: { onCancel: () => void; editId?: string | null }) {
-    const [profileId, setProfileId] = useState<string>('');
+export function CreateListingForm({ open, onClose, editId, onSaved }: { open: boolean; onClose: () => void; editId?: string | null; onSaved: () => void }) {
+    const [profileId, setProfileId] = useState('');
     const [type, setType] = useState<ListingType>('product');
     const [productType, setProductType] = useState<'physical' | 'digital'>('physical');
     const [title, setTitle] = useState('');
-    const [description, setDescription] = useState('');
-    const [price, setPrice] = useState('');
+    const [category, setCategory] = useState('');
+    const [subCategory, setSubCategory] = useState('');
+    const [photos, setPhotos] = useState<{ file?: File; url: string }[]>([]);
     const [currency, setCurrency] = useState('USD');
-    const [feeHandling, setFeeHandling] = useState<FeeHandling>('split');
-    const [images, setImages] = useState<File[]>([]);
-    const [previewUrls, setPreviewUrls] = useState<string[]>([]);
-    const [primaryIndex, setPrimaryIndex] = useState(0);
-    const [features, setFeatures] = useState<string[]>([]);
-    const [newFeature, setNewFeature] = useState('');
-    const [categorySearch, setCategorySearch] = useState('');
-    const [currencySearch, setCurrencySearch] = useState('');
-
-    // Geolocation specific fields
-    const [originCountry, setOriginCountry] = useState('Worldwide');
-    const [geoScope, setGeoScope] = useState<'GLOBAL' | 'RESTRICTED'>('GLOBAL');
-    const [restrictedCountries, setRestrictedCountries] = useState<string[]>([]);
-    const [newCountry, setNewCountry] = useState('');
-
-    const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        // Strip non-numeric and trailing chars except decimal mapping
-        const rawValue = e.target.value.replace(/[^0-9.]/g, '');
-        if (!rawValue) {
-            setPrice('');
-            return;
-        }
-        // Force commas
-        const parts = rawValue.split('.');
-        parts[0] = Number(parts[0]).toLocaleString();
-        if (parts.length > 1) {
-            parts[1] = parts[1].substring(0, 2);
-            setPrice(parts.join('.'));
-        } else {
-            setPrice(parts[0]);
-        }
-    };
-
-    // Job specific fields
-    const [jobRole, setJobRole] = useState('');
+    const [price, setPrice] = useState('');
+    const [description, setDescription] = useState('');
     const [locationType, setLocationType] = useState('Remote');
     const [employmentType, setEmploymentType] = useState('Full-time');
-    const [salaryRange, setSalaryRange] = useState('');
-
-    const [isHydrating, setIsHydrating] = useState(!!editId);
-
-    React.useEffect(() => {
-        fetch(`${API_URL}/auth/me`, { credentials: 'include' })
-            .then(r => r.ok ? r.json() : null)
-            .then(d => { if (d?.sub) setProfileId(d.sub); })
-            .catch(() => {});
-    }, []);
-
-    // Hydrate form if editing
-    React.useEffect(() => {
-        if (!editId) return;
-        
-        setIsHydrating(true);
-        fetch(`${API_URL}/marketplace/${editId}`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.id) {
-                    setType(data.category_type || 'product');
-                    setProductType(data.product_type || 'physical');
-                    setTitle(data.title || '');
-                    setDescription(data.description || '');
-                    setPrice(data.price?.toString() || '');
-                    setCurrency(data.currency || 'USD');
-                    setFeeHandling(data.fee_handling || 'split');
-                    setFeatures(data.features || []);
-                    
-                    if (data.images && data.images.length > 0) {
-                        setPreviewUrls(data.images);
-                        // Cannot easily re-hydrate actual File objects from URLs safely 
-                        // without making Blob fetches, so we'll just keep the previews.
-                    }
-
-                    setOriginCountry(data.origin_country || 'Worldwide');
-                    setGeoScope(data.geo_scope || 'GLOBAL');
-                    setRestrictedCountries(data.restricted_countries || []);
-
-                    if (data.category_type === 'job') {
-                        setJobRole(data.job_role || '');
-                        setLocationType(data.location_type || 'Remote');
-                        setEmploymentType(data.employment_type || 'Full-time');
-                    }
-                }
-            })
-            .catch(err => console.error("Failed to load existing listing:", err))
-            .finally(() => setIsHydrating(false));
-    }, [editId]);
-
-    const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files.length > 0) {
-            const files = Array.from(e.target.files).slice(0, 5 - images.length);
-            setImages([...images, ...files]);
-            
-            // Create local preview URLs
-            const newPreviews = files.map(f => URL.createObjectURL(f));
-            setPreviewUrls([...previewUrls, ...newPreviews]);
-        }
-    };
-
-    const removeImage = (idx: number) => {
-        const newImages = images.filter((_, i) => i !== idx);
-        const newPreviews = previewUrls.filter((_, i) => i !== idx);
-        setImages(newImages);
-        setPreviewUrls(newPreviews);
-        if (primaryIndex >= newImages.length) setPrimaryIndex(0);
-    };
-
+    const [originCountry, setOriginCountry] = useState('Nigeria');
+    const [geoScope, setGeoScope] = useState<'GLOBAL' | 'RESTRICTED'>('GLOBAL');
+    const [deliveryCountries, setDeliveryCountries] = useState<string[]>([]);
+    const [feeHandling, setFeeHandling] = useState<FeeHandling>('split');
+    const [features, setFeatures] = useState<string[]>([]);
+    const [isHydrating, setIsHydrating] = useState(false);
     const [isPublishing, setIsPublishing] = useState(false);
 
+    const isJob = type === 'job';
+
+    useEffect(() => {
+        api.get('/auth/me').then(r => { if (r.data?.sub) setProfileId(r.data.sub); }).catch(() => {});
+    }, []);
+
+    const resetForm = () => {
+        setType('product'); setProductType('physical'); setTitle(''); setCategory(''); setSubCategory('');
+        setPhotos([]); setCurrency('USD'); setPrice(''); setDescription('');
+        setLocationType('Remote'); setEmploymentType('Full-time'); setOriginCountry('Nigeria');
+        setGeoScope('GLOBAL'); setDeliveryCountries([]); setFeeHandling('split'); setFeatures([]);
+    };
+
+    useEffect(() => {
+        if (!open) return;
+        if (!editId) { resetForm(); return; }
+        setIsHydrating(true);
+        api.get(`/marketplace/${editId}`).then(({ data }) => {
+            setType(data.category_type || 'product');
+            setProductType(data.product_type || 'physical');
+            setTitle(data.title || '');
+            setCategory(data.tags?.[0] || '');
+            setSubCategory(data.tags?.[1] || '');
+            setPhotos((data.images || []).map((url: string) => ({ url })));
+            setCurrency(data.currency || 'USD');
+            setPrice(data.price != null ? String(data.price) : '');
+            setDescription(data.description || '');
+            setLocationType(data.location_type || 'Remote');
+            setEmploymentType(data.employment_type || 'Full-time');
+            setOriginCountry(data.origin_country || 'Nigeria');
+            setGeoScope(data.geo_scope || 'GLOBAL');
+            setDeliveryCountries(data.restricted_countries || []);
+            setFeeHandling(data.fee_handling || 'split');
+            setFeatures(data.features || []);
+        }).catch(() => toast.error('Failed to load listing')).finally(() => setIsHydrating(false));
+    }, [open, editId]);
+
+    const handlePhotoFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files || []).slice(0, MAX_PHOTOS - photos.length);
+        const next = files.map(f => ({ file: f, url: URL.createObjectURL(f) }));
+        setPhotos(p => [...p, ...next]);
+        e.target.value = '';
+    };
+    const removePhoto = (idx: number) => setPhotos(p => p.filter((_, i) => i !== idx));
+    const movePhoto = (idx: number, dir: -1 | 1) => setPhotos(p => {
+        const next = [...p];
+        const target = idx + dir;
+        if (target < 0 || target >= next.length) return p;
+        [next[idx], next[target]] = [next[target], next[idx]];
+        return next;
+    });
+
+    const toggleFeature = (f: string) => setFeatures(prev => prev.includes(f) ? prev.filter(x => x !== f) : [...prev, f]);
+    const toggleDeliveryCountry = (c: string) => setDeliveryCountries(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
+
     const handlePublish = async () => {
+        if (!title.trim() || !price.trim()) {
+            toast.error('Title and price are required');
+            return;
+        }
         setIsPublishing(true);
         try {
             const formData = new FormData();
-            images.forEach((img) => formData.append('images', img));
-
-            const safetag = window.location.pathname.split('/').pop();
+            photos.forEach(p => { if (p.file) formData.append('images', p.file); });
 
             const payload = {
                 profile_id: profileId,
@@ -200,494 +109,250 @@ export function CreateListingForm({ onCancel, editId }: { onCancel: () => void; 
                 currency,
                 fee_handling: feeHandling,
                 features,
-                tags: newFeature ? [newFeature] : [], // Use newFeature as category temporarily mapping
-                job_role: jobRole,
-                location_type: locationType,
-                employment_type: employmentType,
+                tags: [category, subCategory].filter(Boolean),
+                job_role: isJob ? title : null,
+                location_type: isJob ? locationType : null,
+                employment_type: isJob ? employmentType : null,
                 origin_country: originCountry,
                 geo_scope: geoScope,
-                restricted_countries: restrictedCountries
+                restricted_countries: geoScope === 'RESTRICTED' ? deliveryCountries : [],
             };
-
             formData.append('payload', JSON.stringify(payload));
 
-            const targetUrl = editId
-                ? `${API_URL}/marketplace/${editId}`
-                : `${API_URL}/marketplace`;
-
-            const res = await fetch(targetUrl, {
-                method: editId ? 'PUT' : 'POST',
-                body: formData
-            });
-
-            if (!res.ok) {
-                const contentType = res.headers.get('content-type');
-                if (contentType && contentType.includes('application/json')) {
-                    const errorData = await res.json();
-                    throw new Error(errorData.error || 'Upload failed');
-                } else {
-                    throw new Error(`Server returned an invalid response (Status ${res.status}). This usually means the Edit endpoint doesn't exist yet on the running server (A terminal restart is required!)`);
-                }
+            if (editId) {
+                await api.put(`/marketplace/${editId}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+                toast.success('Listing updated');
+            } else {
+                await api.post('/marketplace', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+                toast.success('Listing published');
             }
-            onCancel(); // Close form on success
+            onSaved();
         } catch (err: any) {
-            console.error('Failed to publish:', err.message || err);
-            alert(`Failed to publish: ${err.message || 'Unknown error'}`);
+            toast.error(err.response?.data?.error || err.message || 'Failed to publish listing');
         } finally {
             setIsPublishing(false);
         }
     };
 
-    const toggleFeature = (f: string) => {
-        if (features.includes(f)) {
-            setFeatures(features.filter(item => item !== f));
-        } else {
-            setFeatures([...features, f]);
-        }
-    };
-
-    const toggleRestrictedCountry = (c: string) => {
-        if (restrictedCountries.includes(c)) {
-            setRestrictedCountries(restrictedCountries.filter(item => item !== c));
-        } else {
-            setRestrictedCountries([...restrictedCountries, c]);
-        }
-    };
-
-    const commonFeatures = type === 'product' ? [
-        'Brand New', 'Original Packaging', 'Warranty Included', 'Free Shipping'
-    ] : type === 'service' ? [
-        'Fast Delivery', 'Revisions Included', 'Professional Support', 'Custom Solution'
-    ] : [
-        'Remote OK', 'Benefits Included', 'Stock Options', 'Relocation Support'
-    ];
+    const categories = ALL_CATEGORIES[type];
+    const subCats = SUB_CATS[category] || [];
+    const commonFeatures = COMMON_FEATURES[type];
+    const publishLabel = isPublishing ? 'Publishing…' : editId ? 'Save changes' : 'Publish listing';
 
     return (
-        <div className="max-w-4xl mx-auto pb-20">
-            {isHydrating && (
-                <div className="fixed inset-0 z-50 bg-white/80 backdrop-blur-sm flex items-center justify-center">
-                    <div className="w-12 h-12 border-4 border-slate-900 border-t-transparent rounded-full animate-spin"></div>
+        <Sheet open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+            <SheetContent side="right" className="w-full sm:max-w-[540px] p-0 flex flex-col gap-0 bg-white">
+                <div className="px-6 py-5 border-b border-[#f1f5f9] flex-shrink-0">
+                    <SheetTitle className="font-['Inter_Tight',sans-serif] text-[17px] font-extrabold text-[#0f172a] tracking-[-.01em]">{editId ? 'Edit listing' : 'Create new listing'}</SheetTitle>
+                    <SheetDescription className="text-xs text-[#94a3b8] mt-[2px]">{editId ? 'Update your listing details' : 'Reach thousands of buyers on the Safeeely Marketplace'}</SheetDescription>
                 </div>
-            )}
-            <div className="flex items-center justify-between mb-8">
-                <div>
-                    <h1 className="text-3xl font-black text-slate-900 tracking-tight">{editId ? 'Edit Listing' : 'Create New Listing'}</h1>
-                    <p className="text-slate-500 font-medium">{editId ? 'Update your listing details' : 'Reach thousands of buyers on the Safeeely Marketplace'}</p>
-                </div>
-                <Button variant="ghost" className="font-bold text-slate-500 hover:text-rose-500" onClick={onCancel}>
-                    Cancel
-                </Button>
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                {(['product', 'service', 'job'] as ListingType[]).map((t) => (
-                    <button
-                        key={t}
-                        onClick={() => setType(t)}
-                        className={`p-6 rounded-[24px] border-2 transition-all flex flex-col items-center gap-4 ${type === t ? 'border-emerald-500 bg-emerald-50/50 shadow-sm' : 'border-slate-100 bg-white hover:border-slate-200'}`}
-                    >
-                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${type === t ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-200' : 'bg-slate-50 text-slate-400'}`}>
-                            {t === 'product' ? <ShoppingBag size={24} /> : t === 'service' ? <Wrench size={24} /> : <Briefcase size={24} />}
+                {isHydrating ? (
+                    <div className="flex-1 flex items-center justify-center">
+                        <div className="w-10 h-10 border-4 border-[#0f172a] border-t-transparent rounded-full animate-spin" />
+                    </div>
+                ) : (
+                    <div className="flex-1 overflow-y-auto px-6 py-[22px] flex flex-col gap-[18px]">
+                        {/* Listing type */}
+                        <div>
+                            <span className="text-[11px] font-bold text-[#64748b] tracking-[.04em] mb-[7px] block">Listing type</span>
+                            <div className="grid grid-cols-3 gap-2">
+                                {(['product', 'service', 'job'] as ListingType[]).map(t => (
+                                    <button
+                                        key={t}
+                                        onClick={() => { setType(t); setCategory(''); setSubCategory(''); setFeatures([]); }}
+                                        className={`flex flex-col items-center gap-[6px] py-3 rounded-xl border text-[11.5px] font-bold capitalize transition-colors ${type === t ? 'border-[#10b981] bg-[#f0fdf4] text-[#0f172a]' : 'border-[#e9eaec] text-[#64748b] hover:border-[#cbd5e1]'}`}
+                                    >
+                                        {t}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
-                        <span className="font-black text-slate-900 capitalize uppercase tracking-widest text-xs">{t}</span>
-                    </button>
-                ))}
-            </div>
 
-            {type === 'product' && (
-                <div className="flex gap-4 justify-center mb-10">
-                    <button 
-                        onClick={() => setProductType('physical')}
-                        className={`px-6 py-2 rounded-full text-sm font-bold transition-all border-2 ${productType === 'physical' ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-100 text-slate-500 hover:border-slate-200'}`}
-                    >
-                        📦 Physical Product
-                    </button>
-                    <button 
-                        onClick={() => setProductType('digital')}
-                        className={`px-6 py-2 rounded-full text-sm font-bold transition-all border-2 ${productType === 'digital' ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-100 text-slate-500 hover:border-slate-200'}`}
-                    >
-                        💻 Digital Product
-                    </button>
-                </div>
-            )}
-            
-            {type !== 'product' && <div className="mb-10" />}
+                        {type === 'product' && (
+                            <div className="flex gap-2">
+                                {(['physical', 'digital'] as const).map(pt => (
+                                    <button key={pt} onClick={() => setProductType(pt)} className={`px-4 py-2 rounded-full text-xs font-bold border-2 ${productType === pt ? 'bg-[#0f172a] text-white border-[#0f172a]' : 'bg-white border-[#e9eaec] text-[#64748b]'}`}>
+                                        {pt === 'physical' ? '📦 Physical' : '💻 Digital'}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
 
-            <div className="space-y-8 bg-white p-8 md:p-12 rounded-[40px] border border-slate-100 shadow-xl shadow-slate-200/50">
-                {/* Image Section */}
-                <section className="space-y-6">
-                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
-                        Images <span className="text-slate-300 font-bold ml-1">({images.length}/5)</span>
-                    </h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                        {previewUrls.map((url, idx) => (
-                            <div key={idx} className="relative aspect-square rounded-2xl overflow-hidden group border-2 border-slate-50">
-                                <img src={url} className="w-full h-full object-cover" alt={`Upload preview ${idx}`} />
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
-                                    <button 
-                                        onClick={() => setPrimaryIndex(idx)}
-                                        className={`p-2 rounded-full transition-colors ${primaryIndex === idx ? 'bg-emerald-500 text-white' : 'bg-white/20 text-white hover:bg-emerald-500'}`}
-                                    >
-                                        <Star size={16} className={primaryIndex === idx ? 'fill-current' : ''} />
-                                    </button>
-                                    <button 
-                                        onClick={() => removeImage(idx)}
-                                        className="p-2 rounded-full bg-white/20 text-white hover:bg-rose-500 transition-colors"
-                                    >
-                                        <X size={16} />
-                                    </button>
+                        {/* Title */}
+                        <div>
+                            <label className="text-[11px] font-bold text-[#64748b] tracking-[.04em] mb-[7px] block">Title</label>
+                            <input className="w-full bg-[#f7f8f9] border border-[#e9eaec] rounded-[11px] px-4 py-3 text-[13.5px] font-medium text-[#0f172a] outline-none focus:border-[#10b981] focus:bg-white transition-colors" placeholder={isJob ? 'e.g. Senior Frontend Engineer' : 'e.g. Professional UI/UX Design'} value={title} onChange={e => setTitle(e.target.value)} />
+                        </div>
+
+                        {/* Category + subcategory */}
+                        <div className={`grid gap-[10px] ${subCats.length > 0 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                            <div>
+                                <label className="text-[11px] font-bold text-[#64748b] tracking-[.04em] mb-[7px] block">Category</label>
+                                <select className="w-full bg-[#f7f8f9] border border-[#e9eaec] rounded-[11px] px-4 py-3 text-[13.5px] font-medium text-[#0f172a] outline-none focus:border-[#10b981] focus:bg-white transition-colors" value={category} onChange={e => { setCategory(e.target.value); setSubCategory(''); }}>
+                                    <option value="">Select category…</option>
+                                    {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                            </div>
+                            {subCats.length > 0 && (
+                                <div>
+                                    <label className="text-[11px] font-bold text-[#64748b] tracking-[.04em] mb-[7px] block">Subcategory</label>
+                                    <select className="w-full bg-[#f7f8f9] border border-[#e9eaec] rounded-[11px] px-4 py-3 text-[13.5px] font-medium text-[#0f172a] outline-none focus:border-[#10b981] focus:bg-white transition-colors" value={subCategory} onChange={e => setSubCategory(e.target.value)}>
+                                        <option value="">All subcategories</option>
+                                        {subCats.map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
                                 </div>
-                                {primaryIndex === idx && (
-                                    <div className="absolute top-2 left-2 px-2 py-0.5 bg-emerald-500 text-[8px] font-black text-white rounded-full uppercase tracking-widest">
-                                        Primary
+                            )}
+                        </div>
+
+                        {/* Photos */}
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <label className="text-[11px] font-bold text-[#64748b] tracking-[.04em]">Photos</label>
+                                <span className="text-[10.5px] text-[#94a3b8] font-medium">{photos.length} / {MAX_PHOTOS} photos · first photo is cover</span>
+                            </div>
+                            <label className="aspect-[3/1] sm:aspect-[5/1] rounded-[14px] border-2 border-dashed border-[#e9eaec] flex flex-col items-center justify-center gap-[6px] bg-[#fafafa] text-[#94a3b8] cursor-pointer hover:border-[#10b981] hover:bg-[#f0fdf4] hover:text-[#10b981] transition-colors">
+                                <input type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoFiles} disabled={photos.length >= MAX_PHOTOS} />
+                                <ImagePlus size={20} />
+                                <p className="text-[13px] font-bold">{photos.length === 0 ? 'Add photos' : 'Add more photos'}</p>
+                                <p className="text-[11.5px]">Select multiple at once · JPG, PNG, WebP</p>
+                            </label>
+                            {photos.length > 0 && (
+                                <div className="grid gap-2 mt-[10px]" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))' }}>
+                                    {photos.map((p, idx) => (
+                                        <div key={p.url} className="relative aspect-square rounded-xl overflow-hidden bg-[#f1f5f9] group">
+                                            <img src={p.url} className="w-full h-full object-cover" alt="" />
+                                            {idx === 0 && <div className="absolute bottom-[5px] left-[5px] bg-[#0f172a] text-white text-[8.5px] font-extrabold px-[7px] py-[2px] rounded-full tracking-[.03em]">Cover</div>}
+                                            <div className="absolute top-1 left-1 flex gap-[3px]">
+                                                {idx > 0 && <button onClick={() => movePhoto(idx, -1)} className="w-[22px] h-[22px] rounded-md bg-black/55 flex items-center justify-center"><ChevronLeft size={11} className="text-white" /></button>}
+                                                {idx < photos.length - 1 && <button onClick={() => movePhoto(idx, 1)} className="w-[22px] h-[22px] rounded-md bg-black/55 flex items-center justify-center"><ChevronRight size={11} className="text-white" /></button>}
+                                            </div>
+                                            <button onClick={() => removePhoto(idx)} className="absolute top-1 right-1 w-[22px] h-[22px] rounded-full bg-black/55 flex items-center justify-center"><X size={11} className="text-white" /></button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Price + currency */}
+                        <div className="grid grid-cols-[100px_1fr] gap-[10px]">
+                            <div>
+                                <label className="text-[11px] font-bold text-[#64748b] tracking-[.04em] mb-[7px] block">Currency</label>
+                                <select className="w-full bg-[#f7f8f9] border border-[#e9eaec] rounded-[11px] px-2 py-3 text-[13.5px] font-medium text-[#0f172a] outline-none focus:border-[#10b981] focus:bg-white transition-colors" value={currency} onChange={e => setCurrency(e.target.value)}>
+                                    {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code} {c.symbol}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-[11px] font-bold text-[#64748b] tracking-[.04em] mb-[7px] block">{isJob ? 'Max budget / salary' : 'Price'}</label>
+                                <input type="number" className="w-full bg-[#f7f8f9] border border-[#e9eaec] rounded-[11px] px-4 py-3 text-[13.5px] font-medium text-[#0f172a] outline-none focus:border-[#10b981] focus:bg-white transition-colors" placeholder="0.00" value={price} onChange={e => setPrice(e.target.value)} />
+                            </div>
+                        </div>
+
+                        {/* Description */}
+                        <div>
+                            <label className="text-[11px] font-bold text-[#64748b] tracking-[.04em] mb-[7px] block">Description</label>
+                            <textarea className="w-full min-h-[110px] bg-[#f7f8f9] border border-[#e9eaec] rounded-[11px] px-4 py-3 text-[13.5px] font-medium text-[#0f172a] outline-none focus:border-[#10b981] focus:bg-white transition-colors leading-[1.6] resize-y" placeholder="Describe your listing in detail…" value={description} onChange={e => setDescription(e.target.value)} />
+                        </div>
+
+                        {/* Job-specific */}
+                        {isJob && (
+                            <div className="grid grid-cols-2 gap-[10px]">
+                                <div>
+                                    <label className="text-[11px] font-bold text-[#64748b] tracking-[.04em] mb-[7px] block">Location type</label>
+                                    <select className="w-full bg-[#f7f8f9] border border-[#e9eaec] rounded-[11px] px-4 py-3 text-[13.5px] font-medium text-[#0f172a] outline-none" value={locationType} onChange={e => setLocationType(e.target.value)}>
+                                        {['Remote', 'On-site', 'Hybrid'].map(l => <option key={l} value={l}>{l}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[11px] font-bold text-[#64748b] tracking-[.04em] mb-[7px] block">Employment type</label>
+                                    <select className="w-full bg-[#f7f8f9] border border-[#e9eaec] rounded-[11px] px-4 py-3 text-[13.5px] font-medium text-[#0f172a] outline-none" value={employmentType} onChange={e => setEmploymentType(e.target.value)}>
+                                        {['Full-time', 'Contract', 'Part-time', 'Freelance'].map(l => <option key={l} value={l}>{l}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Geo */}
+                        <div>
+                            <label className="text-[11px] font-bold text-[#64748b] tracking-[.04em] mb-[7px] block">{isJob ? 'Work location' : type === 'service' ? 'Service area' : 'Delivery area'}</label>
+                            <div className="flex gap-2 mb-3">
+                                <button onClick={() => setGeoScope('GLOBAL')} className={`flex items-center gap-[6px] px-3 py-2 rounded-[10px] text-xs font-bold transition-colors ${geoScope === 'GLOBAL' ? 'bg-[#0f172a] text-white' : 'bg-white border border-[#e9eaec] text-[#64748b]'}`}>
+                                    <Globe size={13} /> Worldwide
+                                </button>
+                                <button onClick={() => setGeoScope('RESTRICTED')} className={`flex items-center gap-[6px] px-3 py-2 rounded-[10px] text-xs font-bold transition-colors ${geoScope === 'RESTRICTED' ? 'bg-[#0f172a] text-white' : 'bg-white border border-[#e9eaec] text-[#64748b]'}`}>
+                                    <MapPin size={13} /> Specific countries
+                                </button>
+                            </div>
+                            <div className={`grid gap-[10px] ${geoScope === 'RESTRICTED' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                                <div>
+                                    <label className="text-[11px] font-bold text-[#64748b] tracking-[.04em] mb-[7px] block">Your country (origin)</label>
+                                    <select className="w-full bg-[#f7f8f9] border border-[#e9eaec] rounded-[11px] px-4 py-3 text-[13.5px] font-medium text-[#0f172a] outline-none" value={originCountry} onChange={e => setOriginCountry(e.target.value)}>
+                                        {ORIGIN_COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.flag} {c.code}</option>)}
+                                    </select>
+                                </div>
+                                {geoScope === 'RESTRICTED' && (
+                                    <div>
+                                        <label className="text-[11px] font-bold text-[#64748b] tracking-[.04em] mb-[7px] block">Deliver / service to</label>
+                                        <select className="w-full bg-[#f7f8f9] border border-[#e9eaec] rounded-[11px] px-4 py-3 text-[13.5px] font-medium text-[#0f172a] outline-none" value="" onChange={e => { if (e.target.value) toggleDeliveryCountry(e.target.value); }}>
+                                            <option value="">+ Add a country…</option>
+                                            {DELIVERY_COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.flag} {c.code}</option>)}
+                                        </select>
                                     </div>
                                 )}
                             </div>
-                        ))}
-                        {images.length < 5 && (
-                            <label className="aspect-square rounded-2xl border-2 border-dashed border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 flex flex-col items-center justify-center gap-2 text-slate-400 hover:text-emerald-500 transition-all cursor-pointer">
-                                <input type="file" multiple accept="image/*" className="hidden" onChange={handleImageSelect} />
-                                <Plus size={24} />
-                                <span className="text-[10px] font-black uppercase tracking-widest">Add Image</span>
-                            </label>
-                        )}
-                    </div>
-                </section>
-
-                {/* Basic Info Section */}
-                <section className="space-y-6 pt-6 border-t border-slate-100">
-                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">General Information</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-3">
-                            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Listing Title</label>
-                            <Input 
-                                placeholder={type === 'job' ? 'e.g. Senior Frontend Engineer' : 'e.g. Professional UI/UX Design'} 
-                                className="h-14 rounded-2xl bg-slate-50 border-transparent focus:bg-white transition-all text-base font-medium"
-                                value={title}
-                                onChange={(e) => setTitle(e.target.value)}
-                            />
+                            {geoScope === 'RESTRICTED' && (
+                                deliveryCountries.length > 0 ? (
+                                    <div className="flex flex-wrap gap-[6px] mt-2">
+                                        {deliveryCountries.map(c => (
+                                            <div key={c} className="inline-flex items-center gap-[5px] bg-[#f1f5f9] border border-[#e2e8f0] rounded-full px-[10px] py-1">
+                                                <span className="text-xs font-semibold text-[#0f172a]">{c}</span>
+                                                <button onClick={() => toggleDeliveryCountry(c)} className="w-[14px] h-[14px] rounded-full bg-[#cbd5e1] flex items-center justify-center flex-shrink-0">
+                                                    <X size={7} className="text-[#475569]" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-[11px] text-[#94a3b8] mt-[6px]">No countries added yet — select from the dropdown above.</p>
+                                )
+                            )}
                         </div>
-                        
-                        <div className="space-y-3">
-                            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Industry Category</label>
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <button className="w-full flex items-center justify-between h-14 rounded-2xl bg-slate-50 border border-transparent focus:bg-white focus:border-slate-200 outline-none px-4 transition-all text-base font-medium text-slate-600">
-                                        {newFeature || "Select a specific category..."}
-                                        <ChevronDown className="w-5 h-5 text-slate-400" />
-                                    </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-[300px] rounded-2xl p-2 shadow-xl border-slate-100">
-                                    <div className="px-2 pb-2">
-                                        <div className="relative">
-                                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                                            <Input 
-                                                placeholder="Search categories..." 
-                                                value={categorySearch}
-                                                onChange={(e) => setCategorySearch(e.target.value)}
-                                                className="h-9 pl-8 bg-slate-50 border-transparent focus:bg-white text-xs rounded-xl"
-                                                onClick={(e) => e.stopPropagation()} // Prevent closing dropdown on input focus
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="max-h-[250px] overflow-y-auto no-scrollbar pb-1">
-                                        {ALL_CATEGORIES
-                                            .filter(c => c.group === type)
-                                            .filter(c => c.label.toLowerCase().includes(categorySearch.toLowerCase()))
-                                            .length === 0 ? (
-                                            <div className="text-xs text-center py-4 text-slate-400 font-medium">No category found</div>
-                                        ) : (
-                                            ALL_CATEGORIES
-                                                .filter(c => c.group === type)
-                                                .filter(c => c.label.toLowerCase().includes(categorySearch.toLowerCase()))
-                                                .map((c) => (
-                                                <DropdownMenuItem 
-                                                    key={c.label}
-                                                    onClick={() => setNewFeature(c.label)}
-                                                    className={`flex justify-between items-center px-3 py-2.5 rounded-xl cursor-pointer transition-all ${newFeature === c.label ? 'bg-emerald-50 text-emerald-700 font-bold' : 'text-slate-600 hover:bg-slate-50 font-medium'}`}
-                                                >
-                                                    {c.label}
-                                                    {newFeature === c.label && <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>}
-                                                </DropdownMenuItem>
-                                            ))
-                                        )}
-                                    </div>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        </div>
-                    </div>
-                </section>
 
-                <section className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{type === 'job' ? 'Max Budget / Salary' : 'Price'}</label>
-                    <div className="relative flex items-center">
-                        <div className="absolute left-1 top-1 bottom-1 w-24">
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <button className="w-full h-full bg-slate-100 rounded-xl px-3 outline-none text-sm font-bold text-slate-700 hover:bg-slate-200 transition-colors flex items-center justify-between">
-                                        {currency} <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                        {/* Fee handling */}
+                        <div>
+                            <label className="text-[11px] font-bold text-[#64748b] tracking-[.04em] mb-[7px] block">Fee handling (5% platform fee)</label>
+                            <div className="flex gap-2">
+                                {(['seller', 'buyer', 'split'] as FeeHandling[]).map(h => (
+                                    <button key={h} onClick={() => setFeeHandling(h)} className={`flex-1 py-2 rounded-[10px] text-xs font-bold border transition-colors ${feeHandling === h ? 'bg-[#0f172a] text-white border-[#0f172a]' : 'bg-white border-[#e9eaec] text-[#64748b]'}`}>
+                                        {h === 'seller' ? 'Seller pays' : h === 'buyer' ? 'Buyer pays' : 'Split 50/50'}
                                     </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="start" className="w-[200px] rounded-2xl p-2 shadow-xl border-slate-100">
-                                    <div className="px-2 pb-2">
-                                        <div className="relative">
-                                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                                            <Input 
-                                                placeholder="Search currency..." 
-                                                value={currencySearch}
-                                                onChange={(e) => setCurrencySearch(e.target.value)}
-                                                className="h-9 pl-8 bg-slate-50 border-transparent focus:bg-white text-xs rounded-xl"
-                                                onClick={(e) => e.stopPropagation()}
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="max-h-[200px] overflow-y-auto no-scrollbar pb-1">
-                                        {CURRENCIES.filter(c => c.code.toLowerCase().includes(currencySearch.toLowerCase())).length === 0 ? (
-                                            <div className="text-xs text-center py-4 text-slate-400 font-medium">No currency found</div>
-                                        ) : (
-                                            CURRENCIES.filter(c => c.code.toLowerCase().includes(currencySearch.toLowerCase())).map((c) => (
-                                                <DropdownMenuItem 
-                                                    key={c.code}
-                                                    onClick={() => setCurrency(c.code)}
-                                                    className={`flex justify-between items-center px-3 py-2.5 rounded-xl cursor-pointer transition-all ${currency === c.code ? 'bg-emerald-50 text-emerald-700 font-bold' : 'text-slate-600 hover:bg-slate-50 font-medium'}`}
-                                                >
-                                                    <span className="flex items-center gap-2">
-                                                        <span className={c.type === 'crypto' ? "text-amber-500 font-black" : "text-slate-400"}>{c.symbol}</span> 
-                                                        {c.code}
-                                                    </span>
-                                                    {currency === c.code && <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>}
-                                                </DropdownMenuItem>
-                                            ))
-                                        )}
-                                    </div>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
+                                ))}
+                            </div>
                         </div>
-                        <Input 
-                            value={price} 
-                            onChange={handlePriceChange}
-                            placeholder="0.00"
-                            className="h-14 rounded-2xl border-slate-100 pl-28 font-bold text-base text-slate-900 focus:border-emerald-500 focus:ring-emerald-500/20"
-                        />
-                    </div>
-                </section>
 
-                {type === 'job' && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        <section className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Location Type</label>
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <button className="w-full h-14 bg-slate-50 border border-transparent rounded-2xl px-4 outline-none text-base font-medium text-slate-600 hover:bg-slate-100 transition-colors flex items-center justify-between">
-                                        {locationType} <ChevronDown className="w-5 h-5 text-slate-400" />
-                                    </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="start" className="w-full min-w-[250px] rounded-2xl p-2 shadow-xl border-slate-100">
-                                    {['Remote', 'On-site', 'Hybrid'].map(loc => (
-                                        <DropdownMenuItem 
-                                            key={loc}
-                                            onClick={() => setLocationType(loc)}
-                                            className={`flex justify-between items-center px-3 py-2.5 rounded-xl cursor-pointer transition-all ${locationType === loc ? 'bg-emerald-50 text-emerald-700 font-bold' : 'text-slate-600 hover:bg-slate-50 font-medium'}`}
-                                        >
-                                            {loc}
-                                            {locationType === loc && <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>}
-                                        </DropdownMenuItem>
-                                    ))}
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        </section>
-                        <section className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Employment Type</label>
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <button className="w-full h-14 bg-slate-50 border border-transparent rounded-2xl px-4 outline-none text-base font-medium text-slate-600 hover:bg-slate-100 transition-colors flex items-center justify-between">
-                                        {employmentType} <ChevronDown className="w-5 h-5 text-slate-400" />
-                                    </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="start" className="w-full min-w-[250px] rounded-2xl p-2 shadow-xl border-slate-100">
-                                    {['Full-time', 'Contract', 'Part-time', 'Freelance'].map(emp => (
-                                        <DropdownMenuItem 
-                                            key={emp}
-                                            onClick={() => setEmploymentType(emp)}
-                                            className={`flex justify-between items-center px-3 py-2.5 rounded-xl cursor-pointer transition-all ${employmentType === emp ? 'bg-emerald-50 text-emerald-700 font-bold' : 'text-slate-600 hover:bg-slate-50 font-medium'}`}
-                                        >
-                                            {emp}
-                                            {employmentType === emp && <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>}
-                                        </DropdownMenuItem>
-                                    ))}
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        </section>
+                        {/* Features */}
+                        <div>
+                            <label className="text-[11px] font-bold text-[#64748b] tracking-[.04em] mb-[7px] block">Features</label>
+                            <div className="grid grid-cols-2 gap-[7px]">
+                                {commonFeatures.map(f => {
+                                    const selected = features.includes(f);
+                                    return (
+                                        <button key={f} onClick={() => toggleFeature(f)} className={`flex items-center gap-[7px] px-[14px] py-[9px] rounded-[10px] border-[1.5px] text-[12.5px] font-semibold text-left transition-colors ${selected ? 'bg-[#f0fdf4] text-[#15803d] border-[#bbf7d0]' : 'bg-[#f7f8f9] text-[#64748b] border-[#e9eaec]'}`}>
+                                            {selected && <Check size={11} className="text-[#16a34a] flex-shrink-0" />}
+                                            {f}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     </div>
                 )}
 
-                <section className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Description</label>
-                    <Textarea 
-                        value={description}
-                        onChange={(e) => setDescription(e.target.value)}
-                        placeholder="Provide deep details about your listing..."
-                        className="min-h-[150px] rounded-2xl border-slate-100 font-medium text-slate-600 focus:border-emerald-500 focus:ring-emerald-500/20 p-5 leading-relaxed"
-                    />
-                </section>
-
-                {/* Geolocation Section */}
-                <section className="p-8 bg-blue-50/50 rounded-[32px] border border-blue-100/50">
-                    <div className="flex items-center gap-3 mb-6">
-                        <div className="w-10 h-10 bg-blue-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
-                            <Search size={20} />
-                        </div>
-                        <div>
-                            <h3 className="text-base font-black text-slate-900">Geographical Targeting</h3>
-                            <p className="text-xs text-slate-500 font-medium">Control who can view and interact with {type === 'job' ? 'this role' : 'this offering'}</p>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Listing Origin (Where are you based?)</label>
-                            <select 
-                                value={originCountry}
-                                onChange={(e) => setOriginCountry(e.target.value)}
-                                className="w-full h-14 rounded-2xl border border-slate-200 px-4 font-bold text-slate-900 bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                            >
-                                <option>Worldwide</option>
-                                <option>United States</option>
-                                <option>United Kingdom</option>
-                                <option>Nigeria</option>
-                                <option>India</option>
-                            </select>
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Audience Scope</label>
-                            <select 
-                                value={geoScope}
-                                onChange={(e) => setGeoScope(e.target.value as 'GLOBAL' | 'RESTRICTED')}
-                                className="w-full h-14 rounded-2xl border border-slate-200 px-4 font-bold text-slate-900 bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                            >
-                                <option value="GLOBAL">Available Worldwide</option>
-                                <option value="RESTRICTED">Restrict to Specific Regions</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    {geoScope === 'RESTRICTED' && (
-                        <div className="space-y-4 pt-4 border-t border-slate-200/50">
-                            <div className="flex items-center justify-between">
-                                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Allowed Regions</h3>
-                                <div className="flex gap-2">
-                                    <Input 
-                                        value={newCountry}
-                                        onChange={(e) => setNewCountry(e.target.value)}
-                                        placeholder="Add country code (e.g. US, NG)"
-                                        className="h-10 rounded-xl border-slate-200 bg-white"
-                                    />
-                                    <Button 
-                                        size="sm" 
-                                        className="h-10 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold"
-                                        onClick={() => { if(newCountry) { toggleRestrictedCountry(newCountry.toUpperCase()); setNewCountry(""); } }}
-                                    >
-                                        Add
-                                    </Button>
-                                </div>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                {restrictedCountries.length === 0 ? (
-                                    <span className="text-xs text-slate-400 font-medium italic">No regions added. Currently restricting everyone.</span>
-                                ) : (
-                                    restrictedCountries.map((c) => (
-                                        <div 
-                                            key={c} 
-                                            onClick={() => toggleRestrictedCountry(c)}
-                                            className="flex items-center gap-2 bg-blue-100 text-blue-700 hover:bg-rose-100 hover:text-rose-600 hover:border-rose-200 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-black tracking-wider cursor-pointer transition-colors"
-                                        >
-                                            {c} <X size={12} />
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
-                    )}
-                </section>
-
-                {/* Fee Handling Section */}
-                <section className="p-8 bg-slate-50 rounded-[32px] border border-slate-100">
-                    <div className="flex items-center gap-3 mb-6">
-                        <div className="w-10 h-10 bg-emerald-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-emerald-200">
-                            <Percent size={20} />
-                        </div>
-                        <div>
-                            <h3 className="text-base font-black text-slate-900">Marketplace Fee (5%)</h3>
-                            <p className="text-xs text-slate-500 font-medium">Choose how the Safeeely transaction fee is handled</p>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {(['seller', 'buyer', 'split'] as FeeHandling[]).map((h) => (
-                            <button
-                                key={h}
-                                onClick={() => setFeeHandling(h)}
-                                className={`px-6 py-4 rounded-xl border-2 font-bold text-sm transition-all ${feeHandling === h ? 'border-emerald-500 bg-white text-emerald-600 shadow-sm' : 'border-slate-200 bg-transparent text-slate-400 hover:border-slate-300'}`}
-                            >
-                                {h === 'seller' ? 'Seller Pays All' : h === 'buyer' ? 'Buyer Pays All' : 'Split 50/50'}
-                            </button>
-                        ))}
-                    </div>
-                </section>
-
-                <section className="space-y-6">
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Select Features</h3>
-                        <div className="flex gap-2">
-                            <Input 
-                                value={newFeature}
-                                onChange={(e) => setNewFeature(e.target.value)}
-                                placeholder="Custom feature..."
-                                className="h-10 rounded-xl border-slate-100"
-                            />
-                            <Button 
-                                size="sm" 
-                                className="h-10 rounded-xl bg-slate-900 text-white font-bold"
-                                onClick={() => { if(newFeature) { setFeatures([...features, newFeature]); setNewFeature(""); } }}
-                            >
-                                Add
-                            </Button>
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {commonFeatures.concat(features.filter(f => !commonFeatures.includes(f))).map((f) => (
-                            <div 
-                                key={f} 
-                                onClick={() => toggleFeature(f)}
-                                className={`flex items-center gap-3 p-4 rounded-2xl border-2 transition-all cursor-pointer ${features.includes(f) ? 'border-emerald-500 bg-emerald-50/20' : 'border-slate-50 bg-slate-50/30'}`}
-                            >
-                                <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 ${features.includes(f) ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-200 bg-white'}`}>
-                                    {features.includes(f) && <CheckCircle2 size={14} />}
-                                </div>
-                                <span className="font-bold text-slate-700 text-sm italic">{f}</span>
-                            </div>
-                        ))}
-                    </div>
-                </section>
-
-                <div className="pt-8 border-t border-slate-100 flex justify-end gap-4">
-                    <Button 
-                        variant="ghost" 
-                        className="h-14 px-8 rounded-2xl font-black text-slate-400 hover:text-rose-500"
-                        onClick={onCancel}
-                    >
-                        Save Draft
-                    </Button>
-                    <Button 
-                        onClick={handlePublish}
-                        disabled={isPublishing}
-                        className="h-14 px-10 rounded-2xl bg-slate-900 hover:bg-black text-white font-black text-lg shadow-xl shadow-slate-200 flex items-center gap-3"
-                    >
-                        {isPublishing ? 'Publishing...' : 'Publish Listing'} <ArrowRight size={20} />
-                    </Button>
+                <div className="px-6 pt-[14px] pb-5 border-t border-[#f1f5f9] flex-shrink-0 flex gap-[10px]">
+                    <button onClick={onClose} className="flex-1 h-[46px] rounded-full border border-[#e9eaec] bg-[#f7f8f9] text-[#64748b] font-semibold text-sm">Cancel</button>
+                    <button onClick={handlePublish} disabled={isPublishing} className="flex-[2] h-[46px] rounded-full bg-[#0f172a] text-white font-bold text-sm disabled:opacity-60">{publishLabel}</button>
                 </div>
-            </div>
-        </div>
+            </SheetContent>
+        </Sheet>
     );
 }

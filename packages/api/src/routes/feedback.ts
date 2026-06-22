@@ -145,7 +145,7 @@ export async function maybeSendFeedbackPrompt(
     try {
         const { data: profile } = await supabase
             .from('profiles')
-            .select('last_feedback_prompted_at')
+            .select('last_feedback_prompted_at, safetag')
             .eq('id', profileId)
             .single();
 
@@ -173,7 +173,7 @@ export async function maybeSendFeedbackPrompt(
             'feedback_prompt',
             '💭 Rate your Safeeely experience',
             hookMsg,
-            { source, ref_id: refId, link_url: '/dashboard' }
+            { source, ref_id: refId, link_url: profile?.safetag ? `/withdraw/${encodeURIComponent(profile.safetag)}` : '/login' }
         ).catch(() => {});
     } catch (err) {
         console.error('[Feedback] maybeSendFeedbackPrompt error:', err);

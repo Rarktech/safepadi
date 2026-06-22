@@ -239,10 +239,11 @@ router.post('/reply', requireUser, async (req, res) => {
         if (error) throw error;
 
         // Notify the original reviewer that their review received a reply
-        const { data: originalReview } = await supabase.from('reviews').select('reviewer_id').eq('id', review_id).single();
+        const { data: originalReview } = await supabase.from('reviews').select('reviewer_id, reviewer:reviewer_id(safetag)').eq('id', review_id).single();
         if (originalReview && originalReview.reviewer_id !== profileId) {
+            const reviewerSafetag = (originalReview.reviewer as any)?.safetag;
             routeNotification(originalReview.reviewer_id, `💬 <b>${responderSafetag}</b> replied to your review:\n\n"${comment}"`).catch(() => {});
-            recordNotification(originalReview.reviewer_id, 'review', '💬 Reply to Your Review', `${responderSafetag} replied: "${comment?.substring(0, 80)}"`, { review_id, responder_safetag: responderSafetag, link_url: '/dashboard' }).catch(() => {});
+            recordNotification(originalReview.reviewer_id, 'review', '💬 Reply to Your Review', `${responderSafetag} replied: "${comment?.substring(0, 80)}"`, { review_id, responder_safetag: responderSafetag, link_url: reviewerSafetag ? `/reviews/${encodeURIComponent(reviewerSafetag)}` : '/login' }).catch(() => {});
         }
 
         res.status(201).json(reply);

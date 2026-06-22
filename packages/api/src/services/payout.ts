@@ -178,14 +178,21 @@ export async function queryAndSyncStatus(withdrawalId: string): Promise<void> {
     }
 }
 
+async function withdrawalLinkUrl(profileId: string): Promise<string> {
+    const { data } = await supabase.from('profiles').select('safetag').eq('id', profileId).single();
+    return data?.safetag ? `/withdraw/${encodeURIComponent(data.safetag)}?view=withdraw` : '/login';
+}
+
 async function notifyPayoutSuccess(w: WithdrawalRow): Promise<void> {
     const msg = `✅ <b>Withdrawal Successful!</b>\n\n<b>${w.amount} ${w.currency}</b> has been sent to your payout method.\n\n📋 Reference: <b>${w.reference}</b>`;
     routeNotification(w.profile_id, msg, []).catch(() => {});
-    recordNotification(w.profile_id, 'withdrawal', '✅ Withdrawal Successful', `${w.amount} ${w.currency} sent`, { withdrawal_id: w.id, amount: w.amount, currency: w.currency, reference: w.reference, link_url: '/dashboard/withdrawals' }).catch(() => {});
+    const link_url = await withdrawalLinkUrl(w.profile_id);
+    recordNotification(w.profile_id, 'withdrawal', '✅ Withdrawal Successful', `${w.amount} ${w.currency} sent`, { withdrawal_id: w.id, amount: w.amount, currency: w.currency, reference: w.reference, link_url }).catch(() => {});
 }
 
 async function notifyPayoutFailed(w: WithdrawalRow, reason: string): Promise<void> {
     const msg = `❌ <b>Withdrawal Failed</b>\n\nYour withdrawal of <b>${w.amount} ${w.currency}</b> could not be processed.\n\n📝 Reason: ${reason}\n\nPlease contact support or retry.`;
     routeNotification(w.profile_id, msg, []).catch(() => {});
-    recordNotification(w.profile_id, 'withdrawal', '❌ Withdrawal Failed', `${w.amount} ${w.currency} — ${reason}`, { withdrawal_id: w.id, amount: w.amount, currency: w.currency, link_url: '/dashboard/withdrawals' }).catch(() => {});
+    const link_url = await withdrawalLinkUrl(w.profile_id);
+    recordNotification(w.profile_id, 'withdrawal', '❌ Withdrawal Failed', `${w.amount} ${w.currency} — ${reason}`, { withdrawal_id: w.id, amount: w.amount, currency: w.currency, link_url }).catch(() => {});
 }

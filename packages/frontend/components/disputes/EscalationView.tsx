@@ -27,7 +27,7 @@ function EtaDisplay({ escalatedAt }: { escalatedAt: string | null }) {
     return () => clearInterval(t);
   }, [escalatedAt]);
 
-  return <p className="text-2xl font-bold text-red-500">{label}</p>;
+  return <p className="font-['Inter_Tight',sans-serif] text-[22px] font-extrabold text-[#e11d48]">{label}</p>;
 }
 
 export function EscalationView({ dispute, messages }: EscalationViewProps) {
@@ -64,25 +64,25 @@ export function EscalationView({ dispute, messages }: EscalationViewProps) {
   ];
 
   return (
-    <div className="flex flex-col gap-4 p-4 md:p-6 overflow-y-auto">
+    <div className="flex-1 overflow-y-auto p-5 md:p-6 flex flex-col gap-[14px]">
       {/* Red banner */}
-      <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
+      <div className="bg-[#fff1f2] border-[1.5px] border-[#fecdd3] rounded-[18px] p-5">
         <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
-            <Headphones size={20} className="text-red-600" />
+          <div className="w-10 h-10 rounded-[11px] bg-[#fee2e2] flex items-center justify-center shrink-0">
+            <Headphones size={20} className="text-[#e11d48]" />
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2 flex-wrap mb-1">
-              <span className="text-xs font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full">
+              <span className="text-xs font-bold text-[#e11d48] bg-[#fee2e2] px-2 py-0.5 rounded-full">
                 {adminJoined ? '● Specialist joined' : '● Escalated · awaiting human'}
               </span>
             </div>
-            <h2 className="text-lg md:text-xl font-bold text-stone-900 mb-1">
+            <h2 className="font-['Inter_Tight',sans-serif] text-lg md:text-xl font-extrabold text-[#0f172a] mb-1">
               {adminJoined
                 ? `${specialistFirstName} has joined your case thread`
                 : 'This case is now with a senior specialist'}
             </h2>
-            <p className="text-sm text-stone-600">
+            <p className="text-sm text-[#64748b] leading-[1.6]">
               {adminJoined
                 ? `${specialistName} is reviewing the full case file. You can continue to send messages — they will respond directly in the thread.`
                 : `${specialistName} is reviewing the full case file along with SafeAI's draft. You can continue to send messages — ${specialistFirstName} will respond directly in the thread.`}
@@ -90,52 +90,52 @@ export function EscalationView({ dispute, messages }: EscalationViewProps) {
           </div>
           {/* ETA — desktop only */}
           <div className="text-right shrink-0 hidden md:block">
-            <p className="text-xs text-stone-400 uppercase tracking-widest font-bold mb-0.5">ETA</p>
+            <p className="text-xs text-[#94a3b8] uppercase tracking-[.07em] font-bold mb-0.5">ETA</p>
             <EtaDisplay escalatedAt={escalatedAt} />
           </div>
         </div>
 
         {/* ETA — mobile inline */}
         <div className="mt-3 bg-white/60 rounded-xl p-3 flex items-center justify-between md:hidden">
-          <span className="text-xs font-bold text-stone-500 uppercase tracking-widest">ETA</span>
+          <span className="text-xs font-bold text-[#64748b] uppercase tracking-[.07em]">ETA</span>
           <EtaDisplay escalatedAt={escalatedAt} />
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4">
+      <div className="flex flex-col md:flex-row gap-[14px]">
         {/* Specialist card */}
-        <div className="flex-1 bg-white border border-stone-200 rounded-2xl p-5">
-          <p className="text-xs font-black text-stone-400 uppercase tracking-widest mb-4">Your Specialist</p>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 font-bold text-lg shrink-0">
+        <div className="flex-1 bg-white border border-[#e9eaec] rounded-2xl p-[18px]">
+          <p className="text-[10px] font-bold text-[#94a3b8] tracking-[.07em] mb-[14px]">YOUR SPECIALIST</p>
+          <div className="flex items-center gap-[10px] mb-3">
+            <div className="w-11 h-11 rounded-full bg-[#fef3c7] flex items-center justify-center text-[#92400e] font-['Inter_Tight',sans-serif] font-extrabold text-lg shrink-0">
               {specialistInitial}
             </div>
             <div>
-              <p className="font-bold text-stone-900">{specialistName}</p>
-              <p className="text-xs text-stone-500">{specialistTitle}</p>
+              <p className="font-['Inter_Tight',sans-serif] text-[13.5px] font-extrabold text-[#0f172a]">{specialistName}</p>
+              <p className="text-[11px] text-[#94a3b8]">{specialistTitle}</p>
               <div className="flex gap-1.5 mt-1.5 flex-wrap">
                 {specialistTags.map((tag: string, i: number) => (
-                  <span key={i} className="text-[10px] border border-stone-200 rounded-full px-2 py-0.5 text-stone-500 capitalize">
+                  <span key={i} className="text-[10px] border border-[#e9eaec] rounded-full px-2 py-0.5 text-[#94a3b8] capitalize">
                     {tag.replace(/_/g, ' ')} specialist
                   </span>
                 ))}
                 {casesResolved > 0 && (
-                  <span className="text-[10px] border border-stone-200 rounded-full px-2 py-0.5 text-stone-500">
+                  <span className="text-[10px] border border-[#e9eaec] rounded-full px-2 py-0.5 text-[#94a3b8]">
                     {casesResolved}+ resolved
                   </span>
                 )}
               </div>
             </div>
           </div>
-          <blockquote className="text-sm italic text-stone-500 bg-stone-50 rounded-xl p-3 border border-stone-100 leading-relaxed">
+          <blockquote className="text-[12px] italic text-[#64748b] bg-[#f7f8f9] rounded-xl p-3 border border-[#e9eaec] leading-[1.6]">
             "{specialistBio}"
           </blockquote>
           <div className="flex gap-2 mt-4">
-            <button className="flex-1 flex items-center justify-center gap-1.5 border border-stone-200 rounded-xl py-2.5 text-sm font-semibold text-stone-700 hover:bg-stone-50 transition-colors">
+            <button className="flex-1 flex items-center justify-center gap-[6px] border border-[#e9eaec] rounded-xl py-[10px] text-sm font-semibold text-[#475569] hover:bg-[#f7f8f9] transition-colors">
               <MessageSquare size={14} />
               Message
             </button>
-            <button className="flex-1 flex items-center justify-center gap-1.5 border border-stone-200 rounded-xl py-2.5 text-sm font-semibold text-stone-700 hover:bg-stone-50 transition-colors">
+            <button className="flex-1 flex items-center justify-center gap-[6px] border border-[#e9eaec] rounded-xl py-[10px] text-sm font-semibold text-[#475569] hover:bg-[#f7f8f9] transition-colors">
               <User size={14} />
               View profile
             </button>
@@ -143,18 +143,18 @@ export function EscalationView({ dispute, messages }: EscalationViewProps) {
         </div>
 
         {/* Checklist card */}
-        <div className="flex-1 bg-white border border-stone-200 rounded-2xl p-5">
-          <p className="text-xs font-black text-stone-400 uppercase tracking-widest mb-4">
-            What {specialistFirstName} will look at
+        <div className="flex-1 bg-white border border-[#e9eaec] rounded-2xl p-[18px]">
+          <p className="text-[10px] font-bold text-[#94a3b8] tracking-[.07em] mb-3">
+            WHAT {specialistFirstName.toUpperCase()} WILL LOOK AT
           </p>
           <div className="flex flex-col">
             {checklist.map((item, i) => (
-              <div key={i} className="flex items-center gap-3 py-2.5 border-b border-stone-50 last:border-0">
+              <div key={i} className="flex items-center gap-[9px] py-[9px] border-b border-[#f3f4f6] last:border-0">
                 {item.done
-                  ? <CheckSquare size={16} className="text-emerald-600 shrink-0" />
-                  : <Square size={16} className="text-stone-300 shrink-0" />
+                  ? <CheckSquare size={14} className="text-[#10b981] shrink-0" />
+                  : <Square size={14} className="text-[#e9eaec] shrink-0" />
                 }
-                <span className="text-sm text-stone-700">{item.label}</span>
+                <span className="text-[12.5px] text-[#475569]">{item.label}</span>
               </div>
             ))}
           </div>
@@ -163,8 +163,8 @@ export function EscalationView({ dispute, messages }: EscalationViewProps) {
 
       {/* Latest in thread */}
       {lastMessages.length > 0 && (
-        <div className="bg-white border border-stone-200 rounded-2xl p-5">
-          <p className="text-xs font-black text-stone-400 uppercase tracking-widest mb-4">Latest in the case thread</p>
+        <div className="bg-white border border-[#e9eaec] rounded-2xl p-[18px]">
+          <p className="text-[10px] font-bold text-[#94a3b8] tracking-[.07em] mb-[14px]">LATEST IN THE CASE THREAD</p>
           <div className="flex flex-col gap-3">
             {lastMessages.map((msg: any, i: number) => {
               const isAI = msg.sender_type === 'AI';
@@ -179,18 +179,18 @@ export function EscalationView({ dispute, messages }: EscalationViewProps) {
                 : '';
               return (
                 <div key={i} className="flex items-start gap-3">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${isAI ? 'bg-emerald-100' : isAdmin ? 'bg-amber-100' : 'bg-stone-100'}`}>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${isAI ? 'bg-[#f0fdf4]' : isAdmin ? 'bg-[#fef3c7]' : 'bg-[#f1f5f9]'}`}>
                     {isAI
-                      ? <img src="/logo-main.svg" alt="SafeAI" className="h-5 w-5 object-contain" />
-                      : <span className={isAdmin ? 'text-amber-700' : 'text-stone-600'}>{senderLabel.charAt(0)}</span>
+                      ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth={2.5}><path d="M12 3 5 6v5c0 4.2 2.8 7.7 7 9 4.2-1.3 7-4.8 7-9V6z" /></svg>
+                      : <span className={isAdmin ? 'text-[#92400e]' : 'text-[#475569]'}>{senderLabel.charAt(0)}</span>
                     }
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-0.5">
-                      <span className="text-xs font-semibold text-stone-700">{senderLabel}</span>
-                      <span className="text-xs text-stone-400">{timeStr}</span>
+                      <span className="text-xs font-semibold text-[#475569]">{senderLabel}</span>
+                      <span className="text-xs text-[#94a3b8]">{timeStr}</span>
                     </div>
-                    <p className="text-sm text-stone-600 line-clamp-2">
+                    <p className="text-sm text-[#64748b] line-clamp-2">
                       {(msg.content || '').replace(/\*\*/g, '').replace(/\[ADMIN_JOINED[^\]]*\]/g, '')}
                     </p>
                   </div>

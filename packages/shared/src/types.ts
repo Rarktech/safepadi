@@ -27,6 +27,13 @@ export interface Profile {
   last_name?: string;
   primary_platform: Platform;
   created_at: string;
+  avatar_url?: string | null;
+  bio?: string | null;
+  phone?: string | null;
+  country?: string | null;
+  notification_prefs?: Record<string, boolean>;
+  privacy_prefs?: Record<string, boolean>;
+  deleted_at?: string | null;
 }
 
 export interface LinkedAccount {

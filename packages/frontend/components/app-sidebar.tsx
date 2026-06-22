@@ -1,19 +1,7 @@
 "use client"
 
 import * as React from "react"
-import {
-  Activity,
-  ArrowRightLeft,
-  Home,
-  LogOut,
-  Scale,
-  Send,
-  Settings,
-  Users,
-  ShoppingBag
-} from "lucide-react"
 
-import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
 import {
   Sidebar,
@@ -21,145 +9,154 @@ import {
   SidebarFooter,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import type { ViewType } from "@/types/view"
 
-const data = {
-  user: {
-    name: "User",
-    email: "user@safeeely.com",
-    avatar: "",
-  },
-  navMain: [
-    {
-      title: "Dashboard",
-      url: "#",
-      icon: Home,
-      isActive: true,
-    },
-    {
-      title: "Marketplace",
-      url: "/marketplace",
-      icon: ShoppingBag,
-    },
-    {
-      title: "My Transactions",
-      url: "#",
-      icon: Activity,
-    },
-    {
-      title: "Disputes",
-      url: "#",
-      icon: Scale,
-    },
-    {
-      title: "Withdraw",
-      url: "#",
-      icon: Send,
-    },
-    {
-      title: "Exchange",
-      url: "#",
-      icon: ArrowRightLeft,
-    },
-    {
-      title: "Referrals",
-      url: "#",
-      icon: Users,
-    },
-  ],
-  navSecondary: [
-    {
-      title: "Settings",
-      url: "#",
-      icon: Settings,
-    },
-  ],
+interface NavItem {
+  title: string
+  view: ViewType
+  icon: React.ReactNode
 }
 
-type ViewType = 'dashboard' | 'transactions' | 'withdraw' | 'referrals' | 'dispute_details' | 'marketplace' | 'notifications' | 'disputes' | 'dispute_chat'
+const overviewItems: NavItem[] = [
+  {
+    title: "Dashboard",
+    view: "dashboard",
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>,
+  },
+  {
+    title: "Marketplace",
+    view: "marketplace",
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M6 2 4 6v13a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6l-2-4z"/><line x1="4.5" y1="6" x2="19.5" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>,
+  },
+  {
+    title: "My Transactions",
+    view: "transactions",
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>,
+  },
+  {
+    title: "Disputes",
+    view: "disputes",
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M12 3 5 6v5c0 4.2 2.8 7.7 7 9 4.2-1.3 7-4.8 7-9V6z"/></svg>,
+  },
+]
+
+const financeItems: NavItem[] = [
+  {
+    title: "Withdraw",
+    view: "withdraw",
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>,
+  },
+  {
+    title: "Referrals",
+    view: "referrals",
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+  },
+]
+
+const accountItems: NavItem[] = [
+  {
+    title: "Profile & Settings",
+    view: "profile",
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>,
+  },
+]
+
+function isActive(view: ViewType, current: ViewType) {
+  if (view === "disputes") return current === "disputes" || current === "dispute_chat" || current === "dispute_details"
+  return view === current
+}
+
+function NavSection({
+  label,
+  items,
+  currentView,
+  setCurrentView,
+  disputeCount,
+}: {
+  label: string
+  items: NavItem[]
+  currentView: ViewType
+  setCurrentView: (v: ViewType) => void
+  disputeCount?: number
+}) {
+  return (
+    <div className="flex flex-col gap-px">
+      <p className="text-[11px] font-medium text-[#b0bac6] px-3 pt-2.5 pb-[5px]">{label}</p>
+      {items.map((item) => {
+        const active = isActive(item.view, currentView)
+        const showBadge = item.view === "disputes" && !!disputeCount && disputeCount > 0
+        return (
+          <div
+            key={item.view}
+            onClick={() => setCurrentView(item.view)}
+            className={`flex items-center gap-[10px] px-3 py-[9px] rounded-[9px] cursor-pointer text-[13.5px] transition-colors ${
+              active ? "bg-[#f1f5f9] text-[#0f172a] font-semibold" : "text-[#64748b] font-medium hover:bg-[#f8f9fa] hover:text-[#0f172a]"
+            }`}
+          >
+            {item.icon}
+            <span>{item.title}</span>
+            {showBadge ? (
+              <span className="ml-auto bg-[#e11d48] text-white text-[9px] font-extrabold px-[6px] py-[2px] rounded-full">
+                {disputeCount}
+              </span>
+            ) : (
+              <span className={`w-[5px] h-[5px] rounded-full bg-[#10b981] ml-auto shrink-0 transition-opacity ${active ? "opacity-100" : "opacity-0"}`} />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   currentView?: ViewType
   setCurrentView?: (view: ViewType) => void
   userName?: string
   userEmail?: string
+  userSafetag?: string
+  userAvatarUrl?: string | null
+  disputeCount?: number
 }
 
-export function AppSidebar({ currentView: propCurrentView, setCurrentView: propSetCurrentView, userName, userEmail, ...props }: AppSidebarProps) {
-  const [internalView, setInternalView] = React.useState<ViewType>('dashboard');
-
-  const currentView = propCurrentView || internalView;
-  const setCurrentView = propSetCurrentView || setInternalView;
-
+export function AppSidebar({ currentView: propCurrentView, setCurrentView: propSetCurrentView, userName, userEmail, userSafetag, userAvatarUrl, disputeCount, ...props }: AppSidebarProps) {
+  const [internalView, setInternalView] = React.useState<ViewType>('dashboard')
+  const currentView = propCurrentView ?? internalView
+  const setCurrentView = propSetCurrentView ?? setInternalView
   const user = {
-    name: userName || data.user.name,
-    email: userEmail || data.user.email,
-    avatar: data.user.avatar,
-  }
-
-  const navItems = data.navMain.map(item => ({
-    ...item,
-    isActive: (item.title === 'Dashboard' && currentView === 'dashboard') ||
-      (item.title === 'My Transactions' && currentView === 'transactions') ||
-      (item.title === 'Withdraw' && currentView === 'withdraw') ||
-      (item.title === 'Referrals' && currentView === 'referrals') ||
-      (item.title === 'Marketplace' && currentView === 'marketplace') ||
-      (item.title === 'Disputes' && (currentView === 'disputes' || currentView === 'dispute_chat'))
-  }))
-
-  const handleNavClick = (title: string) => {
-    if (title === 'Dashboard') setCurrentView('dashboard')
-    if (title === 'My Transactions') setCurrentView('transactions')
-    if (title === 'Withdraw') setCurrentView('withdraw')
-    if (title === 'Referrals') setCurrentView('referrals')
-    if (title === 'Marketplace') setCurrentView('marketplace')
-    if (title === 'Disputes') setCurrentView('disputes')
+    name: userName || "User",
+    email: userEmail || "user@safeeely.com",
+    safetag: userSafetag || "",
+    avatar: userAvatarUrl,
   }
 
   return (
     <Sidebar
-      style={{ "--sidebar-background": "transparent" } as React.CSSProperties}
-      className="border-none bg-gradient-to-b from-[#0a2d1d] to-[#05140b] text-white"
+      className="border-none bg-white text-[#0f172a]"
       {...props}
     >
-      <SidebarHeader className="!bg-transparent border-none">
+      <SidebarHeader className="!bg-transparent border-none border-b border-[#f1f5f9] px-[18px] pt-[22px] pb-[18px]">
         <SidebarMenu>
           <SidebarMenuItem>
-            <div className="flex items-center gap-2 px-0 py-3 cursor-pointer" onClick={() => setCurrentView('dashboard')}>
-              <img src="/logo-main.svg" alt="Safeeely Logo" className="h-12 w-auto object-contain drop-shadow-sm" />
+            <div className="flex items-center gap-[9px] cursor-pointer" onClick={() => setCurrentView("dashboard")}>
+              <div className="w-7 h-7 rounded-[7px] bg-[#0f172a] flex items-center justify-center shrink-0">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth={2.5}><path d="M12 3 5 6v5c0 4.2 2.8 7.7 7 9 4.2-1.3 7-4.8 7-9V6z"/></svg>
+              </div>
+              <span className="font-['Inter_Tight',sans-serif] text-[17px] font-black text-[#0f172a] tracking-[-.03em]">Safeeely</span>
             </div>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
-      <SidebarContent className="!bg-transparent border-none">
-        <SidebarGroup className="!bg-transparent">
-          <SidebarMenu className="!bg-transparent">
-            {navItems.map((item) => (
-              <SidebarMenuItem key={item.title} className="!bg-transparent">
-                <SidebarMenuButton
-                  tooltip={item.title}
-                  isActive={item.isActive}
-                  onClick={() => handleNavClick(item.title)}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all ${item.isActive ? 'bg-white/20 text-white font-medium shadow-sm' : 'text-white/60 hover:bg-white/10 hover:text-white'}`}
-                >
-                  {item.icon && <item.icon className={`size-5 ${item.isActive ? 'text-white' : ''}`} />}
-                  <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
+      <SidebarContent className="!bg-transparent border-none px-[10px] py-3 gap-px">
+        <NavSection label="Overview" items={overviewItems} currentView={currentView} setCurrentView={setCurrentView} disputeCount={disputeCount} />
+        <NavSection label="Finance" items={financeItems} currentView={currentView} setCurrentView={setCurrentView} />
+        <NavSection label="Account" items={accountItems} currentView={currentView} setCurrentView={setCurrentView} />
       </SidebarContent>
-      <SidebarFooter className="!bg-transparent border-none">
-        <div className="h-px bg-white/10 my-4 mx-2" />
-        <NavUser user={user} />
+      <SidebarFooter className="!bg-transparent border-none border-t border-[#f1f5f9] px-[10px] pt-[10px] pb-[18px]">
+        <NavUser user={user} onAccountClick={() => setCurrentView("profile")} />
       </SidebarFooter>
     </Sidebar>
   )
-}
-
-function SidebarGroup({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={`flex flex-col gap-2 p-2 ${className}`}>{children}</div>
 }

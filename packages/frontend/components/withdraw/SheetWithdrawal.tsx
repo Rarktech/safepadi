@@ -9,12 +9,11 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { toast } from 'sonner';
 import api from '@/lib/api';
 import {
-    ShieldCheck, ArrowRight, X, User, CreditCard, Plus, Clock, Bitcoin, DollarSign,
-    CheckCircle2, Search, Loader2, CheckCircle
+    ArrowRight, X, Plus, Clock, Bitcoin, DollarSign,
+    CheckCircle2, Search, Loader2, CheckCircle, AlertTriangle, Send
 } from 'lucide-react';
 
 import { NIGERIAN_BANKS, CRYPTO_ASSETS, INTERNATIONAL_BANKS } from '@/lib/constants/payout-data';
@@ -50,9 +49,11 @@ export const SheetWithdrawal = ({
     const [saveForFuture, setSaveForFuture] = useState(true);
 
     // Bank state
-    const [showBankPicker, setShowBankPicker] = useState(false);
+    const [showBankList, setShowBankList] = useState(false);
+    const [bankListSearch, setBankListSearch] = useState('');
     const [selectedBank, setSelectedBank] = useState<any>(null);
     const [accountNumber, setAccountNumber] = useState('');
+    const [accountHolderName, setAccountHolderName] = useState('');
     const [verifyingAccount, setVerifyingAccount] = useState(false);
     const [verifiedAccountName, setVerifiedAccountName] = useState('');
     const [verifyError, setVerifyError] = useState('');
@@ -66,8 +67,10 @@ export const SheetWithdrawal = ({
 
     const [loading, setLoading] = useState(false);
     const [savedMethods, setSavedMethods] = useState<any[]>([]);
-    const [isRefreshingMethods, setIsRefreshingMethods] = useState(false);
     const [withdrawalReference, setWithdrawalReference] = useState('');
+    const [withdrawalStatus, setWithdrawalStatus] = useState('');
+
+    const isInternationalBank = !!selectedBank && INTERNATIONAL_BANKS.some(b => b.code === selectedBank.code);
 
     const formatWithCommas = (value: string) => {
         const num = value.replace(/,/g, '');
@@ -82,9 +85,10 @@ export const SheetWithdrawal = ({
         }
     };
 
-    // Auto-verify bank account when 10 digits are entered
+    // Auto-verify bank account when 10 digits are entered — international banks can't be
+    // resolved via Flutterwave's NGN-only lookup, so they skip straight to manual entry.
     useEffect(() => {
-        if (accountNumber.length !== 10 || !selectedBank) {
+        if (!selectedBank || isInternationalBank || accountNumber.length !== 10) {
             setVerifiedAccountName('');
             setVerifyError('');
             return;
@@ -112,12 +116,13 @@ export const SheetWithdrawal = ({
         };
         verify();
         return () => { cancelled = true; };
-    }, [accountNumber, selectedBank, safetag]);
+    }, [accountNumber, selectedBank, safetag, isInternationalBank]);
 
     const handleWithdraw = async () => {
         setLoading(true);
         try {
             const rawAmount = Number(amount.replace(/,/g, ''));
+            const resolvedAccountName = isInternationalBank ? accountHolderName : verifiedAccountName;
             const methodDetails = selectedMethod ? selectedMethod.details : (
                 withdrawalType === 'bank'
                     ? {
@@ -125,8 +130,9 @@ export const SheetWithdrawal = ({
                         bankCode: selectedBank.code,
                         bank_name: selectedBank.name,
                         account_number: accountNumber,
-                        account_name: verifiedAccountName,
-                        verifiedAccountName,
+                        account_name: resolvedAccountName,
+                        verifiedAccountName: resolvedAccountName,
+                        verified: !isInternationalBank,
                         logo: selectedBank.logo,
                     }
                     : {
@@ -153,11 +159,13 @@ export const SheetWithdrawal = ({
             });
 
             setWithdrawalReference(res.data?.reference || '');
+            setWithdrawalStatus(res.data?.status || '');
             toast.success('Withdrawal request submitted!');
             onSuccess({ amount: rawAmount, currency: selectedCurrency, type: withdrawalType });
             setStep(4);
         } catch (error: any) {
-            toast.error(error.response?.data?.error || 'Failed to process withdrawal');
+            const data = error.response?.data;
+            toast.error(data?.message || data?.error || 'Failed to process withdrawal');
         } finally {
             setLoading(false);
         }
@@ -167,26 +175,27 @@ export const SheetWithdrawal = ({
         setStep(1);
         setAmount('');
         setSelectedMethod(null);
+        setShowBankList(false);
+        setBankListSearch('');
         setSelectedBank(null);
         setAccountNumber('');
+        setAccountHolderName('');
         setVerifiedAccountName('');
         setVerifyError('');
         setSelectedCrypto(null);
         setCryptoChain('');
         setWalletAddress('');
         setWithdrawalReference('');
+        setWithdrawalStatus('');
         onClose();
     };
 
     const fetchSavedMethods = async () => {
         try {
-            setIsRefreshingMethods(true);
             const res = await api.get(`/profiles/${safetag}/payout-methods`);
             setSavedMethods(Array.isArray(res.data) ? res.data : []);
         } catch (error) {
             console.error('❌ Failed to fetch payout methods:', error);
-        } finally {
-            setIsRefreshingMethods(false);
         }
     };
 
@@ -200,42 +209,66 @@ export const SheetWithdrawal = ({
 
     const canProceedFromStep2 = selectedMethod || (
         withdrawalType === 'bank'
-            ? (selectedBank && accountNumber.length === 10 && !!verifiedAccountName)
+            ? (selectedBank && (
+                isInternationalBank
+                    ? accountNumber.trim().length > 0 && accountHolderName.trim().length > 0
+                    : accountNumber.length === 10 && !!verifiedAccountName
+            ))
             : (selectedCrypto && cryptoChain && walletAddress.length >= 20)
     );
 
+    const filteredPickerBanks = bankListSearch
+        ? NIGERIAN_BANKS.filter(b => b.name.toLowerCase().includes(bankListSearch.toLowerCase()))
+        : NIGERIAN_BANKS;
+    const filteredPickerInternational = bankListSearch
+        ? INTERNATIONAL_BANKS.filter(b => b.name.toLowerCase().includes(bankListSearch.toLowerCase()))
+        : INTERNATIONAL_BANKS;
+
+    const selectBank = (bank: any) => {
+        setSelectedBank(bank);
+        setAccountNumber('');
+        setAccountHolderName('');
+        setVerifiedAccountName('');
+        setVerifyError('');
+        setShowBankList(false);
+        setBankListSearch('');
+    };
+
     return (
         <Sheet open={isOpen} onOpenChange={(open) => !open && reset()}>
-            <SheetContent className="sm:max-w-md w-full border-none p-0 bg-white overflow-y-auto">
+            <SheetContent className="sm:max-w-[460px] w-full border-none p-0 bg-white flex flex-col gap-0">
                 <SheetHeader className="sr-only">
                     <SheetTitle>Withdrawal Portal</SheetTitle>
                     <SheetDescription>Securely withdraw your funds to a bank account or crypto wallet.</SheetDescription>
                 </SheetHeader>
                 {step < 4 ? (
-                    <div className="flex flex-col h-full bg-slate-50/30">
-                        <div className="p-8 pt-10 flex-1">
-                            <div className="flex items-center justify-between mb-8">
-                                <div className="space-y-1">
-                                    <h2 className="text-2xl font-black text-slate-900 tracking-tight">Withdraw Funds</h2>
-                                    <p className="text-sm font-medium text-slate-400">Securely transfer your earnings.</p>
+                    <div className="flex flex-col h-full">
+                        {/* Header */}
+                        <div className="px-6 pt-7 flex-shrink-0">
+                            <div className="flex items-center justify-between mb-5">
+                                <div>
+                                    <h2 className="font-['Inter_Tight',sans-serif] text-[19px] font-extrabold text-[#0f172a] tracking-[-.02em]">Withdraw funds</h2>
+                                    <p className="text-xs text-[#94a3b8] mt-0.5">Securely transfer your earnings</p>
                                 </div>
-                                <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600 shadow-sm">
-                                    <ShieldCheck size={28} />
-                                </div>
+                                <button onClick={reset} className="w-9 h-9 rounded-[9px] border border-[#e9eaec] bg-[#f7f8f9] flex items-center justify-center flex-shrink-0">
+                                    <X size={15} className="text-[#64748b]" />
+                                </button>
                             </div>
-
-                            {/* Step Indicator */}
-                            <div className="flex items-center gap-2 mb-10">
+                            {/* Step indicator */}
+                            <div className="flex gap-1 mb-6">
                                 {[1, 2, 3].map(s => (
-                                    <div key={s} className={`h-1.5 flex-1 rounded-full transition-all ${step >= s ? 'bg-[#10b981]' : 'bg-slate-200'}`} />
+                                    <div key={s} className="h-[3px] flex-1 rounded-full transition-colors" style={{ background: step >= s ? '#10b981' : '#e9eaec' }} />
                                 ))}
                             </div>
+                        </div>
 
+                        {/* Scrollable content */}
+                        <div className="flex-1 overflow-y-auto px-6">
                             {step === 1 && (
-                                <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
-                                    <div className="space-y-4">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Select currency</Label>
-                                        <div className="grid grid-cols-2 gap-4">
+                                <div className="flex flex-col gap-5 pb-6 animate-in fade-in duration-300">
+                                    <div>
+                                        <p className="text-xs font-semibold text-[#64748b] mb-2.5">Select currency</p>
+                                        <div className="grid grid-cols-3 gap-2">
                                             {balances.map((b) => (
                                                 <button
                                                     key={b.currency}
@@ -243,557 +276,456 @@ export const SheetWithdrawal = ({
                                                         setSelectedCurrency(b.currency);
                                                         setWithdrawalType(['USDT', 'BTC', 'ETH'].includes(b.currency) ? 'crypto' : 'bank');
                                                     }}
-                                                    className={`p-5 rounded-3xl border-2 transition-all flex items-center gap-4 text-left ${selectedCurrency === b.currency ? 'border-[#10b981] bg-emerald-50/50 shadow-lg shadow-emerald-500/5' : 'border-white bg-white hover:border-slate-100 shadow-sm'}`}
+                                                    className="flex flex-col items-center gap-0.5 px-2 py-2.5 rounded-xl border-2 transition-all"
+                                                    style={selectedCurrency === b.currency
+                                                        ? { borderColor: '#10b981', background: '#f0fdf4' }
+                                                        : { borderColor: '#e9eaec', background: '#f7f8f9' }}
                                                 >
-                                                    <div className={`w-12 h-12 rounded-2xl flex-shrink-0 flex items-center justify-center p-2 ${selectedCurrency === b.currency ? 'bg-white shadow-sm' : 'bg-slate-50'}`}>
-                                                        {CURRENCY_ICONS[b.currency] || <DollarSign size={20} />}
+                                                    <div className="w-6 h-6 mb-1 flex-shrink-0">
+                                                        {CURRENCY_ICONS[b.currency] || <DollarSign size={20} className="text-slate-400" />}
                                                     </div>
-                                                    <div className="flex flex-col">
-                                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">{b.currency} balance</span>
-                                                        <span className="text-base font-black text-slate-900 leading-none">{b.amount.toLocaleString()}</span>
-                                                    </div>
+                                                    <span className="text-[11px] font-bold text-[#0f172a]">{b.currency}</span>
+                                                    <span className="text-[10px] text-[#94a3b8] truncate w-full text-center">{Number(b.amount).toLocaleString()}</span>
                                                 </button>
                                             ))}
                                         </div>
                                     </div>
 
-                                    <div className="space-y-4">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 tracking-wider">Amount to withdraw</Label>
+                                    <div>
+                                        <p className="text-xs font-semibold text-[#64748b] mb-2">Amount to withdraw</p>
                                         <div className="relative">
+                                            <div className="absolute left-4 top-1/2 -translate-y-1/2 font-['Inter_Tight',sans-serif] text-lg font-bold text-[#94a3b8] pointer-events-none">
+                                                {{ NGN: '₦', USD: '$', EUR: '€', GBP: '£', BTC: '₿', USDT: '₮', ETH: 'Ξ' }[selectedCurrency] || '$'}
+                                            </div>
                                             <Input
                                                 placeholder="0.00"
                                                 value={amount}
                                                 onChange={handleAmountChange}
-                                                className="h-16 bg-white border-none rounded-[24px] px-6 text-2xl font-black focus:ring-2 focus:ring-[#10b981] transition-all shadow-sm"
+                                                className="h-[62px] bg-[#f7f8f9] border border-[#e9eaec] rounded-[14px] pl-9 pr-16 font-['Inter_Tight',sans-serif] text-2xl font-bold text-[#0f172a] focus-visible:ring-1 focus-visible:ring-[#10b981]"
                                             />
-                                            <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                                                <button
-                                                    onClick={() => {
-                                                        const bal = balances.find(b => b.currency === selectedCurrency)?.amount || 0;
-                                                        setAmount(formatWithCommas(bal.toString()));
-                                                    }}
-                                                    className="px-4 py-2 bg-[#10b981] text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md shadow-emerald-500/10 active:scale-95 transition-all"
-                                                >
-                                                    MAX
-                                                </button>
-                                            </div>
+                                            <button
+                                                onClick={() => {
+                                                    const bal = balances.find(b => b.currency === selectedCurrency)?.amount || 0;
+                                                    setAmount(formatWithCommas(bal.toString()));
+                                                }}
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 bg-[#10b981] rounded-[7px] px-2.5 py-1.5 text-white text-[10px] font-extrabold"
+                                            >
+                                                MAX
+                                            </button>
                                         </div>
+                                        <p className="text-[11.5px] text-[#94a3b8] mt-2">
+                                            Available: <span className="font-bold text-[#0f172a]">
+                                                {Number(balances.find(b => b.currency === selectedCurrency)?.amount || 0).toLocaleString()} {selectedCurrency}
+                                            </span>
+                                        </p>
                                     </div>
-
-                                    <Button
-                                        onClick={() => setStep(2)}
-                                        disabled={!amount || Number(amount.replace(/,/g, '')) <= 0}
-                                        className="w-full h-16 bg-[#10b981] hover:bg-[#059669] text-white rounded-[24px] text-lg font-black shadow-xl shadow-emerald-500/20 active:scale-[0.98] transition-all mt-4 flex items-center justify-center gap-2"
-                                    >
-                                        Continue
-                                        <ArrowRight size={20} />
-                                    </Button>
                                 </div>
                             )}
 
                             {step === 2 && (
-                                <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
-                                    <div className="space-y-6">
-                                        <Label className="text-xs font-bold text-slate-400 tracking-wider">Payment method</Label>
-
-                                        <div className="space-y-3">
+                                <div className="flex flex-col gap-4 pb-6 animate-in fade-in duration-300">
+                                    <div>
+                                        <p className="text-xs font-semibold text-[#64748b] mb-2.5">Saved methods</p>
+                                        <div className="flex flex-col gap-2">
                                             {savedMethods.filter(m => m.type === withdrawalType).map((m) => (
-                                                <button
+                                                <div
                                                     key={m.id}
-                                                    onClick={() => {
-                                                        setSelectedMethod(m);
-                                                        setWithdrawalType(m.type);
-                                                    }}
-                                                    className={`w-full p-5 rounded-3xl border-2 transition-all flex items-center justify-between text-left ${selectedMethod?.id === m.id ? 'border-[#10b981] bg-emerald-50/30' : 'border-white bg-white hover:border-slate-100 shadow-sm'}`}
+                                                    onClick={() => setSelectedMethod(m)}
+                                                    className="flex items-center gap-3 px-4 py-3.5 rounded-[13px] border-2 cursor-pointer transition-all"
+                                                    style={selectedMethod?.id === m.id ? { borderColor: '#10b981', background: '#f0fdf4' } : { borderColor: '#f1f5f9', background: '#fff' }}
                                                 >
-                                                    <div className="flex items-center gap-4">
-                                                        <div className="w-12 h-12 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center p-2">
-                                                            <img src={m.details.logo} className="w-full h-full object-contain" />
-                                                        </div>
-                                                        <div className="flex flex-col">
-                                                            <span className="font-black text-slate-900 leading-tight">{m.details.account_name || m.details.symbol}</span>
-                                                            <span className="text-xs text-slate-400 font-bold">
-                                                                {m.type === 'bank' ? `${m.details.bank_name} • ${m.details.account_number.slice(0, 4)}****${m.details.account_number.slice(-4)}` : `${m.details.symbol} • ${m.details.address.slice(0, 6)}...`}
-                                                            </span>
-                                                        </div>
+                                                    <div className="w-10 h-10 bg-white rounded-[10px] shadow-sm border border-[#e9eaec] flex items-center justify-center p-1.5 flex-shrink-0">
+                                                        <img src={m.details.logo} className="w-full h-full object-contain" />
                                                     </div>
-                                                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedMethod?.id === m.id ? 'border-[#10b981] bg-[#10b981]' : 'border-slate-200'}`}>
-                                                        {selectedMethod?.id === m.id && <CheckCircle2 size={16} className="text-white" />}
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-[13px] font-bold text-[#0f172a] truncate">{m.details.account_name || m.details.symbol}</p>
+                                                        <p className="text-[11px] text-[#94a3b8] truncate">
+                                                            {m.type === 'bank' ? `${m.details.bank_name} · ${String(m.details.account_number).slice(0, 4)}****${String(m.details.account_number).slice(-4)}` : `${m.details.symbol} · ${String(m.details.address).slice(0, 6)}...`}
+                                                        </p>
                                                     </div>
-                                                </button>
+                                                    <div className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0" style={selectedMethod?.id === m.id ? { borderColor: '#10b981', background: '#10b981' } : { borderColor: '#e2e8f0' }}>
+                                                        {selectedMethod?.id === m.id && <CheckCircle2 size={13} className="text-white" />}
+                                                    </div>
+                                                </div>
                                             ))}
 
-                                            <button
-                                                onClick={() => {
-                                                    setSelectedMethod(null);
-                                                    if (withdrawalType === 'bank') {
-                                                        setShowBankPicker(true);
-                                                    } else {
-                                                        setShowCryptoPicker(true);
-                                                    }
-                                                }}
-                                                className="w-full p-5 rounded-3xl border-2 border-dashed border-slate-200 bg-white hover:border-[#10b981] hover:bg-emerald-50/20 transition-all flex items-center gap-4 group"
-                                            >
-                                                <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-[#10b981] group-hover:bg-emerald-50">
-                                                    <Plus size={24} />
-                                                </div>
-                                                <div className="flex flex-col text-left">
-                                                    <span className="font-bold text-[#10b981]">Add new {withdrawalType === 'bank' ? 'bank' : 'wallet'}</span>
-                                                    <span className="text-xs text-slate-400">{withdrawalType === 'bank' ? 'Search from bank details' : 'Select asset and chain'}</span>
-                                                </div>
-                                            </button>
+                                            {!showBankList && !(selectedBank && withdrawalType === 'bank') && (
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedMethod(null);
+                                                        if (withdrawalType === 'bank') setShowBankList(true);
+                                                        else setShowCryptoPicker(true);
+                                                    }}
+                                                    className="flex items-center gap-3 px-4 py-3.5 rounded-[13px] border-2 border-dashed border-[#e9eaec] bg-[#fafafa] hover:border-[#10b981]/40 transition-all"
+                                                >
+                                                    <div className="w-10 h-10 rounded-[10px] bg-[#f1f5f9] flex items-center justify-center flex-shrink-0">
+                                                        <Plus size={16} className="text-[#64748b]" />
+                                                    </div>
+                                                    <div className="text-left">
+                                                        <p className="text-[13px] font-bold text-[#10b981]">Add {withdrawalType === 'bank' ? 'bank account' : 'new wallet'}</p>
+                                                        <p className="text-[11px] text-[#94a3b8]">{withdrawalType === 'bank' ? 'Search from all supported banks' : 'Select asset and chain'}</p>
+                                                    </div>
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
 
-                                    {/* Bank form — with auto-verify */}
-                                    {!selectedMethod && selectedBank && withdrawalType === 'bank' && (
-                                        <div className="space-y-6 animate-in slide-in-from-top-4 duration-300 p-6 bg-white rounded-3xl shadow-sm border border-slate-100">
-                                            <div className="flex items-center gap-4 pb-4 border-b border-slate-50">
-                                                <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center p-1.5">
-                                                    <img src={selectedBank.logo} className="w-full h-full object-contain" />
+                                    {/* Inline bank search list */}
+                                    {showBankList && (
+                                        <div className="border border-[#e9eaec] rounded-[14px] overflow-hidden bg-white animate-in fade-in slide-in-from-top-2 duration-200">
+                                            <div className="p-3 border-b border-[#f1f5f9] flex items-center gap-2">
+                                                <div className="flex-1 flex items-center gap-2 bg-[#f7f8f9] rounded-[9px] px-3.5 py-2.5">
+                                                    <Search size={13} className="text-[#94a3b8] flex-shrink-0" />
+                                                    <input
+                                                        placeholder="Search banks…"
+                                                        value={bankListSearch}
+                                                        onChange={(e) => setBankListSearch(e.target.value)}
+                                                        className="bg-transparent border-none outline-none text-[13px] font-medium text-[#0f172a] w-full"
+                                                    />
                                                 </div>
-                                                <span className="font-black text-slate-900">{selectedBank.name}</span>
-                                                <button
-                                                    onClick={() => { setSelectedBank(null); setAccountNumber(''); setVerifiedAccountName(''); setVerifyError(''); }}
-                                                    className="ml-auto p-1.5 text-slate-400 hover:bg-slate-50 rounded-lg"
-                                                >
+                                                <button onClick={() => { setShowBankList(false); setBankListSearch(''); }} className="text-[#94a3b8] flex-shrink-0">
                                                     <X size={16} />
                                                 </button>
                                             </div>
+                                            <div className="max-h-[260px] overflow-y-auto">
+                                                {filteredPickerBanks.map(bank => (
+                                                    <button
+                                                        key={bank.slug}
+                                                        onClick={() => selectBank(bank)}
+                                                        className="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-[#f8f9fa] transition-colors text-left"
+                                                    >
+                                                        <div className="w-8 h-8 rounded-lg bg-white border border-[#e9eaec] flex items-center justify-center p-1 flex-shrink-0">
+                                                            <img src={bank.logo} className="w-full h-full object-contain" />
+                                                        </div>
+                                                        <span className="text-[13px] font-semibold text-[#0f172a]">{bank.name}</span>
+                                                    </button>
+                                                ))}
+                                                {filteredPickerInternational.length > 0 && (
+                                                    <>
+                                                        <p className="px-4 pt-3 pb-1.5 text-[10px] font-bold uppercase tracking-widest text-[#b0bac6]">International banks</p>
+                                                        {filteredPickerInternational.map(bank => (
+                                                            <button
+                                                                key={bank.slug}
+                                                                onClick={() => selectBank(bank)}
+                                                                className="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-[#f8f9fa] transition-colors text-left"
+                                                            >
+                                                                <div className="w-8 h-8 rounded-lg bg-white border border-[#e9eaec] flex items-center justify-center p-1 flex-shrink-0">
+                                                                    <img src={bank.logo} className="w-full h-full object-contain" />
+                                                                </div>
+                                                                <span className="text-[13px] font-semibold text-[#0f172a]">{bank.name}</span>
+                                                            </button>
+                                                        ))}
+                                                    </>
+                                                )}
+                                                {filteredPickerBanks.length === 0 && filteredPickerInternational.length === 0 && (
+                                                    <p className="px-4 py-6 text-center text-xs text-[#94a3b8]">No banks match your search.</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
 
-                                            <div className="space-y-2">
-                                                <Label className="text-xs font-bold text-slate-400">Account number</Label>
-                                                <Input
-                                                    placeholder="10-digit number"
-                                                    value={accountNumber}
-                                                    maxLength={10}
-                                                    onChange={(e) => {
-                                                        setAccountNumber(e.target.value.replace(/\D/g, ''));
-                                                        setVerifiedAccountName('');
-                                                        setVerifyError('');
-                                                    }}
-                                                    className="h-14 bg-slate-50 border-none rounded-xl px-4 font-bold tracking-widest"
-                                                />
+                                    {/* Bank account entry — auto-verify for NG banks, manual for international */}
+                                    {!selectedMethod && selectedBank && withdrawalType === 'bank' && (
+                                        <div className="bg-[#f7f8f9] rounded-[13px] p-4 border border-[#e9eaec] animate-in slide-in-from-top-2 duration-200">
+                                            <div className="flex items-center gap-2.5 mb-3.5">
+                                                <div className="w-8 h-8 bg-white rounded-lg shadow-sm border border-[#e9eaec] flex items-center justify-center p-1 flex-shrink-0">
+                                                    <img src={selectedBank.logo} className="w-full h-full object-contain" />
+                                                </div>
+                                                <p className="text-[13px] font-bold text-[#0f172a] flex-1">{selectedBank.name}</p>
+                                                <button onClick={() => { setSelectedBank(null); setAccountNumber(''); setAccountHolderName(''); setVerifiedAccountName(''); setVerifyError(''); }} className="text-[#94a3b8] flex-shrink-0">
+                                                    <X size={14} />
+                                                </button>
                                             </div>
 
-                                            {/* Verification state */}
-                                            {accountNumber.length === 10 && (
-                                                <div className="animate-in fade-in duration-200">
+                                            <p className="text-[11.5px] font-semibold text-[#64748b] mb-1.5">{isInternationalBank ? 'Account number / IBAN' : 'Account number'}</p>
+                                            <Input
+                                                placeholder={isInternationalBank ? 'Account number or IBAN' : '10-digit number'}
+                                                value={accountNumber}
+                                                maxLength={isInternationalBank ? 34 : 10}
+                                                onChange={(e) => {
+                                                    const raw = e.target.value;
+                                                    setAccountNumber(isInternationalBank ? raw.toUpperCase().replace(/[^A-Z0-9]/g, '') : raw.replace(/\D/g, ''));
+                                                    setVerifiedAccountName('');
+                                                    setVerifyError('');
+                                                }}
+                                                className="h-[50px] bg-white border border-[#e9eaec] rounded-[11px] px-4 font-bold tracking-wide"
+                                            />
+
+                                            {isInternationalBank ? (
+                                                <div className="mt-3.5">
+                                                    <p className="text-[11.5px] font-semibold text-[#64748b] mb-1.5">Account holder name</p>
+                                                    <Input
+                                                        placeholder="Full name on account"
+                                                        value={accountHolderName}
+                                                        onChange={(e) => setAccountHolderName(e.target.value)}
+                                                        className="h-[50px] bg-white border border-[#e9eaec] rounded-[11px] px-4 font-bold"
+                                                    />
+                                                    <div className="flex items-start gap-2 mt-3 p-3 bg-[#fffbeb] border border-[#fde68a] rounded-[10px]">
+                                                        <AlertTriangle size={14} className="text-[#d97706] flex-shrink-0 mt-0.5" />
+                                                        <p className="text-[11px] font-semibold text-[#92400e] leading-snug">International accounts can&apos;t be auto-verified — double-check the details before continuing.</p>
+                                                    </div>
+                                                </div>
+                                            ) : accountNumber.length === 10 && (
+                                                <div className="mt-3 animate-in fade-in duration-200">
                                                     {verifyingAccount && (
-                                                        <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl">
-                                                            <Loader2 size={18} className="animate-spin text-slate-400" />
-                                                            <span className="text-sm font-bold text-slate-400">Verifying account...</span>
+                                                        <div className="flex items-center gap-2.5 p-3 bg-[#eff6ff] rounded-[10px]">
+                                                            <Loader2 size={15} className="animate-spin text-[#2563eb]" />
+                                                            <span className="text-[12px] font-semibold text-[#2563eb]">Verifying account…</span>
                                                         </div>
                                                     )}
                                                     {verifiedAccountName && !verifyingAccount && (
-                                                        <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-xl border border-emerald-100">
-                                                            <CheckCircle size={18} className="text-emerald-500 shrink-0" />
+                                                        <div className="flex items-center gap-2.5 p-3 bg-[#f0fdf4] rounded-[10px] border border-[#bbf7d0]">
+                                                            <CheckCircle size={15} className="text-[#16a34a] shrink-0" />
                                                             <div>
-                                                                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Account verified</p>
-                                                                <p className="text-sm font-black text-slate-900 mt-0.5">{verifiedAccountName}</p>
+                                                                <p className="text-[10px] font-bold text-[#166534] uppercase tracking-wide">Account verified</p>
+                                                                <p className="text-[13px] font-bold text-[#0f172a] mt-0.5">{verifiedAccountName}</p>
                                                             </div>
                                                         </div>
                                                     )}
                                                     {verifyError && !verifyingAccount && (
-                                                        <div className="flex items-center gap-3 p-4 bg-rose-50 rounded-xl border border-rose-100">
-                                                            <X size={18} className="text-rose-500 shrink-0" />
-                                                            <p className="text-sm font-bold text-rose-600">{verifyError}</p>
+                                                        <div className="flex items-center gap-2.5 p-3 bg-[#fff1f2] rounded-[10px] border border-[#fecdd3]">
+                                                            <X size={15} className="text-[#e11d48] shrink-0" />
+                                                            <p className="text-[12px] font-semibold text-[#e11d48]">{verifyError}</p>
                                                         </div>
                                                     )}
                                                 </div>
                                             )}
 
-                                            <div className="flex items-center gap-3">
+                                            <div className="flex items-center gap-2.5 mt-4">
                                                 <input
                                                     type="checkbox"
                                                     id="save"
                                                     checked={saveForFuture}
                                                     onChange={(e) => setSaveForFuture(e.target.checked)}
-                                                    className="w-5 h-5 rounded-lg border-slate-300 text-[#10b981] focus:ring-[#10b981]"
+                                                    className="w-4 h-4 rounded-md border-slate-300 text-[#10b981] focus:ring-[#10b981]"
                                                 />
-                                                <label htmlFor="save" className="text-xs font-bold text-slate-500">Save for future use</label>
+                                                <label htmlFor="save" className="text-xs font-semibold text-[#64748b]">Save for future use</label>
                                             </div>
                                         </div>
                                     )}
 
                                     {/* Crypto form */}
                                     {!selectedMethod && selectedCrypto && withdrawalType === 'crypto' && (
-                                        <div className="space-y-6 animate-in slide-in-from-top-4 duration-300 p-6 bg-white rounded-3xl shadow-sm border border-slate-100">
-                                            <div className="flex items-center gap-4 pb-4 border-b border-slate-50">
-                                                <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center p-1.5">
+                                        <div className="bg-[#f7f8f9] rounded-[13px] p-4 border border-[#e9eaec] animate-in slide-in-from-top-2 duration-200">
+                                            <div className="flex items-center gap-2.5 mb-3.5">
+                                                <div className="w-8 h-8 bg-white rounded-lg shadow-sm border border-[#e9eaec] flex items-center justify-center p-1 flex-shrink-0">
                                                     <img src={selectedCrypto.logo} className="w-full h-full object-contain" />
                                                 </div>
-                                                <span className="font-black text-slate-900">{selectedCrypto.name}</span>
-                                                <button onClick={() => setSelectedCrypto(null)} className="ml-auto p-1.5 text-slate-400 hover:bg-slate-50 rounded-lg"><X size={16} /></button>
+                                                <p className="text-[13px] font-bold text-[#0f172a] flex-1">{selectedCrypto.name}</p>
+                                                <button onClick={() => setSelectedCrypto(null)} className="text-[#94a3b8] flex-shrink-0"><X size={14} /></button>
                                             </div>
 
-                                            <div className="space-y-4">
-                                                <Label className="text-xs font-bold text-slate-400">Select Network</Label>
-                                                <div className="grid grid-cols-2 gap-2">
-                                                    {selectedCrypto.chains.map((chain: string) => (
-                                                        <button
-                                                            key={chain}
-                                                            onClick={() => setCryptoChain(chain)}
-                                                            className={`p-3 rounded-xl border-2 text-[10px] font-black uppercase tracking-wider transition-all ${cryptoChain === chain ? 'border-[#10b981] bg-emerald-50/50 text-[#10b981]' : 'border-slate-50 bg-slate-50 text-slate-400'}`}
-                                                        >
-                                                            {chain}
-                                                        </button>
-                                                    ))}
-                                                </div>
+                                            <p className="text-[11.5px] font-semibold text-[#64748b] mb-1.5">Select network</p>
+                                            <div className="grid grid-cols-2 gap-2 mb-3.5">
+                                                {selectedCrypto.chains.map((chain: string) => (
+                                                    <button
+                                                        key={chain}
+                                                        onClick={() => setCryptoChain(chain)}
+                                                        className="px-2.5 py-2 rounded-[9px] border-2 text-[10px] font-bold uppercase tracking-wide transition-all"
+                                                        style={cryptoChain === chain ? { borderColor: '#10b981', background: '#f0fdf4', color: '#10b981' } : { borderColor: '#f1f5f9', background: '#fff', color: '#94a3b8' }}
+                                                    >
+                                                        {chain}
+                                                    </button>
+                                                ))}
                                             </div>
 
-                                            <div className="space-y-4">
-                                                <Label className="text-xs font-bold text-slate-400">Wallet Address</Label>
-                                                <Input
-                                                    placeholder="Paste address here"
-                                                    value={walletAddress}
-                                                    onChange={(e) => setWalletAddress(e.target.value)}
-                                                    className="h-14 bg-slate-50 border-none rounded-xl px-4 font-bold text-xs font-mono"
-                                                />
-                                            </div>
+                                            <p className="text-[11.5px] font-semibold text-[#64748b] mb-1.5">Wallet address</p>
+                                            <Input
+                                                placeholder="Paste address here"
+                                                value={walletAddress}
+                                                onChange={(e) => setWalletAddress(e.target.value)}
+                                                className="h-[50px] bg-white border border-[#e9eaec] rounded-[11px] px-4 font-bold text-xs font-mono"
+                                            />
 
-                                            <div className="flex items-center gap-3">
+                                            <div className="flex items-center gap-2.5 mt-4">
                                                 <input
                                                     type="checkbox"
                                                     id="save-crypto"
                                                     checked={saveForFuture}
                                                     onChange={(e) => setSaveForFuture(e.target.checked)}
-                                                    className="w-5 h-5 rounded-lg border-slate-300 text-[#10b981] focus:ring-[#10b981]"
+                                                    className="w-4 h-4 rounded-md border-slate-300 text-[#10b981] focus:ring-[#10b981]"
                                                 />
-                                                <label htmlFor="save-crypto" className="text-xs font-bold text-slate-500">Save for future use</label>
+                                                <label htmlFor="save-crypto" className="text-xs font-semibold text-[#64748b]">Save for future use</label>
                                             </div>
                                         </div>
                                     )}
-
-                                    <div className="flex gap-4">
-                                        <Button variant="outline" onClick={() => setStep(1)} className="h-16 flex-1 rounded-[24px] border-slate-100 font-black text-slate-400">Back</Button>
-                                        <Button
-                                            onClick={() => setStep(3)}
-                                            disabled={!canProceedFromStep2 || verifyingAccount}
-                                            className="h-16 flex-[2] bg-slate-900 hover:bg-slate-800 text-white rounded-[24px] font-black shadow-xl"
-                                        >
-                                            Continue
-                                        </Button>
-                                    </div>
                                 </div>
                             )}
 
                             {step === 3 && (
-                                <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
-                                    <div className="p-8 bg-white rounded-[40px] shadow-sm border border-slate-100 space-y-8">
-                                        <div className="text-center space-y-2">
-                                            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total amount</span>
-                                            <h3 className="text-4xl font-black text-slate-900 tracking-tight">{amount} <span className="text-sm text-slate-400 uppercase">{selectedCurrency}</span></h3>
-                                        </div>
-
-                                        <div className="space-y-4 pt-8 border-t border-slate-50">
-                                            <div className="flex justify-between items-center text-sm">
-                                                <span className="font-bold text-slate-400">Destination</span>
-                                                <span className="font-black text-slate-900">{selectedMethod?.details.bank_name || selectedBank?.name || selectedMethod?.details.symbol || selectedCrypto?.name}</span>
-                                            </div>
-                                            <div className="flex justify-between items-center text-sm">
-                                                <span className="font-bold text-slate-400">{withdrawalType === 'bank' ? 'Account' : 'Address'}</span>
-                                                <span className="font-black text-slate-600">
-                                                    {selectedMethod
-                                                        ? (withdrawalType === 'bank'
-                                                            ? `${selectedMethod.details.account_number.slice(0, 4)}****${selectedMethod.details.account_number.slice(-4)}`
-                                                            : `${selectedMethod.details.address.slice(0, 6)}...${selectedMethod.details.address.slice(-4)}`
-                                                        )
-                                                        : (withdrawalType === 'bank'
-                                                            ? `${accountNumber.slice(0, 4)}****${accountNumber.slice(-4)}`
-                                                            : `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
-                                                        )
-                                                    }
-                                                </span>
-                                            </div>
-                                            {withdrawalType === 'bank' && (
-                                                <div className="flex justify-between items-center text-sm">
-                                                    <span className="font-bold text-slate-400">Account Name</span>
-                                                    <span className="font-black text-slate-900">{selectedMethod?.details.account_name || verifiedAccountName}</span>
-                                                </div>
-                                            )}
-                                            <div className="flex justify-between items-center text-sm">
-                                                <span className="font-bold text-slate-400">Transfer Fee</span>
-                                                <span className="font-black text-emerald-500">Free</span>
-                                            </div>
-                                        </div>
+                                <div className="pb-6 animate-in fade-in duration-300">
+                                    <div className="bg-[#f7f8f9] rounded-2xl p-5 border border-[#e9eaec] mb-4">
+                                        <p className="text-[11.5px] font-semibold text-[#94a3b8] text-center mb-1.5">Withdrawal amount</p>
+                                        <p className="font-['Inter_Tight',sans-serif] text-[34px] font-extrabold text-[#0f172a] text-center tracking-[-.03em] leading-none">{amount} <span className="text-sm text-[#94a3b8] uppercase">{selectedCurrency}</span></p>
                                     </div>
-
-                                    <div className="flex gap-4">
-                                        <Button variant="outline" onClick={() => setStep(2)} className="h-16 flex-1 rounded-[24px] border-slate-100 font-black text-slate-400">Back</Button>
-                                        <Button
-                                            onClick={handleWithdraw}
-                                            disabled={loading}
-                                            className="h-16 flex-[2] bg-[#10b981] hover:bg-[#059669] text-white rounded-[24px] font-black shadow-xl shadow-emerald-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
-                                        >
-                                            {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : 'Confirm withdrawal'}
-                                        </Button>
+                                    <div className="flex flex-col rounded-[13px] border border-[#e9eaec] overflow-hidden">
+                                        <div className="flex items-center justify-between px-4 py-3.5 border-b border-[#f3f4f6]">
+                                            <span className="text-[12.5px] font-medium text-[#64748b]">Destination</span>
+                                            <span className="text-[13px] font-bold text-[#0f172a]">{selectedMethod?.details.bank_name || selectedBank?.name || selectedMethod?.details.symbol || selectedCrypto?.name}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between px-4 py-3.5 border-b border-[#f3f4f6]">
+                                            <span className="text-[12.5px] font-medium text-[#64748b]">{withdrawalType === 'bank' ? 'Account' : 'Address'}</span>
+                                            <span className="text-[13px] font-bold text-[#475569]">
+                                                {selectedMethod
+                                                    ? (withdrawalType === 'bank'
+                                                        ? `${String(selectedMethod.details.account_number).slice(0, 4)}****${String(selectedMethod.details.account_number).slice(-4)}`
+                                                        : `${String(selectedMethod.details.address).slice(0, 6)}...${String(selectedMethod.details.address).slice(-4)}`
+                                                    )
+                                                    : (withdrawalType === 'bank'
+                                                        ? `${accountNumber.slice(0, 4)}****${accountNumber.slice(-4)}`
+                                                        : `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
+                                                    )
+                                                }
+                                            </span>
+                                        </div>
+                                        {withdrawalType === 'bank' && (
+                                            <div className="flex items-center justify-between px-4 py-3.5 border-b border-[#f3f4f6]">
+                                                <span className="text-[12.5px] font-medium text-[#64748b]">Account name</span>
+                                                <span className="text-[13px] font-bold text-[#0f172a]">{selectedMethod?.details.account_name || verifiedAccountName || accountHolderName}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex items-center justify-between px-4 py-3.5">
+                                            <span className="text-[12.5px] font-medium text-[#64748b]">Transfer fee</span>
+                                            <span className="text-[13px] font-bold text-[#10b981]">Free</span>
+                                        </div>
                                     </div>
                                 </div>
+                            )}
+                        </div>
+
+                        {/* Footer */}
+                        <div className="px-6 py-5 border-t border-[#f1f5f9] flex-shrink-0 flex gap-2.5">
+                            {step > 1 && (
+                                <button onClick={() => setStep(step - 1)} className="flex-1 h-12 rounded-full border border-[#e9eaec] bg-[#f7f8f9] text-[#64748b] font-semibold text-sm">
+                                    Back
+                                </button>
+                            )}
+                            {step === 1 && (
+                                <button
+                                    onClick={() => setStep(2)}
+                                    disabled={!amount || Number(amount.replace(/,/g, '')) <= 0}
+                                    className="flex-1 h-12 rounded-full font-bold text-sm flex items-center justify-center gap-1.5 disabled:cursor-not-allowed"
+                                    style={(!amount || Number(amount.replace(/,/g, '')) <= 0) ? { background: '#e9eaec', color: '#94a3b8' } : { background: '#0f172a', color: '#fff' }}
+                                >
+                                    Continue
+                                    <ArrowRight size={15} />
+                                </button>
+                            )}
+                            {step === 2 && (
+                                <button
+                                    onClick={() => setStep(3)}
+                                    disabled={!canProceedFromStep2 || verifyingAccount}
+                                    className="flex-[2] h-12 rounded-full font-bold text-sm disabled:cursor-not-allowed"
+                                    style={(!canProceedFromStep2 || verifyingAccount) ? { background: '#e9eaec', color: '#94a3b8' } : { background: '#0f172a', color: '#fff' }}
+                                >
+                                    Continue
+                                </button>
+                            )}
+                            {step === 3 && (
+                                <button
+                                    onClick={handleWithdraw}
+                                    disabled={loading}
+                                    className="flex-[2] h-12 rounded-full bg-[#10b981] text-white font-bold text-sm shadow-[0_4px_14px_rgba(16,185,129,.28)] flex items-center justify-center gap-2 disabled:opacity-70"
+                                >
+                                    {loading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : (
+                                        <>
+                                            <Send size={14} />
+                                            Confirm withdrawal
+                                        </>
+                                    )}
+                                </button>
                             )}
                         </div>
                     </div>
                 ) : (
                     /* Step 4 — success screen */
-                    <div className="flex flex-col h-full items-center justify-center p-10 text-center animate-in zoom-in-95 duration-500 bg-white">
-                        <div className="w-24 h-24 bg-blue-50 rounded-[40px] flex items-center justify-center text-blue-500 shadow-2xl shadow-blue-100 mb-8 animate-pulse">
-                            <Clock size={48} />
+                    <div className="flex flex-col h-full items-center justify-center p-9 text-center animate-in zoom-in-95 duration-500 bg-white">
+                        <div
+                            className="w-[72px] h-[72px] rounded-[22px] flex items-center justify-center mb-5"
+                            style={withdrawalStatus === 'PENDING_APPROVAL' ? { background: '#fffbeb', color: '#d97706' } : { background: '#eff6ff', color: '#2563eb' }}
+                        >
+                            <Clock size={32} />
                         </div>
-                        <h2 className="text-3xl font-black text-slate-900 mb-2 tracking-tight">Processing</h2>
-                        <p className="text-slate-400 font-bold mb-10 leading-relaxed max-w-xs">
-                            We've received your request! Your withdrawal is being processed and will arrive shortly.
+                        <h2 className="font-['Inter_Tight',sans-serif] text-[22px] font-extrabold text-[#0f172a] tracking-[-.02em] mb-1.5">
+                            {withdrawalStatus === 'PENDING_APPROVAL' ? 'Pending approval' : 'Processing'}
+                        </h2>
+                        <p className="text-[13px] text-[#64748b] leading-relaxed max-w-[280px] mb-6">
+                            {withdrawalStatus === 'PENDING_APPROVAL'
+                                ? "We've received your request. This withdrawal needs a manual review and you'll be notified once it's approved."
+                                : "We've received your request! Your withdrawal is being processed and will arrive in your account shortly."}
                         </p>
-                        <div className="p-6 bg-slate-50 rounded-[32px] w-full mb-10 border border-slate-100">
-                            <div className="flex justify-between text-xs mb-2">
-                                <span className="text-slate-400 font-bold">Amount</span>
-                                <span className="text-slate-900 font-black">{amount} {selectedCurrency}</span>
+                        <div className="bg-[#f7f8f9] rounded-[13px] p-4 w-full border border-[#e9eaec] mb-6">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs text-[#94a3b8] font-medium">Amount</span>
+                                <span className="font-['Inter_Tight',sans-serif] text-sm font-bold text-[#0f172a]">{amount} {selectedCurrency}</span>
                             </div>
                             {withdrawalReference && (
-                                <div className="flex justify-between text-xs">
-                                    <span className="text-slate-400 font-bold">Ref</span>
-                                    <span className="text-slate-900 font-mono font-bold tracking-widest text-[10px]">{withdrawalReference}</span>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-[#94a3b8] font-medium">Reference</span>
+                                    <span className="text-[11px] font-semibold text-[#0f172a] tracking-wide">{withdrawalReference}</span>
                                 </div>
                             )}
                         </div>
                         <Button
                             onClick={reset}
-                            className="w-full h-16 bg-slate-900 hover:bg-slate-800 text-white rounded-[24px] text-lg font-black"
+                            className="w-full h-14 bg-[#0f172a] hover:bg-[#1e293b] text-white rounded-2xl text-base font-bold"
                         >
-                            Return to dashboard
+                            Done
                         </Button>
                     </div>
                 )}
             </SheetContent>
 
-            {/* Bank Picker Modal */}
-            <Dialog open={showBankPicker} onOpenChange={setShowBankPicker}>
-                <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-md w-full p-2 bg-[#1a1c1e] text-white border-none rounded-[40px] overflow-hidden shadow-2xl">
-                    <DialogHeader className="sr-only">
-                        <DialogTitle>Select Bank</DialogTitle>
-                        <DialogDescription>Choose a bank from the list.</DialogDescription>
-                    </DialogHeader>
-
-                    <div className="p-8 pb-4 flex items-center justify-between">
-                        <h3 className="text-xl font-black tracking-tight">Select Bank</h3>
-                        <button onClick={() => { setShowBankPicker(false); setPickerSearch(''); }} className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-all">
-                            <X size={20} className="text-white" />
-                        </button>
-                    </div>
-
-                    <div className="px-8 py-2">
-                        <div className="relative mb-6">
-                            <Input
-                                placeholder="Search Banks"
-                                value={pickerSearch}
-                                onChange={(e) => setPickerSearch(e.target.value)}
-                                className="bg-white/5 border-none rounded-2xl pl-12 h-14 font-bold text-base focus-visible:ring-1 focus-visible:ring-[#10b981]"
-                            />
-                            <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
-                        </div>
-
-                        <div className="max-h-[450px] overflow-y-auto space-y-6 pr-2 no-scrollbar pb-10">
-                            {pickerSearch ? (
-                                <div className="grid grid-cols-1 gap-2">
-                                    {NIGERIAN_BANKS.filter(b => b.name.toLowerCase().includes(pickerSearch.toLowerCase())).map(bank => (
-                                        <button
-                                            key={bank.slug}
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setSelectedBank(bank);
-                                                setAccountNumber('');
-                                                setVerifiedAccountName('');
-                                                setShowBankPicker(false);
-                                                setPickerSearch('');
-                                            }}
-                                            className="w-full p-4 flex items-center gap-4 rounded-2xl hover:bg-white/5 transition-all text-left group"
-                                        >
-                                            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-1.5 flex-shrink-0">
-                                                <img src={bank.logo} className="w-full h-full object-contain" />
-                                            </div>
-                                            <span className="font-bold text-slate-200 group-hover:text-white">{bank.name}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            ) : (
-                                <>
-                                    <div>
-                                        <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 px-2">Frequently Used</h4>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            {NIGERIAN_BANKS.slice(0, 4).map(bank => (
-                                                <button
-                                                    key={bank.slug}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setSelectedBank(bank);
-                                                        setAccountNumber('');
-                                                        setVerifiedAccountName('');
-                                                        setShowBankPicker(false);
-                                                    }}
-                                                    className="p-4 bg-[#242628] rounded-2xl flex items-center gap-3 border border-white/5 hover:border-[#10b981]/30 transition-all text-left"
-                                                >
-                                                    <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-1.5 flex-shrink-0">
-                                                        <img src={bank.logo} className="w-full h-full object-contain" />
-                                                    </div>
-                                                    <span className="text-xs font-bold truncate">{bank.name.split(' ')[0]}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 px-2">Popular Options</h4>
-                                        <div className="grid grid-cols-1 gap-2">
-                                            {NIGERIAN_BANKS.filter(b => b.popular).map(bank => (
-                                                <button
-                                                    key={bank.slug}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setSelectedBank(bank);
-                                                        setAccountNumber('');
-                                                        setVerifiedAccountName('');
-                                                        setShowBankPicker(false);
-                                                    }}
-                                                    className="w-full p-4 flex items-center gap-4 rounded-2xl bg-[#242628] border border-white/5 hover:border-[#10b981]/30 transition-all text-left group"
-                                                >
-                                                    <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-1.5 flex-shrink-0">
-                                                        <img src={bank.logo} className="w-full h-full object-contain" />
-                                                    </div>
-                                                    <span className="font-bold text-slate-200 group-hover:text-white">{bank.name}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    <div className="mt-6">
-                                        <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 px-2">International Banks</h4>
-                                        <div className="grid grid-cols-1 gap-2">
-                                            {INTERNATIONAL_BANKS.map(bank => (
-                                                <button
-                                                    key={bank.slug}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setSelectedBank(bank);
-                                                        setAccountNumber('');
-                                                        setVerifiedAccountName('');
-                                                        setShowBankPicker(false);
-                                                    }}
-                                                    className="w-full p-4 flex items-center gap-4 rounded-2xl bg-[#242628] border border-white/5 hover:bg-[#2a2c2e] transition-all text-left group"
-                                                >
-                                                    <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-1.5 flex-shrink-0">
-                                                        <img src={bank.logo} className="w-full h-full object-contain" />
-                                                    </div>
-                                                    <span className="font-bold text-slate-200 group-hover:text-white">{bank.name}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                    </div>
-                </DialogContent>
-            </Dialog>
-
             {/* Crypto Picker Modal */}
             <Dialog open={showCryptoPicker} onOpenChange={setShowCryptoPicker}>
-                <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-md w-full p-2 bg-[#1a1c1e] text-white border-none rounded-[40px] overflow-hidden shadow-2xl">
+                <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-md w-full p-0 bg-white border-none rounded-[32px] overflow-hidden shadow-2xl">
                     <DialogHeader className="sr-only">
                         <DialogTitle>Select Token</DialogTitle>
                         <DialogDescription>Choose a cryptocurrency token.</DialogDescription>
                     </DialogHeader>
 
-                    <div className="p-8 pb-4 flex items-center justify-between">
-                        <h3 className="text-xl font-black tracking-tight">Select Token</h3>
-                        <button onClick={() => { setShowCryptoPicker(false); setPickerSearch(''); }} className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-all">
-                            <X size={20} className="text-white" />
+                    <div className="p-6 pb-3 flex items-center justify-between border-b border-[#f1f5f9]">
+                        <h3 className="font-['Inter_Tight',sans-serif] text-lg font-extrabold text-[#0f172a] tracking-[-.01em]">Select token</h3>
+                        <button onClick={() => { setShowCryptoPicker(false); setPickerSearch(''); }} className="w-9 h-9 flex items-center justify-center rounded-full bg-[#f7f8f9] hover:bg-[#f1f5f9] transition-all">
+                            <X size={16} className="text-[#64748b]" />
                         </button>
                     </div>
 
-                    <div className="px-8 py-2">
-                        <div className="relative mb-6">
+                    <div className="px-6 py-4">
+                        <div className="relative mb-4">
                             <Input
-                                placeholder="Search Coins"
+                                placeholder="Search coins"
                                 value={pickerSearch}
                                 onChange={(e) => setPickerSearch(e.target.value)}
-                                className="bg-white/5 border-none rounded-2xl pl-12 h-14 font-bold text-lg focus-visible:ring-1 focus-visible:ring-[#10b981]"
+                                className="bg-[#f7f8f9] border border-[#e9eaec] rounded-xl pl-11 h-12 font-semibold text-sm focus-visible:ring-1 focus-visible:ring-[#10b981]"
                             />
-                            <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
+                            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#94a3b8]" />
                         </div>
 
-                        <div className="max-h-[450px] overflow-y-auto space-y-6 pr-2 no-scrollbar pb-10">
-                            {pickerSearch ? (
-                                <div className="grid grid-cols-1 gap-2">
-                                    {CRYPTO_ASSETS.filter(c => c.name.toLowerCase().includes(pickerSearch.toLowerCase()) || c.symbol.toLowerCase().includes(pickerSearch.toLowerCase())).map(asset => (
-                                        <button
-                                            key={asset.symbol}
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setSelectedCrypto(asset);
-                                                setShowCryptoPicker(false);
-                                                setCryptoChain(asset.chains[0]);
-                                                setPickerSearch('');
-                                            }}
-                                            className="w-full p-4 flex items-center gap-4 rounded-2xl hover:bg-white/5 transition-all text-left group"
-                                        >
-                                            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-1.5 flex-shrink-0">
-                                                <img src={asset.logo} className="w-full h-full object-contain" />
-                                            </div>
-                                            <div className="flex flex-col">
-                                                <span className="font-bold text-slate-200 group-hover:text-white leading-tight">{asset.name}</span>
-                                                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{asset.symbol}</span>
-                                            </div>
-                                        </button>
-                                    ))}
-                                </div>
-                            ) : (
-                                <>
-                                    <div>
-                                        <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 px-2">Popular Tokens</h4>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            {CRYPTO_ASSETS.slice(0, 4).map(asset => (
-                                                <button
-                                                    key={asset.symbol}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setSelectedCrypto(asset);
-                                                        setShowCryptoPicker(false);
-                                                        setCryptoChain(asset.chains[0]);
-                                                    }}
-                                                    className="p-4 bg-[#242628] rounded-2xl flex items-center gap-3 border border-white/5 hover:border-[#10b981]/30 transition-all text-left"
-                                                >
-                                                    <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-1.5 flex-shrink-0">
-                                                        <img src={asset.logo} className="w-full h-full object-contain" />
-                                                    </div>
-                                                    <span className="text-xs font-bold truncate">{asset.name}</span>
-                                                </button>
-                                            ))}
-                                        </div>
+                        <div className="max-h-[420px] overflow-y-auto space-y-1 pr-1">
+                            {(pickerSearch
+                                ? CRYPTO_ASSETS.filter(c => c.name.toLowerCase().includes(pickerSearch.toLowerCase()) || c.symbol.toLowerCase().includes(pickerSearch.toLowerCase()))
+                                : CRYPTO_ASSETS
+                            ).map(asset => (
+                                <button
+                                    key={asset.symbol}
+                                    onClick={() => {
+                                        setSelectedCrypto(asset);
+                                        setShowCryptoPicker(false);
+                                        setCryptoChain(asset.chains[0]);
+                                        setPickerSearch('');
+                                    }}
+                                    className="w-full p-3 flex items-center gap-3 rounded-xl hover:bg-[#f8f9fa] transition-all text-left"
+                                >
+                                    <div className="w-10 h-10 bg-white rounded-xl border border-[#e9eaec] flex items-center justify-center p-1.5 flex-shrink-0">
+                                        <img src={asset.logo} className="w-full h-full object-contain" />
                                     </div>
-
-                                    <div className="grid grid-cols-1 gap-2">
-                                        {CRYPTO_ASSETS.map(asset => (
-                                            <button
-                                                key={asset.symbol}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setSelectedCrypto(asset);
-                                                    setShowCryptoPicker(false);
-                                                    setCryptoChain(asset.chains[0]);
-                                                }}
-                                                className="w-full p-4 flex items-center gap-4 rounded-2xl bg-[#242628] border border-white/5 hover:bg-[#2a2c2e] transition-all text-left group"
-                                            >
-                                                <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-1.5 flex-shrink-0">
-                                                    <img src={asset.logo} className="w-full h-full object-contain" />
-                                                </div>
-                                                <div className="flex flex-col">
-                                                    <span className="font-bold text-slate-200 group-hover:text-white leading-tight">{asset.name}</span>
-                                                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{asset.symbol}</span>
-                                                </div>
-                                            </button>
-                                        ))}
+                                    <div className="flex flex-col">
+                                        <span className="font-bold text-[#0f172a] leading-tight text-sm">{asset.name}</span>
+                                        <span className="text-[10px] text-[#94a3b8] font-bold uppercase tracking-widest">{asset.symbol}</span>
                                     </div>
-                                </>
-                            )}
+                                </button>
+                            ))}
                         </div>
                     </div>
                 </DialogContent>

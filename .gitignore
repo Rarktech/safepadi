@@ -31,3 +31,4 @@ brain/
 artifacts/
 logs/
 screen_recordings/
+.pptr-session/

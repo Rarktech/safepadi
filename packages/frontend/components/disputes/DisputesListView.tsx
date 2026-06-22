@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Scale, Clock, CheckCircle2, AlertCircle, ChevronRight, Loader2 } from 'lucide-react';
+import { Scale, Clock, AlertCircle, ChevronRight, Loader2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import api from '@/lib/api';
 
@@ -41,38 +41,33 @@ const FILTER_TABS: { key: FilterType; label: string }[] = [
   { key: 'resolved',  label: 'Resolved' },
 ];
 
+function statusOf(d: DisputeItem): 'open' | 'escalated' | 'resolved' | 'verdict' {
+  if (d.is_ai_paused) return 'escalated';
+  if (d.status === 'RESOLVED') return 'resolved';
+  if (d.verdict_action && d.status === 'OPEN') return 'verdict';
+  return 'open';
+}
+
+const STATUS_META: Record<string, { bg: string; color: string; label: string }> = {
+  open:      { bg: '#fffbeb', color: '#d97706', label: 'Open' },
+  escalated: { bg: '#fff1f2', color: '#e11d48', label: 'Escalated' },
+  resolved:  { bg: '#f1f5f9', color: '#475569', label: 'Resolved' },
+  verdict:   { bg: '#eff6ff', color: '#2563eb', label: 'Verdict ready' },
+};
+
 function StatusPill({ dispute }: { dispute: DisputeItem }) {
-  if (dispute.is_ai_paused) {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">
-        <AlertCircle size={11} />
-        Escalated
-      </span>
-    );
-  }
-  if (dispute.status === 'RESOLVED') {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-stone-100 text-stone-600">
-        <CheckCircle2 size={11} />
-        Resolved
-      </span>
-    );
-  }
-  if (dispute.verdict_action && dispute.status === 'OPEN') {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700">
-        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />
-        Verdict ready
-      </span>
-    );
-  }
+  const st = statusOf(dispute);
+  const meta = STATUS_META[st];
   return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">
-      <span className="relative flex h-2 w-2">
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-        <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
-      </span>
-      Open
+    <span className="inline-flex items-center gap-[5px] px-[10px] py-[3px] rounded-full text-[10.5px] font-bold" style={{ background: meta.bg, color: meta.color }}>
+      {st === 'open' && (
+        <span className="relative flex h-[7px] w-[7px]">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#d97706] opacity-75" />
+          <span className="relative inline-flex rounded-full h-[7px] w-[7px] bg-[#d97706]" />
+        </span>
+      )}
+      {st === 'escalated' && <AlertCircle size={11} />}
+      {meta.label}
     </span>
   );
 }
@@ -96,146 +91,201 @@ export function DisputesListView({
   }, [safetag]);
 
   const filtered = disputes.filter(d => {
-    if (filter === 'open')      return d.status === 'OPEN' && !d.is_ai_paused;
-    if (filter === 'escalated') return d.is_ai_paused;
-    if (filter === 'resolved')  return d.status === 'RESOLVED';
+    const st = statusOf(d);
+    if (filter === 'open')      return st === 'open' || st === 'verdict';
+    if (filter === 'escalated') return st === 'escalated';
+    if (filter === 'resolved')  return st === 'resolved';
     return true;
   });
 
-  const openCount = disputes.filter(d => d.status === 'OPEN' && !d.is_ai_paused).length;
+  const openCount = disputes.filter(d => { const st = statusOf(d); return st === 'open' || st === 'verdict'; }).length;
+  const escalatedCount = disputes.filter(d => statusOf(d) === 'escalated').length;
+  const resolvedCount = disputes.filter(d => statusOf(d) === 'resolved').length;
+  const counts: Record<FilterType, number> = { all: disputes.length, open: openCount, escalated: escalatedCount, resolved: resolvedCount };
+
+  const StatCard = ({ icon, iconBg, label, value, dark }: { icon: React.ReactNode; iconBg: string; label: string; value: React.ReactNode; dark?: boolean }) => (
+    <div className={`rounded-2xl p-[16px_18px] flex items-center gap-[11px] ${dark ? 'bg-[#0f172a]' : 'bg-white border border-[#e9eaec]'}`}>
+      <div className={`w-[34px] h-[34px] rounded-[9px] flex items-center justify-center shrink-0 ${iconBg}`}>{icon}</div>
+      <div>
+        <p className={`text-[10.5px] font-medium mb-[3px] ${dark ? 'text-white/40' : 'text-[#94a3b8]'}`}>{label}</p>
+        {typeof value === 'string' ? (
+          <p className={`font-['Inter_Tight',sans-serif] text-[13px] font-bold leading-[1.2] ${dark ? 'text-[#10b981]' : 'text-[#0f172a]'}`}>{value}</p>
+        ) : (
+          <p className="font-['Inter_Tight',sans-serif] text-[22px] font-extrabold text-[#0f172a] tracking-[-.02em] leading-none">{value}</p>
+        )}
+      </div>
+    </div>
+  );
+
+  const statCards = (
+    <>
+      <StatCard icon={<Clock size={14} style={{ color: '#d97706' }} />} iconBg="bg-[#fffbeb]" label="Open" value={openCount} />
+      <StatCard icon={<AlertCircle size={14} style={{ color: '#e11d48' }} />} iconBg="bg-[#fff1f2]" label="Escalated" value={escalatedCount} />
+      <StatCard icon={<Scale size={14} style={{ color: '#16a34a' }} />} iconBg="bg-[#f0fdf4]" label="Resolved" value={resolvedCount} />
+      <StatCard icon={<Scale size={14} style={{ color: '#10b981' }} />} iconBg="bg-[#10b981]/[.15]" label="SafeAI" value={<>AI Mediator<br />Active</>} dark />
+    </>
+  );
+
+  const FilterPills = ({ mobile }: { mobile?: boolean }) => (
+    <>
+      {FILTER_TABS.map(tab => (
+        <button
+          key={tab.key}
+          onClick={() => setFilter(tab.key)}
+          className={`flex items-center gap-[5px] px-[14px] py-[7px] rounded-full text-[12px] font-semibold whitespace-nowrap border transition-all ${mobile ? 'shrink-0' : ''} ${
+            filter === tab.key ? 'bg-[#0f172a] text-white border-[#0f172a]' : 'bg-white text-[#64748b] border-[#e9eaec]'
+          }`}
+        >
+          {tab.label} <span className="opacity-60 font-medium">{counts[tab.key]}</span>
+        </button>
+      ))}
+    </>
+  );
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-20">
+        <Loader2 size={28} className="text-[#10b981] animate-spin" />
+      </div>
+    );
+  }
 
   return (
-    <div className="p-4 md:p-6 pb-28 md:pb-6 min-h-full bg-stone-50">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Scale size={20} className="text-emerald-600" />
-            <h1 className="text-xl font-bold text-stone-900">Disputes</h1>
-            {openCount > 0 && (
-              <span className="bg-emerald-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">{openCount}</span>
-            )}
+    <div className="min-h-full" style={{ backgroundColor: '#f1f5f9' }}>
+      {/* Desktop */}
+      <div className="hidden md:flex flex-col p-6 gap-[18px]">
+        <div className="grid grid-cols-4 gap-3">{statCards}</div>
+
+        <div className="bg-white rounded-2xl border border-[#e9eaec] overflow-hidden">
+          <div className="p-[14px_20px] border-b border-[#f3f4f6] flex items-center gap-2">
+            <FilterPills />
           </div>
-          <p className="text-sm text-stone-500">
-            {disputes.length === 0 ? 'No disputes on your account' : `${disputes.length} case${disputes.length !== 1 ? 's' : ''} total`}
-          </p>
+
+          <div className="grid grid-cols-[1.4fr_1fr_1.2fr_100px_100px_40px] gap-3 px-6 py-[10px] bg-[#fafafa] border-b border-[#f3f4f6]">
+            <p className="text-[11px] font-bold text-[#94a3b8] tracking-[.04em]">Case / Product</p>
+            <p className="text-[11px] font-bold text-[#94a3b8] tracking-[.04em]">Parties</p>
+            <p className="text-[11px] font-bold text-[#94a3b8] tracking-[.04em]">Amount</p>
+            <p className="text-[11px] font-bold text-[#94a3b8] tracking-[.04em]">Status</p>
+            <p className="text-[11px] font-bold text-[#94a3b8] tracking-[.04em]">Opened</p>
+            <p />
+          </div>
+
+          {filtered.length === 0 ? (
+            <div className="py-20 px-6 text-center flex flex-col items-center gap-2.5">
+              <div className="w-[52px] h-[52px] rounded-[14px] bg-[#f8f9fa] flex items-center justify-center">
+                <Scale size={22} className="text-[#94a3b8]" />
+              </div>
+              <p className="text-[15px] font-bold text-[#0f172a]">{filter === 'all' ? 'No disputes' : `No ${filter} disputes`}</p>
+              <p className="text-[12.5px] text-[#94a3b8]">SafeAI automatically mediates all cases.</p>
+            </div>
+          ) : (
+            filtered.map(dispute => {
+              const txn = dispute.transaction;
+              const dspCode = `DSP-${dispute.id.slice(0, 4).toUpperCase()}`;
+              const timeAgo = formatDistanceToNow(new Date(dispute.created_at), { addSuffix: true });
+              const snippet = dispute.latest_ai_snippet?.replace(/\*\*/g, '').replace(/\[ADMIN_[^\]]*\]/g, '').trim();
+              return (
+                <div
+                  key={dispute.id}
+                  onClick={() => onSelectDispute(dispute)}
+                  className="grid grid-cols-[1.4fr_1fr_1.2fr_100px_100px_40px] gap-3 px-6 py-[14px] border-b border-[#f3f4f6] last:border-b-0 cursor-pointer hover:bg-[#fafbfc] transition-colors items-center"
+                >
+                  <div className="min-w-0">
+                    <code className="text-[10.5px] font-bold text-[#475569] bg-[#f1f5f9] px-[7px] py-[2px] rounded-[5px]">{dspCode}</code>
+                    <p className="text-[13px] font-bold text-[#0f172a] truncate mt-[3px]">{txn?.product_name || 'Dispute'}</p>
+                    {snippet && <p className="text-[11px] text-[#64748b] mt-[3px] truncate max-w-[260px]">{snippet}</p>}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-[5px] mb-0.5">
+                      <div className="w-5 h-5 rounded-full bg-[#dcfce7] flex items-center justify-center text-[9px] font-extrabold text-[#16a34a] shrink-0">
+                        {(txn?.buyer?.first_name || 'B').charAt(0).toUpperCase()}
+                      </div>
+                      <span className="text-[12px] font-semibold text-[#10b981]">@{txn?.buyer?.safetag}</span>
+                    </div>
+                    <div className="flex items-center gap-[5px]">
+                      <div className="w-5 h-5 rounded-full bg-[#fed7aa] flex items-center justify-center text-[9px] font-extrabold text-[#ea580c] shrink-0">
+                        {(txn?.seller?.first_name || 'S').charAt(0).toUpperCase()}
+                      </div>
+                      <span className="text-[12px] font-semibold text-[#f97316]">@{txn?.seller?.safetag}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="font-['Inter_Tight',sans-serif] text-sm font-bold text-[#0f172a]">
+                      {Number(txn?.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-[10.5px] text-[#94a3b8] font-medium">{txn?.currency} in escrow</p>
+                  </div>
+                  <div><StatusPill dispute={dispute} /></div>
+                  <p className="text-[11.5px] text-[#94a3b8] font-medium">{timeAgo}</p>
+                  <div className="flex items-center justify-center">
+                    <ChevronRight size={14} className="text-[#cbd5e1]" />
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
 
-      {/* Filter tabs */}
-      <div className="flex gap-2 mb-5 flex-wrap">
-        {FILTER_TABS.map(tab => {
-          const count = tab.key === 'all' ? disputes.length
-            : tab.key === 'open' ? disputes.filter(d => d.status === 'OPEN' && !d.is_ai_paused).length
-            : tab.key === 'escalated' ? disputes.filter(d => d.is_ai_paused).length
-            : disputes.filter(d => d.status === 'RESOLVED').length;
-          return (
-            <button
-              key={tab.key}
-              onClick={() => setFilter(tab.key)}
-              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                filter === tab.key
-                  ? 'bg-stone-900 text-white shadow-sm'
-                  : 'bg-white border border-stone-200 text-stone-500 hover:border-stone-300'
-              }`}
-            >
-              {tab.label}
-              {count > 0 && (
-                <span className={`ml-1.5 text-[10px] font-bold ${filter === tab.key ? 'opacity-70' : 'opacity-60'}`}>
-                  {count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+      {/* Mobile */}
+      <div className="md:hidden flex flex-col p-4 pb-28 gap-[14px]">
+        <div className="grid grid-cols-2 gap-[10px]">{statCards}</div>
 
-      {/* Loading */}
-      {loading && (
-        <div className="flex justify-center py-20">
-          <Loader2 size={28} className="text-emerald-600 animate-spin" />
+        <div className="flex gap-2 overflow-x-auto hide-scrollbar">
+          <FilterPills mobile />
         </div>
-      )}
 
-      {/* Empty state */}
-      {!loading && filtered.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <div className="w-16 h-16 rounded-full bg-stone-100 flex items-center justify-center mb-4">
-            <Scale size={28} className="text-stone-400" />
-          </div>
-          <h3 className="font-semibold text-stone-700 mb-1">
-            {filter === 'all' ? 'No disputes' : `No ${filter} disputes`}
-          </h3>
-          <p className="text-sm text-stone-400 max-w-xs">
-            {filter === 'all'
-              ? 'Any disputes you raise or are party to will appear here. SafeAI mediates all cases automatically.'
-              : `You have no ${filter} disputes right now.`}
-          </p>
-        </div>
-      )}
-
-      {/* Dispute cards */}
-      {!loading && filtered.length > 0 && (
-        <div className="flex flex-col gap-3">
-          {filtered.map(dispute => {
-            const txn = dispute.transaction;
-            const dspCode = `DSP-${dispute.id.slice(0, 4).toUpperCase()}`;
-            const timeAgo = formatDistanceToNow(new Date(dispute.created_at), { addSuffix: true });
-
-            return (
-              <button
-                key={dispute.id}
-                onClick={() => onSelectDispute(dispute)}
-                className="w-full text-left bg-white border border-stone-200 rounded-2xl p-4 hover:border-emerald-300 hover:shadow-sm transition-all group"
-              >
-                <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-[10px]">
+          {filtered.length === 0 ? (
+            <div className="py-12 px-5 bg-white rounded-[18px] border border-[#e9eaec] text-center">
+              <p className="font-['Inter_Tight',sans-serif] text-[15px] font-extrabold text-[#0f172a] mb-1.5">{filter === 'all' ? 'No disputes' : `No ${filter} disputes`}</p>
+              <p className="text-[12.5px] text-[#94a3b8]">SafeAI automatically mediates all your cases.</p>
+            </div>
+          ) : (
+            filtered.map(dispute => {
+              const txn = dispute.transaction;
+              const dspCode = `DSP-${dispute.id.slice(0, 4).toUpperCase()}`;
+              const timeAgo = formatDistanceToNow(new Date(dispute.created_at), { addSuffix: true });
+              const snippet = dispute.latest_ai_snippet?.replace(/\*\*/g, '').replace(/\[ADMIN_[^\]]*\]/g, '').trim();
+              return (
+                <div
+                  key={dispute.id}
+                  onClick={() => onSelectDispute(dispute)}
+                  className="bg-white border border-[#e9eaec] rounded-[18px] p-[16px_18px] cursor-pointer flex items-start gap-[14px]"
+                >
                   <div className="flex-1 min-w-0">
-                    {/* Case ID + status */}
-                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                      <span className="text-xs font-mono font-bold text-stone-400">{dspCode}</span>
+                    <div className="flex items-center gap-[7px] mb-[7px] flex-wrap">
+                      <code className="text-[10.5px] font-bold text-[#475569] bg-[#f1f5f9] px-[7px] py-[2px] rounded-[5px]">{dspCode}</code>
                       <StatusPill dispute={dispute} />
                     </div>
-
-                    {/* Product name */}
-                    <p className="font-semibold text-stone-900 text-sm truncate mb-1">{txn?.product_name || 'Dispute'}</p>
-
-                    {/* Parties */}
-                    <p className="text-xs text-stone-500 mb-2">
-                      <span className="text-emerald-700 font-medium">{txn?.buyer?.safetag}</span>
-                      <span className="mx-1 text-stone-300">vs</span>
-                      <span className="text-orange-600 font-medium">{txn?.seller?.safetag}</span>
+                    <p className="font-['Inter_Tight',sans-serif] text-[14.5px] font-extrabold text-[#0f172a] mb-1 truncate">{txn?.product_name}</p>
+                    <p className="text-[12px] font-medium text-[#94a3b8] mb-[7px]">
+                      <span className="text-[#10b981] font-bold">@{txn?.buyer?.safetag}</span>
+                      <span className="mx-[5px] text-[#cbd5e1]">vs</span>
+                      <span className="text-[#f97316] font-bold">@{txn?.seller?.safetag}</span>
                     </p>
-
-                    {/* Amount + time */}
-                    <div className="flex items-center gap-3 text-xs text-stone-400">
-                      <span className="font-semibold text-stone-600">
-                        {txn?.currency} {Number(txn?.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        <span className="font-normal text-stone-400 ml-1">in escrow</span>
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock size={11} />
-                        {timeAgo}
-                      </span>
+                    <div className="flex items-center gap-[10px]">
+                      <p className="font-['Inter_Tight',sans-serif] text-[13.5px] font-bold text-[#0f172a]">
+                        {Number(txn?.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </p>
+                      <span className="text-[11px] text-[#94a3b8]">{txn?.currency} · {timeAgo}</span>
                     </div>
-
-                    {/* AI snippet */}
-                    {dispute.latest_ai_snippet && (
-                      <div className="mt-2 flex items-start gap-2 bg-indigo-50 rounded-xl px-3 py-2">
-                        <img src="/logo-main.svg" alt="" className="h-4 w-4 mt-0.5 shrink-0 object-contain" />
-                        <p className="text-xs text-indigo-700 line-clamp-2">
-                          {dispute.latest_ai_snippet.replace(/\*\*/g, '').replace(/\[ADMIN_[^\]]*\]/g, '').trim()}
-                        </p>
+                    {snippet && (
+                      <div className="mt-[10px] bg-[#f0fdf4] border border-[#bbf7d0] rounded-[10px] p-[9px_12px] flex items-start gap-2">
+                        <div className="w-[18px] h-[18px] rounded-full bg-[#0f172a] flex items-center justify-center shrink-0 mt-px">
+                          <Scale size={8} style={{ color: '#10b981' }} />
+                        </div>
+                        <p className="text-[11.5px] text-[#166534] font-medium leading-[1.5] flex-1">{snippet}</p>
                       </div>
                     )}
                   </div>
-
-                  <ChevronRight size={16} className="text-stone-300 group-hover:text-emerald-500 transition-colors shrink-0 mt-1" />
+                  <ChevronRight size={16} className="text-[#cbd5e1] shrink-0 mt-0.5" />
                 </div>
-              </button>
-            );
-          })}
+              );
+            })
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

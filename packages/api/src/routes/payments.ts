@@ -557,7 +557,7 @@ router.post('/palmpay/payout-webhook', async (req, res) => {
 
         const { data: withdrawal } = await supabase
             .from('withdrawals')
-            .select('id, profile_id, amount, currency, reference')
+            .select('id, profile_id, amount, currency, reference, profile:profile_id(safetag)')
             .eq('idempotency_key', orderId)
             .maybeSingle();
 
@@ -565,6 +565,10 @@ router.post('/palmpay/payout-webhook', async (req, res) => {
             console.warn(`[PalmPay Webhook] No withdrawal found for orderId=${orderId}`);
             return res.json({ respCode: '00000000' });
         }
+
+        const withdrawalLinkUrl = (withdrawal.profile as any)?.safetag
+            ? `/withdraw/${encodeURIComponent((withdrawal.profile as any).safetag)}?view=withdraw`
+            : '/login';
 
         if (palmpayStatus === 'SUCCESS' || palmpayStatus === 'SUCCESSFUL') {
             await supabase.from('withdrawals').update({
@@ -575,7 +579,7 @@ router.post('/palmpay/payout-webhook', async (req, res) => {
 
             const msg = `✅ <b>Withdrawal Successful!</b>\n\n<b>${withdrawal.amount} ${withdrawal.currency}</b> has been sent to your payout method.\n\n📋 Reference: <b>${withdrawal.reference}</b>`;
             routeNotification(withdrawal.profile_id, msg, []).catch(() => {});
-            recordNotification(withdrawal.profile_id, 'withdrawal', '✅ Withdrawal Successful', `${withdrawal.amount} ${withdrawal.currency} sent`, { withdrawal_id: withdrawal.id, amount: withdrawal.amount, currency: withdrawal.currency, reference: withdrawal.reference, link_url: '/dashboard/withdrawals' }).catch(() => {});
+            recordNotification(withdrawal.profile_id, 'withdrawal', '✅ Withdrawal Successful', `${withdrawal.amount} ${withdrawal.currency} sent`, { withdrawal_id: withdrawal.id, amount: withdrawal.amount, currency: withdrawal.currency, reference: withdrawal.reference, link_url: withdrawalLinkUrl }).catch(() => {});
             console.log(`[PalmPay Webhook] ${withdrawal.reference} → PAID`);
         } else if (palmpayStatus === 'FAIL' || palmpayStatus === 'FAILED') {
             await supabase.from('withdrawals').update({
@@ -585,7 +589,7 @@ router.post('/palmpay/payout-webhook', async (req, res) => {
 
             const msg = `❌ <b>Withdrawal Failed</b>\n\nYour withdrawal of <b>${withdrawal.amount} ${withdrawal.currency}</b> could not be processed.\n\n📝 Reason: ${failureReason || 'Provider error'}\n\nPlease contact support or retry.`;
             routeNotification(withdrawal.profile_id, msg, []).catch(() => {});
-            recordNotification(withdrawal.profile_id, 'withdrawal', '❌ Withdrawal Failed', `${withdrawal.amount} ${withdrawal.currency}`, { withdrawal_id: withdrawal.id, link_url: '/dashboard/withdrawals' }).catch(() => {});
+            recordNotification(withdrawal.profile_id, 'withdrawal', '❌ Withdrawal Failed', `${withdrawal.amount} ${withdrawal.currency}`, { withdrawal_id: withdrawal.id, link_url: withdrawalLinkUrl }).catch(() => {});
             console.log(`[PalmPay Webhook] ${withdrawal.reference} → FAILED: ${failureReason}`);
         }
 

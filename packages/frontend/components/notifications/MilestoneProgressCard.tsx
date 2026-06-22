@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircle2, Circle } from 'lucide-react';
+import { MapPin, CheckCircle2 } from 'lucide-react';
 
 interface MilestoneProgressCardProps {
   title: string;
@@ -30,72 +30,57 @@ export function MilestoneProgressCard({
   }));
 
   return (
-    <div className={`relative flex flex-col gap-3 px-4 py-4 transition-colors ${isUnread ? 'bg-blue-50/40' : 'bg-white'} hover:bg-slate-50`}>
-      {/* Header row */}
-      <div className="flex items-start gap-3">
-        <div className="relative mt-0.5 shrink-0">
-          <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 text-lg">
-            📦
+    <div className={`flex flex-col gap-0 ${isUnread ? 'bg-[#f8faff]' : 'bg-white'}`}>
+      <div className="flex items-start gap-[13px] px-5 pt-[15px] pb-[10px]">
+        <div className="relative shrink-0">
+          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: '#fffbeb', color: '#d97706' }}>
+            <MapPin size={16} strokeWidth={2.2} />
+          </div>
+          <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center border-[1.5px] border-white text-white" style={{ background: '#f59e0b' }}>
+            <CheckCircle2 size={8} strokeWidth={3} />
           </div>
         </div>
-
         <div className="flex-1 min-w-0">
-          <p className={`text-sm leading-snug ${isUnread ? 'font-semibold text-slate-900' : 'font-medium text-slate-700'}`}>
-            {title}
-          </p>
+          <p className={`text-[13px] leading-[1.4] ${isUnread ? 'font-bold text-[#0f172a]' : 'font-semibold text-[#334155]'}`}>{title}</p>
           {transactionTitle && (
-            <p className="text-xs text-slate-500 mt-0.5 truncate">"{transactionTitle}"</p>
+            <p className="text-[11.5px] text-[#64748b] italic mt-[2px] font-medium truncate">&quot;{transactionTitle}&quot;</p>
           )}
-          <p className="text-xs text-slate-500 mt-0.5">{message}</p>
-          <p className="text-xs text-slate-400 mt-1">{time}</p>
+          <p className="text-[11.5px] text-[#94a3b8] mt-[2px]">{message}</p>
+          <p className="text-[11px] text-[#b0bac6] mt-[4px]">{time}</p>
         </div>
-
         {isUnread && (
-          <div className="mt-1.5 shrink-0 w-2 h-2 rounded-full bg-blue-500" />
+          <div className="mt-[5px] shrink-0 w-2 h-2 rounded-full bg-[#2563eb]" />
         )}
       </div>
 
       {/* Progress track */}
-      <div className="overflow-x-auto">
-        <div className="flex justify-center min-w-full">
-          <div className="inline-flex items-center gap-0 py-1">
+      <div className="px-5 pb-4">
+        <div className="bg-[#f7f8f9] rounded-xl px-4 py-3 border border-[#f1f5f9] overflow-x-auto">
+          <div className="flex items-center min-w-max">
             {stages.map((stage, idx) => (
-              <div key={idx} className="flex items-center">
-                {/* Connector line before each node except first */}
+              <div key={idx} className="flex items-center shrink-0">
                 {idx > 0 && (
-                  <div
-                    className={`h-1 w-8 rounded-full ${
-                      stage.state === 'future' ? 'bg-slate-200' : 'bg-amber-400'
-                    }`}
-                  />
+                  <div className="h-1 w-8 rounded-full shrink-0" style={{ background: stage.state === 'future' ? '#e2e8f0' : '#f59e0b' }} />
                 )}
-
-                {/* Stage node */}
-                <div className="flex flex-col items-center gap-1.5">
+                <div className="flex flex-col items-center gap-[5px]">
                   <div
-                    className={`
-                      flex items-center justify-center rounded-full border-2 transition-all
-                      ${stage.state === 'done'
-                        ? 'w-7 h-7 bg-amber-500 border-amber-500 text-white'
-                        : stage.state === 'current'
-                        ? 'w-9 h-9 bg-amber-500 border-amber-400 text-white shadow-lg shadow-amber-500/30 ring-2 ring-amber-400/40 animate-pulse'
-                        : 'w-7 h-7 bg-slate-100 border-slate-300 text-slate-400'}
-                    `}
+                    className="flex items-center justify-center rounded-full transition-all shrink-0"
+                    style={{
+                      width: stage.state === 'current' ? '36px' : '28px',
+                      height: stage.state === 'current' ? '36px' : '28px',
+                      background: stage.state === 'future' ? '#f1f5f9' : '#f59e0b',
+                      color: stage.state === 'future' ? '#94a3b8' : '#fff',
+                      border: stage.state === 'current' ? '2px solid #fde68a' : '2px solid transparent',
+                      boxShadow: stage.state === 'current' ? '0 0 0 4px rgba(245,158,11,.15)' : 'none',
+                    }}
                   >
-                    {stage.state === 'done' ? (
-                      <CheckCircle2 size={14} strokeWidth={2.5} />
-                    ) : stage.state === 'current' ? (
-                      <CheckCircle2 size={16} strokeWidth={2.5} />
-                    ) : (
-                      <Circle size={14} strokeWidth={1.5} />
-                    )}
+                    {stage.state === 'done' && <CheckCircle2 size={11} strokeWidth={3} />}
+                    {stage.state === 'current' && <CheckCircle2 size={12} strokeWidth={3} />}
+                    {stage.state === 'future' && <span className="w-[10px] h-[10px] rounded-full border-2 border-current" />}
                   </div>
-
-                  {/* Label */}
                   <span
-                    className={`text-[9px] leading-none max-w-[48px] text-center truncate ${
-                      stage.state === 'future' ? 'text-slate-400' : 'text-amber-600 font-medium'
-                    }`}
+                    className="text-[9px] leading-[1.2] max-w-[48px] text-center truncate"
+                    style={{ fontWeight: stage.state === 'future' ? 500 : 700, color: stage.state === 'future' ? '#94a3b8' : '#d97706' }}
                     title={stage.label}
                   >
                     {stage.label.length > 7 ? stage.label.slice(0, 7) + '…' : stage.label}

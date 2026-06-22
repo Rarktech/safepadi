@@ -119,7 +119,7 @@ router.post('/:safetag', requireUser, requireSafetagOwner, requireElevation('wit
             undefined,
             profile.email ? () => sendWithdrawalInitiatedEmail(profile.email, { safetag: profile.safetag, amount: numAmount, currency, reference }) : undefined
         ).catch(() => {});
-        recordNotification(profileId, 'withdrawal', '💸 Withdrawal Request Received', `${numAmount} ${currency} — ${requiresApproval ? 'pending approval' : 'processing'}`, { withdrawal_id: withdrawalId, amount: numAmount, currency, reference, link_url: '/dashboard/withdrawals' }).catch(() => {});
+        recordNotification(profileId, 'withdrawal', '💸 Withdrawal Request Received', `${numAmount} ${currency} — ${requiresApproval ? 'pending approval' : 'processing'}`, { withdrawal_id: withdrawalId, amount: numAmount, currency, reference, link_url: `/withdraw/${encodeURIComponent(profile.safetag)}?view=withdraw` }).catch(() => {});
 
         // Auto-disburse for amounts below threshold (fire-and-forget)
         if (!requiresApproval) {

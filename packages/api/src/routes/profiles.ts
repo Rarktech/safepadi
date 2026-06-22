@@ -5,7 +5,7 @@ import { sendNotification, sendReferralNotification, recordNotification } from '
 import { sendEmail } from '../services/email';
 import multer from 'multer';
 import rateLimit from 'express-rate-limit';
-import { requireUser, requireSafetagOwner, requireElevation, requireUserOrBot, AuthedRequest, BotOrUserRequest } from '../middleware/requireUser';
+import { requireUser, requireSafetagOwner, requireElevation, requireUserOrBot, markJtiRevoked, AuthedRequest, BotOrUserRequest } from '../middleware/requireUser';
 import { requireBot, BotAuthedRequest } from '../middleware/requireBot';
 
 // 5 name-enquiry calls per user per 10 minutes — prevents account enumeration
@@ -282,6 +282,7 @@ router.get('/by_safetag/:safetag', async (req, res) => {
         .from('profiles')
         .select('*')
         .ilike('safetag', withAt)
+        .is('deleted_at', null)
         .maybeSingle();
 
     if (error) {
@@ -293,6 +294,89 @@ router.get('/by_safetag/:safetag', async (req, res) => {
     }
 
     res.json(data);
+});
+
+// Update editable profile fields (name, bio, phone, country, notification/privacy prefs).
+// Email is intentionally excluded — it's the Supabase auth identity and needs its own
+// re-verification flow, not a plain field edit.
+const ProfileUpdateSchema = z.object({
+    first_name: z.string().trim().min(1).max(60).optional(),
+    last_name: z.string().trim().max(60).optional(),
+    bio: z.string().max(280).optional(),
+    phone: z.string().trim().max(30).optional(),
+    country: z.string().trim().length(2).optional(),
+    notification_prefs: z.record(z.string(), z.boolean()).optional(),
+    privacy_prefs: z.record(z.string(), z.boolean()).optional(),
+});
+
+router.patch('/:safetag', requireUser, requireSafetagOwner, async (req, res) => {
+    try {
+        const updates = ProfileUpdateSchema.parse(req.body);
+        if (Object.keys(updates).length === 0) {
+            return res.status(400).json({ error: 'No valid fields to update' });
+        }
+
+        const profileId = (req as AuthedRequest).user.sub;
+        const { data, error } = await supabase
+            .from('profiles')
+            .update(updates)
+            .eq('id', profileId)
+            .select('*')
+            .single();
+
+        if (error) throw error;
+        res.json(data);
+    } catch (err: any) {
+        if (err instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Invalid profile update', details: err.issues });
+        }
+        console.error('❌ Profile Update Error:', err.message);
+        res.status(400).json({ error: err.message || 'Failed to update profile' });
+    }
+});
+
+// Upload/replace avatar — multipart/form-data { avatar: File }
+const uploadAvatar = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+        if (!file.mimetype.startsWith('image/')) return cb(new Error('File must be an image'));
+        cb(null, true);
+    },
+});
+
+router.post('/:safetag/avatar', requireUser, requireSafetagOwner, uploadAvatar.single('avatar'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'No file provided' });
+
+        const profileId = (req as AuthedRequest).user.sub;
+        const ext = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+        const filename = `${profileId}_${Date.now()}.${ext}`;
+
+        const { error: storageErr } = await supabase.storage
+            .from('avatars')
+            .upload(filename, req.file.buffer, { contentType: req.file.mimetype, upsert: true });
+
+        if (storageErr) {
+            console.error('Avatar Storage Error:', storageErr);
+            return res.status(500).json({ error: 'Failed to upload avatar. ' + storageErr.message });
+        }
+
+        const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(filename);
+
+        const { data, error } = await supabase
+            .from('profiles')
+            .update({ avatar_url: publicUrl })
+            .eq('id', profileId)
+            .select('avatar_url')
+            .single();
+
+        if (error) throw error;
+        res.json(data);
+    } catch (err: any) {
+        console.error('❌ Avatar Upload Error:', err.message);
+        res.status(400).json({ error: err.message || 'Failed to upload avatar' });
+    }
 });
 
 // Record that a user sent a message on a platform (updates 24hr window timestamp)
@@ -322,6 +406,7 @@ router.get('/search', async (req, res) => {
         .from('profiles')
         .select('*')
         .or(`safetag.ilike.%${safeQuery}%,first_name.ilike.%${safeQuery}%,last_name.ilike.%${safeQuery}%`)
+        .is('deleted_at', null)
         .limit(5);
 
     if (error) {
@@ -693,6 +778,11 @@ router.get('/:safetag/earnings-history', requireUser, requireSafetagOwner, async
             });
         });
         const primaryCurrency = Object.entries(currencyTotals).sort((a, b) => b[1] - a[1])[0]?.[0] || 'USD';
+        const availableCurrencies = Object.keys(currencyTotals);
+        const requestedCurrency = (req.query.currency as string)?.toUpperCase();
+        const selectedCurrency = requestedCurrency && availableCurrencies.includes(requestedCurrency)
+            ? requestedCurrency
+            : primaryCurrency;
 
         // Build the last N months array (including months with zero earnings)
         const history = [];
@@ -703,14 +793,14 @@ router.get('/:safetag/earnings-history', requireUser, requireSafetagOwner, async
             const name = d.toLocaleString('en', { month: 'short' });
             history.push({
                 name,
-                earnings: Number(((monthlyMap[key]?.[primaryCurrency]) || 0).toFixed(2)),
+                earnings: Number(((monthlyMap[key]?.[selectedCurrency]) || 0).toFixed(2)),
             });
         }
 
         res.json({
-            currency: primaryCurrency,
+            currency: selectedCurrency,
             history,
-            available_currencies: Object.keys(currencyTotals),
+            available_currencies: availableCurrencies,
         });
     } catch (err: any) {
         res.status(400).json({ error: err.message });
@@ -904,6 +994,44 @@ router.delete('/:safetag/payout-methods/:id', requireUser, requireSafetagOwner, 
     }
 });
 
+// Set a payout method as the primary/default destination — unsets any previous default first.
+router.patch('/:safetag/payout-methods/:id', requireUser, requireSafetagOwner, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const profileId = (req as AuthedRequest).user.sub;
+        if (req.body?.is_default !== true) {
+            return res.status(400).json({ error: 'Only { is_default: true } is supported' });
+        }
+
+        const { data: method } = await supabase
+            .from('payout_methods')
+            .select('id')
+            .eq('id', id)
+            .eq('profile_id', profileId)
+            .maybeSingle();
+
+        if (!method) return res.status(404).json({ error: 'Payout method not found' });
+
+        const { error: clearErr } = await supabase
+            .from('payout_methods')
+            .update({ is_default: false })
+            .eq('profile_id', profileId);
+        if (clearErr) throw clearErr;
+
+        const { data, error } = await supabase
+            .from('payout_methods')
+            .update({ is_default: true })
+            .eq('id', id)
+            .select()
+            .single();
+        if (error) throw error;
+
+        res.json(data);
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
 // Deactivate account (Meta policy compliance)
 router.post('/:safetag/deactivate', requireUserOrBot, async (req, res) => {
     try {
@@ -972,6 +1100,61 @@ router.post('/:safetag/deactivate', requireUserOrBot, async (req, res) => {
         res.json({ message: 'Account deactivated and personal data removed successfully.' });
     } catch (err: any) {
         console.error('❌ Deactivation Error:', err.message);
+        res.status(500).json({ error: err.message || 'Internal Server Error' });
+    }
+});
+
+// Delete account — gated behind a step-up confirmation link (no password to confirm against
+// on this platform, so a freshly-issued magic link plays that role; see /auth/magic-link/request-elevation).
+// Extends the deactivate anonymization with a soft-delete marker that excludes the profile from
+// all public lookups, and force-logs-out every active session.
+router.delete('/:safetag', requireUser, requireSafetagOwner, requireElevation('delete_account'), async (req, res) => {
+    try {
+        const profileId = (req as AuthedRequest).user.sub;
+
+        const { data: profile, error: findError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', profileId)
+            .maybeSingle();
+
+        if (findError) throw findError;
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+        if (profile.deleted_at) return res.status(400).json({ error: 'Account already deleted' });
+
+        const anonymizedEmail = `deleted_${profile.id.substring(0, 8)}@safeeely.com`;
+        const { error: updateError } = await supabase
+            .from('profiles')
+            .update({
+                first_name: 'Deleted',
+                last_name: 'User',
+                email: anonymizedEmail,
+                bio: null,
+                avatar_url: null,
+                is_deactivated: true,
+                deactivation_reason: 'Account deleted by user',
+                deactivated_at: new Date().toISOString(),
+                deleted_at: new Date().toISOString(),
+            })
+            .eq('id', profile.id);
+        if (updateError) throw updateError;
+
+        await supabase.from('linked_accounts').delete().eq('profile_id', profile.id);
+        await supabase.from('payout_methods').delete().eq('profile_id', profile.id);
+
+        // Force logout — revoke every active session for this profile, not just the current one.
+        await supabase
+            .from('user_sessions')
+            .update({ revoked_at: new Date().toISOString() })
+            .eq('profile_id', profile.id)
+            .is('revoked_at', null);
+        markJtiRevoked((req as AuthedRequest).user.jti);
+        res.clearCookie('sf_session', { path: '/' });
+
+        console.log(`🗑️ Account ${profile.safetag} deleted by user.`);
+        res.json({ message: 'Account deleted successfully.' });
+    } catch (err: any) {
+        console.error('❌ Account Deletion Error:', err.message);
         res.status(500).json({ error: err.message || 'Internal Server Error' });
     }
 });
@@ -1089,7 +1272,7 @@ router.post('/:safetag/kyc/submit', requireUser, requireSafetagOwner, requireEle
             const msg = `🛡️ **KYC Processing**\n\nHello @${profile.safetag}, your Know Your Customer (KYC) details have been successfully submitted and are currently being reviewed by our compliance team. ✅\n\nYou will be notified here as soon as it is approved.`;
             await sendNotification(linked.platform, linked.platform_id, msg);
         }
-        recordNotification(profile.id, 'kyc', '🛡️ KYC Submitted', 'Your identity documents are under review — you\'ll be notified when approved', { link_url: '/dashboard/settings/kyc' }).catch(() => {});
+        recordNotification(profile.id, 'kyc', '🛡️ KYC Submitted', 'Your identity documents are under review — you\'ll be notified when approved', { link_url: '/kyc' }).catch(() => {});
 
         console.log(`✅ KYC Submitted & Saved for ${profile.safetag}`);
         res.json({ message: 'KYC submitted successfully. Awaiting review.' });

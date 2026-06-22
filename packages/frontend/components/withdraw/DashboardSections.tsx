@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { DollarSign, Bitcoin, Euro, ArrowRightLeft, Activity, Wallet, ArrowUpRight, ArrowDownCircle, ArrowDownLeft, Plus, Eye, EyeOff, TrendingUp } from 'lucide-react';
+import { DollarSign, Bitcoin, Euro, ArrowRightLeft, Activity, Wallet, ArrowUpRight, ArrowDownCircle, ArrowDownLeft, Plus, Eye, EyeOff, TrendingUp, ChevronRight } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { format } from 'date-fns';
 
-const CURRENCY_ICONS: Record<string, React.ReactNode> = {
+export const CURRENCY_ICONS: Record<string, React.ReactNode> = {
     USD: <img src="/assets/images/usd-flag.png" alt="USD" className="w-full h-full object-cover rounded-full" />,
     NGN: <img src="/assets/images/ngn-flag.png" alt="NGN" className="w-full h-full object-cover rounded-full" />,
     BTC: <Bitcoin className="w-5 h-5 text-white" />,
@@ -22,7 +22,7 @@ const CURRENCY_COLORS: Record<string, string> = {
     USDT: 'bg-transparent',
 };
 
-const CURRENCY_NAMES: Record<string, string> = {
+export const CURRENCY_NAMES: Record<string, string> = {
     USD: 'US Dollar',
     EUR: 'Euro',
     BTC: 'Bitcoin',
@@ -30,7 +30,7 @@ const CURRENCY_NAMES: Record<string, string> = {
     NGN: 'Nigerian Naira'
 };
 
-const CURRENCY_SYMBOLS: Record<string, string> = {
+export const CURRENCY_SYMBOLS: Record<string, string> = {
     USD: '$', EUR: '€', NGN: '₦', BTC: '₿', USDT: '₮'
 };
 
@@ -65,6 +65,15 @@ export const MobileDashboard = ({
     onSelectTxn,
     onToggleBalance,
     decodedSafetag,
+    trustScore,
+    totalVolume,
+    volumeSymbol,
+    completedCount,
+    referralEarning,
+    referralSymbol,
+    disputeCount,
+    onViewDisputes,
+    pendingActions,
 }: {
     balances: any[];
     showBalance: boolean;
@@ -75,7 +84,19 @@ export const MobileDashboard = ({
     onSelectTxn: (txn: any) => void;
     onToggleBalance: () => void;
     decodedSafetag: string;
+    trustScore: number;
+    totalVolume: number;
+    volumeSymbol: string;
+    completedCount: number;
+    referralEarning: number;
+    referralSymbol: string;
+    disputeCount: number;
+    onViewDisputes: () => void;
+    pendingActions: PendingAction[];
 }) => {
+    const boundedTrust = Math.max(0, Math.min(100, trustScore));
+    const trustLabel = boundedTrust >= 80 ? 'Excellent' : boundedTrust >= 60 ? 'Good' : boundedTrust >= 40 ? 'Fair' : 'Poor';
+    const fmtVolume = totalVolume >= 1_000_000 ? `${(totalVolume / 1_000_000).toFixed(1)}M` : totalVolume >= 1_000 ? `${(totalVolume / 1_000).toFixed(1)}K` : totalVolume.toLocaleString(undefined, { maximumFractionDigits: 0 });
     const primary = balances[0] || { currency: 'USD', amount: 0 };
     const symbol = CURRENCY_SYMBOLS[primary.currency] || '$';
 
@@ -172,8 +193,81 @@ export const MobileDashboard = ({
                 </div>
             </div>
 
-            {/* My Transactions Panel — off-white bg, rounded top, overlaps portfolio */}
-            <div className="bg-slate-50 rounded-t-[40px] -mt-6 px-4 pt-7">
+            {/* At a glance — overlaps portfolio panel */}
+            <div className="bg-[#F4F7F6] rounded-t-[40px] -mt-6 px-5 pt-6">
+                <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-['Inter_Tight',sans-serif] text-base font-extrabold text-[#0f172a]">At a glance</h3>
+                    <span className="text-[11.5px] font-semibold text-[#10b981]">Live</span>
+                </div>
+                <div className="grid grid-cols-2 gap-[9px] mb-3.5">
+                    <div className="bg-[#0f172a] rounded-2xl p-[14px_16px] flex flex-col gap-2.5">
+                        <div className="flex items-center justify-between">
+                            <div className="w-[30px] h-[30px] rounded-lg bg-[#10b981]/[.15] flex items-center justify-center">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth={2.2}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                            </div>
+                            <span className="text-[9.5px] font-bold text-white/[.35] tracking-[.06em]">TRUST</span>
+                        </div>
+                        <div>
+                            <p className="font-['Inter_Tight',sans-serif] text-[26px] font-black text-white leading-none tracking-[-.03em]">{boundedTrust}<span className="text-[13px] font-semibold text-white/[.35]">/100</span></p>
+                            <p className="text-[10.5px] font-semibold text-[#10b981] mt-[3px]">{trustLabel}</p>
+                        </div>
+                    </div>
+                    <div className="bg-white border border-[#e9eaec] rounded-2xl p-[14px_16px] flex flex-col gap-2.5">
+                        <div className="flex items-center justify-between">
+                            <div className="w-[30px] h-[30px] rounded-lg bg-[#f0fdf4] flex items-center justify-center">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth={2.2}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+                            </div>
+                            <span className="text-[9.5px] font-bold text-[#b0bac6] tracking-[.06em]">VOLUME</span>
+                        </div>
+                        <div>
+                            <p className="font-['Inter_Tight',sans-serif] text-[18px] font-extrabold text-[#0f172a] leading-none tracking-[-.02em]">{volumeSymbol}{fmtVolume}</p>
+                            <p className="text-[10.5px] font-medium text-[#94a3b8] mt-[3px]">Total traded</p>
+                        </div>
+                    </div>
+                    <div className="bg-white border border-[#e9eaec] rounded-2xl p-[14px_16px] flex flex-col gap-2.5">
+                        <div className="flex items-center justify-between">
+                            <div className="w-[30px] h-[30px] rounded-lg bg-[#eff6ff] flex items-center justify-center">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth={2.2}><polyline points="20 6 9 17 4 12"/></svg>
+                            </div>
+                            <span className="text-[9.5px] font-bold text-[#b0bac6] tracking-[.06em]">TRADES</span>
+                        </div>
+                        <div>
+                            <p className="font-['Inter_Tight',sans-serif] text-[26px] font-black text-[#0f172a] leading-none tracking-[-.03em]">{completedCount}</p>
+                            <p className="text-[10.5px] font-medium text-[#94a3b8] mt-[3px]">Completed</p>
+                        </div>
+                    </div>
+                    <div className="bg-white border border-[#e9eaec] rounded-2xl p-[14px_16px] flex flex-col gap-2.5">
+                        <div className="flex items-center justify-between">
+                            <div className="w-[30px] h-[30px] rounded-lg bg-[#fdf4ff] flex items-center justify-center">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9333ea" strokeWidth={2.2}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                            </div>
+                            <span className="text-[9.5px] font-bold text-[#b0bac6] tracking-[.06em]">REFERRAL</span>
+                        </div>
+                        <div>
+                            <p className="font-['Inter_Tight',sans-serif] text-[18px] font-extrabold text-[#0f172a] leading-none tracking-[-.02em]">{referralSymbol}{referralEarning.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+                            <p className="text-[10.5px] font-medium text-[#94a3b8] mt-[3px]">Earned</p>
+                        </div>
+                    </div>
+                </div>
+
+                {disputeCount > 0 && (
+                    <div onClick={onViewDisputes} className="flex items-center gap-3 bg-[#fff1f2] border border-[#fecdd3] rounded-[14px] p-[13px_16px] mb-3.5 cursor-pointer">
+                        <div className="w-9 h-9 rounded-[10px] bg-[#ffe4e6] flex items-center justify-center shrink-0">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#e11d48" strokeWidth={2.2}><path d="M12 3 5 6v5c0 4.2 2.8 7.7 7 9 4.2-1.3 7-4.8 7-9V6z"/></svg>
+                        </div>
+                        <div className="flex-1">
+                            <p className="text-[13px] font-extrabold text-[#e11d48]">{disputeCount} active dispute{disputeCount !== 1 ? 's' : ''}</p>
+                            <p className="text-[11px] text-[#f43f5e] font-medium mt-px">Tap to review — response needed</p>
+                        </div>
+                        <ChevronRight className="w-3.5 h-3.5 text-[#f43f5e]" />
+                    </div>
+                )}
+
+                <PendingActionsPanel actions={pendingActions} />
+            </div>
+
+            {/* My Transactions Panel — off-white bg, rounded top */}
+            <div className="bg-[#f8fafc] rounded-t-[40px] px-4 pt-7">
                 <div className="flex items-center justify-between mb-4 px-2">
                     <h3 className="text-slate-900 font-bold text-lg">My Transactions</h3>
                     <span className="font-bold text-sm cursor-pointer text-[#10b981]" onClick={onShowAll}>
@@ -226,127 +320,235 @@ export const BalanceHero = ({
     showBalance,
     onWithdraw,
     onCreate,
+    onToggleBalance,
 }: {
     balances: any[];
     showBalance: boolean;
     onWithdraw: () => void;
     onCreate: () => void;
+    onToggleBalance?: () => void;
 }) => {
     const primary = balances[0] || { currency: 'USD', amount: 0 };
     const symbol = CURRENCY_SYMBOLS[primary.currency] || '';
     const walletCount = balances.length;
+    const [whole, decimals] = primary.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).split('.');
 
     return (
-        <section className="bg-gradient-to-br from-[#0a2d1d] to-[#05140b] rounded-[28px] p-6 text-white shadow-2xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-56 h-56 bg-[#10b981]/10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
-            <div className="relative z-10">
-                <p className="text-white/50 text-xs font-semibold uppercase tracking-widest mb-1">Available Balance</p>
-                <p className="text-4xl font-bold tracking-tight leading-none mb-1">
-                    {showBalance ? (
-                        <><span className="text-white/40 text-2xl mr-1">{symbol}</span>{primary.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</>
-                    ) : (
-                        <span className="tracking-widest text-white/60">••••••</span>
-                    )}
-                </p>
-                <p className="text-white/40 text-xs mb-6">
-                    {walletCount} active wallet{walletCount !== 1 ? 's' : ''}
-                </p>
-                <div className="flex gap-3">
-                    <button
-                        onClick={onWithdraw}
-                        className="flex-1 flex items-center justify-center gap-2 bg-[#10b981] hover:bg-[#059669] active:scale-[0.97] text-white font-bold py-3 rounded-2xl transition-all shadow-lg shadow-emerald-900/30 text-sm"
-                    >
-                        <ArrowUpRight className="w-4 h-4" />
-                        Withdraw
-                    </button>
-                    <button
-                        onClick={onCreate}
-                        className="flex-1 flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 active:scale-[0.97] border border-white/20 text-white font-bold py-3 rounded-2xl transition-all text-sm backdrop-blur-sm"
-                    >
-                        <Plus className="w-4 h-4" />
-                        Create
-                    </button>
+        <section className="bg-[#0f172a] rounded-[20px] p-[34px_36px] min-h-[210px] flex flex-col justify-between relative overflow-hidden">
+            <div className="absolute -top-[100px] -right-[100px] w-[280px] h-[280px] rounded-full pointer-events-none" style={{ border: '1px solid rgba(255,255,255,0.04)' }} />
+            <div className="absolute -top-[56px] -right-[56px] w-[170px] h-[170px] rounded-full pointer-events-none" style={{ border: '1px solid rgba(255,255,255,0.04)' }} />
+            <div className="relative z-10 flex items-start justify-between mb-[18px]">
+                <div>
+                    <p className="text-xs font-medium text-white/[.35] mb-1.5">Available balance</p>
+                    <p className="font-['Inter_Tight',sans-serif] text-[52px] font-bold text-white leading-none tracking-[-.04em]">
+                        {showBalance ? (
+                            <>{symbol}{whole}<span className="text-[28px] text-white/[.28]">.{decimals}</span></>
+                        ) : (
+                            <span className="tracking-widest text-white/40">••••••</span>
+                        )}
+                    </p>
                 </div>
+                <div className="flex flex-col items-end gap-2 shrink-0">
+                    <button
+                        onClick={onToggleBalance}
+                        className="bg-white/[.07] border border-white/[.09] rounded-lg px-3.5 py-1.5 text-white/[.45] text-xs font-medium whitespace-nowrap"
+                    >
+                        {showBalance ? 'Hide balance' : 'Show balance'}
+                    </button>
+                    <div className="flex items-center gap-1.5">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
+                        <span className="text-[11.5px] text-white/30">{walletCount} wallet{walletCount !== 1 ? 's' : ''} active</span>
+                    </div>
+                </div>
+            </div>
+            <div className="flex gap-2.5 relative z-10 mt-2.5">
+                <button
+                    onClick={onWithdraw}
+                    className="flex items-center justify-center gap-[7px] bg-[#10b981] rounded-full px-[26px] py-[13px] text-white font-semibold text-sm shadow-[0_3px_14px_rgba(16,185,129,.28)] whitespace-nowrap"
+                >
+                    <ArrowUpRight className="w-3.5 h-3.5" />
+                    Withdraw funds
+                </button>
+                <button
+                    onClick={onCreate}
+                    className="flex items-center justify-center gap-[7px] bg-white/[.07] border border-white/10 rounded-full px-[26px] py-[13px] text-white/75 font-semibold text-sm whitespace-nowrap"
+                >
+                    <Plus className="w-3.5 h-3.5" />
+                    Create escrow
+                </button>
             </div>
         </section>
     );
 };
 
+export const TrustScoreCard = ({ trustScore, completedTrades }: { trustScore: number; completedTrades: number }) => {
+    const bounded = Math.max(0, Math.min(100, trustScore));
+    const display = Math.round(300 + (bounded / 100) * 600);
+    const pct = Math.round(((display - 300) / 600) * 100);
+    let badge = 'Excellent';
+    if (display < 500) badge = 'Poor';
+    else if (display < 650) badge = 'Fair';
+    else if (display < 750) badge = 'Good';
+
+    return (
+        <div className="bg-white rounded-2xl border border-[#e9eaec] p-[22px_24px] flex-1">
+            <div className="flex items-center justify-between mb-[14px]">
+                <p className="text-[13px] font-semibold text-[#0f172a]">Trust score</p>
+                <span className="inline-flex items-center gap-[3px] px-[9px] py-[3px] rounded-full text-[11px] font-semibold bg-[#f0fdf4] text-[#16a34a]">{badge}</span>
+            </div>
+            <div className="flex items-baseline gap-1.5 mb-3">
+                <p className="font-['Inter_Tight',sans-serif] text-[48px] font-bold text-[#0f172a] leading-none tracking-[-.04em]">{display}</p>
+                <span className="text-[13px] text-[#94a3b8]">/ 900</span>
+            </div>
+            <div className="h-1 bg-[#f1f5f9] rounded-full overflow-hidden mb-1.5">
+                <div className="h-full bg-[#10b981] rounded-full" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="flex justify-between">
+                <span className="text-[10.5px] text-[#94a3b8]">300</span>
+                <span className="text-[10.5px] text-[#94a3b8]">900</span>
+            </div>
+            <p className="text-[11px] text-[#94a3b8] mt-2.5">Based on {completedTrades} trade{completedTrades !== 1 ? 's' : ''} · updated real-time</p>
+        </div>
+    );
+};
+
+export const QuickStatsGrid = ({
+    totalVolume, volumeSymbol,
+    completedCount, totalCount,
+    disputeCount,
+    referralEarning, referralSymbol,
+}: {
+    totalVolume: number; volumeSymbol: string;
+    completedCount: number; totalCount: number;
+    disputeCount: number;
+    referralEarning: number; referralSymbol: string;
+}) => {
+    const completionRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+    const fmtVolume = totalVolume >= 1_000_000 ? `${(totalVolume / 1_000_000).toFixed(1)}M` : totalVolume >= 1_000 ? `${(totalVolume / 1_000).toFixed(1)}K` : totalVolume.toLocaleString(undefined, { maximumFractionDigits: 0 });
+
+    const cards = [
+        { label: 'Total volume', value: `${volumeSymbol}${fmtVolume}`, chip: null as string | null, chipClass: '', sub: null as string | null },
+        { label: 'Completed trades', value: String(completedCount), chip: `${totalCount} total`, chipClass: 'bg-[#eff6ff] text-[#2563eb]', sub: `${completionRate}% rate` },
+        { label: 'Active disputes', value: String(disputeCount), chip: disputeCount > 0 ? 'Needs action' : null, chipClass: 'bg-[#fff1f2] text-[#e11d48]', sub: null },
+        { label: 'Referral earnings', value: `${referralSymbol}${referralEarning.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, chip: null, chipClass: '', sub: null },
+    ];
+
+    return (
+        <div className="grid grid-cols-4 gap-[14px]">
+            {cards.map((c) => (
+                <div key={c.label} className="bg-white rounded-2xl border border-[#e9eaec] p-5">
+                    <p className="text-[11.5px] font-medium text-[#94a3b8] mb-2.5">{c.label}</p>
+                    <p className="font-['Inter_Tight',sans-serif] text-[28px] font-bold text-[#0f172a] tracking-[-.03em] mb-1.5">{c.value}</p>
+                    <div className="flex items-center gap-1.5">
+                        {c.chip && <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold ${c.chipClass}`}>{c.chip}</span>}
+                        {c.sub && <span className="text-[11px] text-[#94a3b8]">{c.sub}</span>}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+export interface PendingAction {
+    key: string;
+    title: string;
+    subtitle: string;
+    icon: React.ReactNode;
+    iconBg: string;
+    cardBorder?: string;
+    action: () => void;
+}
+
+export const PendingActionsPanel = ({ actions }: { actions: PendingAction[] }) => {
+    if (actions.length === 0) return null;
+    return (
+        <div className="mb-3.5">
+            <h3 className="font-['Inter_Tight',sans-serif] text-base font-extrabold text-[#0f172a] mb-2.5">Needs your attention</h3>
+            <div className="flex flex-col gap-2">
+                {actions.map((a) => (
+                    <div
+                        key={a.key}
+                        onClick={a.action}
+                        className={`flex items-center gap-[11px] bg-white rounded-[14px] p-[13px_14px] cursor-pointer border ${a.cardBorder || 'border-[#e9eaec]'}`}
+                    >
+                        <div className={`w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0 ${a.iconBg}`}>{a.icon}</div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-[13px] font-extrabold text-[#0f172a]">{a.title}</p>
+                            <p className="text-[11px] text-[#64748b] mt-0.5 font-normal truncate">{a.subtitle}</p>
+                        </div>
+                        <ChevronRight className="w-3.5 h-3.5 text-[#94a3b8] shrink-0" />
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+export const PORTFOLIO_STYLE: Record<string, { bg: string; border: string; sub: string; track: string; fill: string }> = {
+    NGN:  { bg: '#FEFDF5', border: '#FDE68A', sub: '#92400e', track: '#fde68a', fill: '#f59e0b' },
+    USDT: { bg: '#F0FAFC', border: '#A5F3FC', sub: '#0e7490', track: '#a5f3fc', fill: '#0891b2' },
+    USD:  { bg: '#F0FAF5', border: '#A7F3D0', sub: '#065f46', track: '#a7f3d0', fill: '#10b981' },
+    BTC:  { bg: '#FFF7ED', border: '#FED7AA', sub: '#9a3412', track: '#fed7aa', fill: '#ea580c' },
+    EUR:  { bg: '#EFF6FF', border: '#BFDBFE', sub: '#1e40af', track: '#bfdbfe', fill: '#2563eb' },
+};
+export const DEFAULT_PORTFOLIO_STYLE = { bg: '#F8FAFC', border: '#E2E8F0', sub: '#475569', track: '#e2e8f0', fill: '#64748b' };
+
 export const PortfolioSection = ({
     balances,
-    showBalance = true,
-    onToggleBalance,
     allTransactions = [],
 }: {
     balances: any[];
     showBalance?: boolean;
     onToggleBalance?: () => void;
     allTransactions?: any[];
-}) => (
-    <section>
-        <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-bold text-slate-800">Portfolio</h2>
-            <div className="flex items-center gap-2">
-                {onToggleBalance && (
-                    <button
-                        onClick={onToggleBalance}
-                        className="p-1.5 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors"
-                    >
-                        {showBalance ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                    </button>
-                )}
-                <span className="text-sm font-semibold text-primary">View All</span>
+}) => {
+    const maxAmount = Math.max(1, ...balances.map((b: any) => Number(b.amount) || 0));
+    return (
+        <div className="bg-white rounded-2xl border border-[#e9eaec] p-[26px]">
+            <div className="flex items-start justify-between mb-5">
+                <div>
+                    <h2 className="font-['Inter_Tight',sans-serif] text-base font-extrabold text-[#0f172a] tracking-[-.01em]">Portfolio</h2>
+                    <p className="text-xs text-[#94a3b8] mt-[3px]">{balances.length} active wallet{balances.length !== 1 ? 's' : ''}</p>
+                </div>
+                <span className="text-[12.5px] font-semibold text-[#10b981] cursor-pointer">View all</span>
             </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-            {balances.map((b: any, i: number) => {
-                const isLast = i === balances.length - 1 && balances.length % 2 !== 0;
-                const currencyTxns = allTransactions.filter((t: any) => t.currency === b.currency && t.status === 'FINALIZED');
-                const tradeCount = currencyTxns.length;
-                const totalVolume = currencyTxns.reduce((s: number, t: any) => s + Number(t.amount || 0), 0);
-                return (
-                    <div
-                        key={i}
-                        className={`bg-gradient-to-br from-[#1a1c1e] to-[#0a0a0b] rounded-2xl p-4 flex flex-col gap-3 relative overflow-hidden ${isLast ? 'col-span-2' : ''}`}
-                    >
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <div className={`w-8 h-8 rounded-full ${CURRENCY_COLORS[b.currency] || 'bg-slate-700'} flex items-center justify-center overflow-hidden`}>
-                                    <div className="w-5 h-5 flex items-center justify-center">
-                                        {CURRENCY_ICONS[b.currency] || <DollarSign className="w-4 h-4 text-white" />}
+            <div className="flex flex-col gap-2.5">
+                {balances.map((b: any, i: number) => {
+                    const style = PORTFOLIO_STYLE[b.currency] || DEFAULT_PORTFOLIO_STYLE;
+                    const currencyTxns = allTransactions.filter((t: any) => t.currency === b.currency && t.status === 'FINALIZED');
+                    const tradeCount = currencyTxns.length;
+                    const pct = Math.max(8, Math.round((Number(b.amount || 0) / maxAmount) * 100));
+                    return (
+                        <div key={i} className="p-4 rounded-[13px]" style={{ backgroundColor: style.bg, border: `1px solid ${style.border}` }}>
+                            <div className="flex items-center gap-[11px] mb-[11px]">
+                                <div className="w-9 h-9 rounded-full bg-white shrink-0 flex items-center justify-center overflow-hidden">
+                                    <div className="w-6 h-6 flex items-center justify-center">
+                                        {CURRENCY_ICONS[b.currency] || <DollarSign className="w-4 h-4 text-slate-700" />}
                                     </div>
                                 </div>
-                                <span className="text-white/70 text-xs font-bold uppercase">{b.currency}</span>
+                                <div className="flex-1">
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-[13px] font-bold text-[#0f172a]">{b.currency}</p>
+                                        <p className="font-['Inter_Tight',sans-serif] text-base font-bold text-[#0f172a] tracking-[-.02em]">
+                                            {CURRENCY_SYMBOLS[b.currency] || ''}{Number(b.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center justify-between mt-0.5">
+                                        <p className="text-[11px] font-normal" style={{ color: style.sub }}>{CURRENCY_NAMES[b.currency] || b.currency} · {tradeCount} trade{tradeCount !== 1 ? 's' : ''}</p>
+                                        <div className="w-[5px] h-[5px] rounded-full bg-[#10b981]" />
+                                    </div>
+                                </div>
                             </div>
-                            <div className="w-2 h-2 rounded-full bg-[#10b981]" />
-                        </div>
-                        <div>
-                            <p className="text-[10px] text-white/30 uppercase tracking-wider mb-0.5">{CURRENCY_NAMES[b.currency] || b.currency}</p>
-                            <p className="text-white font-bold text-lg leading-none">
-                                {showBalance ? (
-                                    <>{CURRENCY_SYMBOLS[b.currency] || ''}{b.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</>
-                                ) : (
-                                    <span className="tracking-widest text-white/50">••••</span>
-                                )}
-                            </p>
-                            <div className="flex items-center gap-1.5 mt-2">
-                                <TrendingUp className="w-3 h-3 text-[#10b981] shrink-0" />
-                                <span className="text-xs font-bold text-white/60">
-                                    {tradeCount} trade{tradeCount !== 1 ? 's' : ''}
-                                </span>
-                                {totalVolume > 0 && (
-                                    <span className="text-xs text-white/40 font-medium">
-                                        · {CURRENCY_SYMBOLS[b.currency] || ''}{totalVolume.toLocaleString(undefined, { maximumFractionDigits: 0 })} vol
-                                    </span>
-                                )}
+                            <div className="h-[3px] rounded-full" style={{ backgroundColor: style.track }}>
+                                <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: style.fill }} />
                             </div>
                         </div>
-                    </div>
-                );
-            })}
+                    );
+                })}
+            </div>
         </div>
-    </section>
-);
+    );
+};
 
 export const AccountsSection = ({ balances, showBalance = true }: { balances: any[], showBalance?: boolean }) => (
     <section>

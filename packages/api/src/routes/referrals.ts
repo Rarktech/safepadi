@@ -5,7 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import { Browser } from 'puppeteer';
 import { getBrowser } from '../services/puppeteer';
-import { generateReferralTemplate } from '../templates/referralTemplate';
+import { generateReferralTemplate, generateReferralQrTemplate } from '../templates/referralTemplate';
 
 // Read logo-mark.svg once at startup and embed as base64 data URL.
 const _logoPath = path.resolve(__dirname, '../../../frontend/public/logo-mark.svg');
@@ -242,6 +242,66 @@ router.get('/:safetag/card', async (req, res) => {
 
     } catch (err: any) {
         console.error('Failed to generate referral card:', err);
+        res.status(500).send('Internal Server Error');
+    }
+});
+
+// QR-only crop (380×380) for the web dashboard's QR modal — same branded QR styling as
+// the full /card banner, without the surrounding chrome that doesn't fit a modal.
+router.get('/:safetag/qr', async (req, res) => {
+    try {
+        const { safetag } = req.params;
+        const cleanSafetag = safetag.replace(/^@/, '');
+
+        const sKey = `referral_qr_${cleanSafetag}_v1.png`;
+        const { data: stored } = await supabase.storage.from('receipts').download(sKey);
+        if (stored) {
+            const buf = Buffer.from(await stored.arrayBuffer());
+            res.setHeader('Content-Type', 'image/png');
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            return res.send(buf);
+        }
+
+        const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
+        const referralLink = `${reviewsUrl}/@${cleanSafetag}`;
+
+        const htmlContent = generateReferralQrTemplate({
+            referralLink,
+            logoDataUrl: _logoDataUrl,
+        });
+
+        const browser = await getBrowser();
+        const page = await browser.newPage();
+        page.on('pageerror', (err) => console.error('[Referral QR] Page error:', err));
+        page.on('console', (msg) => {
+            if (msg.type() === 'error') console.error('[Referral QR] Console error:', msg.text());
+        });
+
+        try {
+            await page.setViewport({ width: 380, height: 380 });
+            await page.setContent(htmlContent, { waitUntil: 'networkidle2' as any, timeout: 50000 });
+            await new Promise(r => setTimeout(r, 1500));
+
+            const element = await page.$('.qr-wrap');
+            if (!element) {
+                throw new Error('Failed to find qr-wrap element in the template');
+            }
+
+            const screenshot = await element.screenshot({ type: 'png' }) as Buffer;
+            await page.close();
+
+            supabase.storage.from('receipts').upload(sKey, screenshot, { contentType: 'image/png', upsert: true })
+                .catch(e => console.error('[Referral QR] Storage upload error:', e));
+
+            res.setHeader('Content-Type', 'image/png');
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            res.send(screenshot);
+        } catch (err) {
+            await page.close().catch(() => {});
+            throw err;
+        }
+    } catch (err: any) {
+        console.error('Failed to generate referral QR:', err);
         res.status(500).send('Internal Server Error');
     }
 });

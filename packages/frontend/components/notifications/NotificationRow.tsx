@@ -17,28 +17,27 @@ interface NotificationRowProps {
   onMarkRead: (id: string) => void;
 }
 
+const TYPE_CONFIG: Record<string, { icon: React.ReactNode; bg: string; color: string; badge: React.ReactNode; badgeBg: string }> = {
+  payment:     { icon: <DollarSign size={16} />,   bg: '#f0fdf4', color: '#16a34a', badge: <CheckCircle2 size={8} strokeWidth={3} />, badgeBg: '#10b981' },
+  transaction: { icon: <Clock size={16} />,        bg: '#eff6ff', color: '#2563eb', badge: <Clock size={8} strokeWidth={3} />,        badgeBg: '#2563eb' },
+  withdrawal:  { icon: <ArrowUpRight size={16} />, bg: '#fffbeb', color: '#d97706', badge: <CheckCircle2 size={8} strokeWidth={3} />, badgeBg: '#f59e0b' },
+  dispute:     { icon: <AlertTriangle size={16} />,bg: '#fff1f2', color: '#e11d48', badge: <AlertTriangle size={8} strokeWidth={3} />,badgeBg: '#e11d48' },
+  review:      { icon: <Star size={16} />,         bg: '#fefce8', color: '#ca8a04', badge: <Star size={8} strokeWidth={3} />,         badgeBg: '#eab308' },
+  referral:    { icon: <Users size={16} />,        bg: '#fdf4ff', color: '#9333ea', badge: <DollarSign size={8} strokeWidth={3} />,   badgeBg: '#9333ea' },
+  kyc:         { icon: <ShieldCheck size={16} />,  bg: '#f0fdfa', color: '#0d9488', badge: <CheckCircle2 size={8} strokeWidth={3} />, badgeBg: '#0d9488' },
+  system:      { icon: <Bell size={16} />,         bg: '#f8fafc', color: '#475569', badge: <Bell size={8} strokeWidth={3} />,         badgeBg: '#64748b' },
+};
+
 function TypeIcon({ type, data }: { type: string; data?: Record<string, any> }) {
   const initial = data?.counterparty_name?.[0]?.toUpperCase();
-
-  const iconMap: Record<string, { icon: React.ReactNode; bg: string; badge: React.ReactNode; badgeBg: string }> = {
-    payment:    { icon: <DollarSign size={16} />,     bg: 'bg-emerald-100 text-emerald-700',  badge: <CheckCircle2 size={10} strokeWidth={3} />, badgeBg: 'bg-emerald-500 text-white' },
-    transaction:{ icon: <Clock size={16} />,           bg: 'bg-blue-100 text-blue-700',         badge: <Clock size={10} strokeWidth={3} />,         badgeBg: 'bg-blue-500 text-white' },
-    withdrawal: { icon: <ArrowUpRight size={16} />,    bg: 'bg-amber-100 text-amber-700',       badge: <CheckCircle2 size={10} strokeWidth={3} />, badgeBg: 'bg-amber-500 text-white' },
-    dispute:    { icon: <AlertTriangle size={16} />,   bg: 'bg-red-100 text-red-700',           badge: <AlertTriangle size={10} strokeWidth={3} />, badgeBg: 'bg-red-500 text-white' },
-    review:     { icon: <Star size={16} />,            bg: 'bg-yellow-100 text-yellow-700',     badge: <Star size={10} strokeWidth={3} />,          badgeBg: 'bg-yellow-400 text-white' },
-    referral:   { icon: <Users size={16} />,           bg: 'bg-purple-100 text-purple-700',     badge: <DollarSign size={10} strokeWidth={3} />,   badgeBg: 'bg-purple-500 text-white' },
-    kyc:        { icon: <ShieldCheck size={16} />,     bg: 'bg-teal-100 text-teal-700',         badge: <CheckCircle2 size={10} strokeWidth={3} />, badgeBg: 'bg-teal-500 text-white' },
-    system:     { icon: <Bell size={16} />,            bg: 'bg-slate-100 text-slate-700',       badge: <Bell size={10} strokeWidth={3} />,          badgeBg: 'bg-slate-400 text-white' },
-  };
-
-  const cfg = iconMap[type] ?? iconMap.system;
+  const cfg = TYPE_CONFIG[type] ?? TYPE_CONFIG.system;
 
   return (
     <div className="relative shrink-0">
-      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm ${cfg.bg}`}>
+      <div className="w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm" style={{ background: cfg.bg, color: cfg.color }}>
         {initial || cfg.icon}
       </div>
-      <div className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center ${cfg.badgeBg}`}>
+      <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center border-[1.5px] border-white text-white" style={{ background: cfg.badgeBg }}>
         {cfg.badge}
       </div>
     </div>
@@ -63,22 +62,22 @@ export function NotificationRow({ id, type, title, message, time, isUnread, data
   return (
     <button
       onClick={handleClick}
-      className={`w-full text-left flex items-start gap-3 px-4 py-3.5 transition-colors border-b border-slate-100 last:border-b-0 ${
-        isUnread ? 'bg-blue-50/50 hover:bg-blue-50/80' : 'bg-white hover:bg-slate-50'
+      className={`w-full text-left flex items-start gap-[13px] px-5 py-[15px] transition-colors border-b border-[#f3f4f6] last:border-b-0 ${
+        isUnread ? 'bg-[#f8faff] hover:bg-[#f0f6ff]' : 'bg-white hover:bg-[#fafbfc]'
       }`}
     >
       <TypeIcon type={type} data={data} />
 
       <div className="flex-1 min-w-0">
-        <p className={`text-sm leading-snug truncate ${isUnread ? 'font-semibold text-slate-900' : 'font-medium text-slate-700'}`}>
+        <p className={`text-[13px] leading-[1.4] ${isUnread ? 'font-bold text-[#0f172a]' : 'font-semibold text-[#334155]'}`}>
           {title}
         </p>
-        <p className="text-xs text-slate-500 mt-0.5 line-clamp-2 leading-snug">{message}</p>
-        <p className="text-xs text-slate-400 mt-1">{time}</p>
+        <p className="text-[11.5px] text-[#94a3b8] mt-[3px] line-clamp-2 leading-[1.5]">{message}</p>
+        <p className="text-[11px] text-[#b0bac6] mt-[5px]">{time}</p>
       </div>
 
       {isUnread && (
-        <div className="mt-1.5 shrink-0 w-2 h-2 rounded-full bg-blue-500" />
+        <div className="mt-[5px] shrink-0 w-2 h-2 rounded-full bg-[#2563eb]" />
       )}
     </button>
   );
