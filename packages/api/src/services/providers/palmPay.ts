@@ -82,16 +82,22 @@ function baseParams(): Record<string, unknown> {
 
 async function post(path: string, body: Record<string, unknown>): Promise<PalmPayResponse> {
     const signature = signRequest(body);
-    const res = await axios.post(`${BASE_URL()}${path}`, body, {
-        headers: {
-            'Content-Type': 'application/json;charset=UTF-8',
-            'appid': process.env.PALMPAY_APP_ID!,
-            'sign': signature,
-            'signType': 'RSA',
-        },
-        timeout: 30000,
-    });
-    return res.data as PalmPayResponse;
+    try {
+        const res = await axios.post(`${BASE_URL()}${path}`, body, {
+            headers: {
+                'Content-Type': 'application/json;charset=UTF-8',
+                'appid': process.env.PALMPAY_APP_ID!,
+                'sign': signature,
+                'signType': 'RSA',
+            },
+            timeout: 30000,
+        });
+        return res.data as PalmPayResponse;
+    } catch (err: any) {
+        // Axios throws a generic "Request failed with status code NNN" on non-2xx responses,
+        // discarding PalmPay's actual respMsg in the response body.
+        throw new Error(err.response?.data?.respMsg || err.response?.data?.message || err.message);
+    }
 }
 
 export async function verifyBankAccount(bankCode: string, accountNumber: string): Promise<VerifyResult> {

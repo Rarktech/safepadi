@@ -131,6 +131,10 @@ export default function WithdrawDashboard() {
     useEffect(() => {
         localStorage.setItem('safeeely_show_balance', String(showBalance));
     }, [showBalance]);
+    const [activeWalletIndex, setActiveWalletIndex] = useState(0);
+    useEffect(() => {
+        if (activeWalletIndex >= balances.length) setActiveWalletIndex(0);
+    }, [balances, activeWalletIndex]);
 
     const [isWithdrawSheetOpen, setIsWithdrawSheetOpen] = useState(false);
     const [preselectedCurrency, setPreselectedCurrency] = useState('USD');
@@ -348,6 +352,8 @@ export default function WithdrawDashboard() {
                                 <MobileDashboard
                                     balances={balances}
                                     showBalance={showBalance}
+                                    activeWalletIndex={activeWalletIndex}
+                                    onCycleWallet={setActiveWalletIndex}
                                     allTransactions={allTransactions}
                                     onWithdraw={() => setCurrentView('withdraw')}
                                     onCreate={() => setCurrentView('marketplace')}

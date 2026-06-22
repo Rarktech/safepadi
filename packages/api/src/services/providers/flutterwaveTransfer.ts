@@ -6,6 +6,12 @@ function headers() {
     return { Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}` };
 }
 
+// Axios throws a generic "Request failed with status code NNN" on non-2xx responses,
+// discarding Flutterwave's actual error message in the response body.
+function unwrapError(err: any): Error {
+    return new Error(err.response?.data?.message || err.message);
+}
+
 export interface VerifyResult {
     accountName: string;
     accountNumber: string;
@@ -37,11 +43,16 @@ export interface PayoutStatus {
 }
 
 export async function verifyBankAccount(bankCode: string, accountNumber: string): Promise<VerifyResult> {
-    const res = await axios.post(
-        `${FLW_BASE}/accounts/resolve`,
-        { account_number: accountNumber, account_bank: bankCode },
-        { headers: headers() }
-    );
+    let res;
+    try {
+        res = await axios.post(
+            `${FLW_BASE}/accounts/resolve`,
+            { account_number: accountNumber, account_bank: bankCode },
+            { headers: headers() }
+        );
+    } catch (err: any) {
+        throw unwrapError(err);
+    }
     if (res.data?.status !== 'success' || !res.data?.data?.account_name) {
         throw new Error(res.data?.message || 'Account not found');
     }
@@ -64,7 +75,12 @@ export async function initiatePayout(opts: PayoutOpts): Promise<PayoutResult> {
     };
     if (opts.callbackUrl) payload.callback_url = opts.callbackUrl;
 
-    const res = await axios.post(`${FLW_BASE}/transfers`, payload, { headers: headers() });
+    let res;
+    try {
+        res = await axios.post(`${FLW_BASE}/transfers`, payload, { headers: headers() });
+    } catch (err: any) {
+        throw unwrapError(err);
+    }
     const d = res.data?.data as { id?: number; status?: string; reference?: string; complete_message?: string } | undefined;
     const flwStatus = (d?.status ?? '').toUpperCase();
 
@@ -84,7 +100,12 @@ export async function initiatePayout(opts: PayoutOpts): Promise<PayoutResult> {
 }
 
 export async function queryPayoutStatus(transferId: string): Promise<PayoutStatus> {
-    const res = await axios.get(`${FLW_BASE}/transfers/${transferId}`, { headers: headers() });
+    let res;
+    try {
+        res = await axios.get(`${FLW_BASE}/transfers/${transferId}`, { headers: headers() });
+    } catch (err: any) {
+        throw unwrapError(err);
+    }
     const d = res.data?.data as { id?: number; status?: string; complete_message?: string } | undefined;
     const flwStatus = (d?.status ?? '').toUpperCase();
 
@@ -101,7 +122,12 @@ export async function queryPayoutStatus(transferId: string): Promise<PayoutStatu
 }
 
 export async function getBankList(): Promise<{ code: string; name: string }[]> {
-    const res = await axios.get(`${FLW_BASE}/banks/NG?per_page=150`, { headers: headers() });
+    let res;
+    try {
+        res = await axios.get(`${FLW_BASE}/banks/NG?per_page=150`, { headers: headers() });
+    } catch (err: any) {
+        throw unwrapError(err);
+    }
     return (res.data?.data ?? []).map((b: { code: string; name: string }) => ({ code: b.code, name: b.name }));
 }
 

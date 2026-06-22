@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { DollarSign, Bitcoin, Euro, ArrowRightLeft, Activity, Wallet, ArrowUpRight, ArrowDownCircle, ArrowDownLeft, Plus, Eye, EyeOff, TrendingUp, ChevronRight } from 'lucide-react';
+import { DollarSign, Bitcoin, Euro, ArrowRightLeft, Activity, Wallet, ArrowUpRight, ArrowDownCircle, ArrowDownLeft, Plus, Eye, EyeOff, ChevronRight } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -34,12 +34,12 @@ export const CURRENCY_SYMBOLS: Record<string, string> = {
     USD: '$', EUR: '€', NGN: '₦', BTC: '₿', USDT: '₮'
 };
 
-const PORTFOLIO_CARD_BG: Record<string, string> = {
-    USD: '#D5F5E3',
-    NGN: '#FEF9C3',
-    BTC: '#FFE8CC',
-    USDT: '#CCF0F8',
-    EUR: '#E8EAF6',
+const WALLET_CHIP_BG: Record<string, string> = {
+    NGN: 'rgb(16,185,129)',
+    USDT: 'rgb(0,0,0)',
+    USD: 'rgb(64,111,173)',
+    BTC: 'rgb(247,147,26)',
+    EUR: 'rgb(99,102,241)',
 };
 
 const Sparkline = ({ positive = true }: { positive?: boolean }) => (
@@ -58,6 +58,8 @@ const Sparkline = ({ positive = true }: { positive?: boolean }) => (
 export const MobileDashboard = ({
     balances,
     showBalance,
+    activeWalletIndex,
+    onCycleWallet,
     allTransactions,
     onWithdraw,
     onCreate,
@@ -77,6 +79,8 @@ export const MobileDashboard = ({
 }: {
     balances: any[];
     showBalance: boolean;
+    activeWalletIndex: number;
+    onCycleWallet: (i: number) => void;
     allTransactions: any[];
     onWithdraw: () => void;
     onCreate: () => void;
@@ -97,100 +101,122 @@ export const MobileDashboard = ({
     const boundedTrust = Math.max(0, Math.min(100, trustScore));
     const trustLabel = boundedTrust >= 80 ? 'Excellent' : boundedTrust >= 60 ? 'Good' : boundedTrust >= 40 ? 'Fair' : 'Poor';
     const fmtVolume = totalVolume >= 1_000_000 ? `${(totalVolume / 1_000_000).toFixed(1)}M` : totalVolume >= 1_000 ? `${(totalVolume / 1_000).toFixed(1)}K` : totalVolume.toLocaleString(undefined, { maximumFractionDigits: 0 });
-    const primary = balances[0] || { currency: 'USD', amount: 0 };
+    const primary = balances[activeWalletIndex] || balances[0] || { currency: 'USD', amount: 0 };
     const symbol = CURRENCY_SYMBOLS[primary.currency] || '$';
+    // Stacking position: active wallet sits frontmost (highest index); others keep their
+    // original relative order behind it, mirroring the wallet-card design's flat stack.
+    const getStackPos = (i: number) => {
+        if (i === activeWalletIndex) return balances.length - 1;
+        const others = balances.map((_, idx) => idx).filter((idx) => idx !== activeWalletIndex);
+        return others.indexOf(i);
+    };
 
     return (
         <div className="min-h-screen pb-32" style={{ backgroundColor: '#F4F7F6' }}>
-            {/* Balance Hero */}
-            <div className="px-6 pt-2 pb-10">
-                <div className="text-center mb-7">
-                    <p className="text-[11px] font-semibold text-slate-500 mb-3 uppercase tracking-widest">Available Balance</p>
-                    <p className="font-bold text-slate-900 tracking-tight leading-none" style={{ fontSize: '44px' }}>
-                        {showBalance
-                            ? <>{symbol}{primary.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</>
-                            : <span className="text-slate-300">••••••</span>}
-                    </p>
-                    <p className="text-sm text-slate-400 mt-2 font-medium">
-                        {balances.length} active wallet{balances.length !== 1 ? 's' : ''}
-                    </p>
-                </div>
-                <div className="flex gap-3">
-                    <button
-                        onClick={onWithdraw}
-                        className="flex-1 flex items-center justify-center gap-2 font-bold py-[14px] rounded-full text-sm active:scale-[0.97] transition-all shadow-md bg-[#10b981] text-white"
-                    >
-                        <ArrowDownCircle className="w-5 h-5" />
-                        Withdraw
-                    </button>
-                    <button
-                        onClick={onCreate}
-                        className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 text-black font-bold py-[14px] rounded-full text-sm active:scale-[0.97] transition-all shadow-sm"
-                    >
-                        <Plus className="w-5 h-5" />
-                        Create
-                    </button>
+            {/* Wallet card — stacked currency chips + active-card balance */}
+            <div className="px-[18px] pt-4">
+                <div className="relative" style={{ height: 300, isolation: 'isolate' }}>
+                    {/* Stacked chips, one per currency */}
+                    <div className="absolute" style={{ top: 0, left: '5%', right: '5%', height: 148, zIndex: 5 }}>
+                        {balances.map((b: any, i: number) => {
+                            const pos = getStackPos(i);
+                            const isActive = pos === balances.length - 1;
+                            return (
+                                <div
+                                    key={b.currency}
+                                    onClick={() => onCycleWallet(i)}
+                                    className="absolute left-0 right-0 flex items-center justify-between rounded-[14px] px-3"
+                                    style={{
+                                        top: pos * 28,
+                                        height: 52,
+                                        background: WALLET_CHIP_BG[b.currency] || '#475569',
+                                        zIndex: 10 + pos * 10,
+                                        transition: 'top 0.4s cubic-bezier(.16,1,.3,1)',
+                                        cursor: isActive ? 'default' : 'pointer',
+                                    }}
+                                >
+                                    <div className="flex items-center gap-2 bg-white/15 rounded-full pl-[5px] pr-3 py-[5px] shrink-0">
+                                        <div className="w-[26px] h-[26px] rounded-full overflow-hidden border-[1.5px] border-white/30 flex items-center justify-center bg-white/10 shrink-0">
+                                            {CURRENCY_ICONS[b.currency] || <DollarSign className="w-3.5 h-3.5 text-white" />}
+                                        </div>
+                                        <span className="text-white text-[13px] font-bold whitespace-nowrap">{CURRENCY_NAMES[b.currency] || b.currency}</span>
+                                    </div>
+                                    <p className="text-white text-[13.5px] font-extrabold tracking-tight shrink-0">
+                                        {showBalance
+                                            ? `${CURRENCY_SYMBOLS[b.currency] || ''}${Number(b.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                            : '••••'}
+                                    </p>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* Wallet body illustration */}
+                    <img
+                        src="/assets/images/wallet-card.webp"
+                        alt=""
+                        className="absolute left-0 w-full pointer-events-none select-none"
+                        style={{ top: 14, zIndex: 10 }}
+                    />
+
+                    {/* Balance + actions, centered over the wallet body */}
+                    <div className="absolute flex flex-col gap-2.5" style={{ top: 130, left: '9%', right: '9%', zIndex: 15 }}>
+                        <div className="flex items-center justify-center relative">
+                            <p
+                                className="font-black text-white text-[28px] tracking-tight text-center leading-none"
+                                style={{ textShadow: '0 1px 4px rgba(0,0,0,.2)' }}
+                            >
+                                {showBalance
+                                    ? `${symbol}${Number(primary.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                    : '••••••'}
+                            </p>
+                            <button
+                                onClick={onToggleBalance}
+                                className="absolute right-0 w-[26px] h-[26px] rounded-full bg-white/20 flex items-center justify-center"
+                            >
+                                {showBalance ? <Eye className="w-[11px] h-[11px] text-white" /> : <EyeOff className="w-[11px] h-[11px] text-white" />}
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-[1fr_36px_1fr] gap-[7px] items-center mt-1">
+                            <button
+                                onClick={onWithdraw}
+                                className="flex items-center justify-center gap-[5px] bg-white/20 border border-white/30 rounded-full py-[10px] text-white font-bold text-[11.5px] active:scale-[0.97] transition-all"
+                            >
+                                <ArrowDownCircle className="w-[14px] h-[14px]" />
+                                Withdraw
+                            </button>
+                            <button
+                                onClick={() => balances.length > 0 && onCycleWallet((activeWalletIndex + 1) % balances.length)}
+                                className="w-9 h-9 rounded-full bg-white/20 border border-white/30 flex items-center justify-center active:scale-[0.92] transition-all"
+                            >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2}>
+                                    <polyline points="17 1 21 5 17 9" />
+                                    <path d="M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4" />
+                                    <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+                                </svg>
+                            </button>
+                            <button
+                                onClick={onCreate}
+                                className="flex items-center justify-center gap-[5px] bg-white/90 rounded-full py-[10px] text-[#0f5132] font-extrabold text-[11.5px] active:scale-[0.97] transition-all"
+                            >
+                                Create
+                                <Plus className="w-[14px] h-[14px]" />
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            {/* Portfolio Panel — black, rounded top, bleeds to screen edge */}
-            <div className="bg-black rounded-t-[40px] px-6 pt-7 pb-12">
-                <div className="flex items-center justify-between mb-5">
-                    <h3 className="text-white font-bold text-lg">Portfolio</h3>
-                    <div className="flex items-center gap-3">
-                        <button
-                            onClick={onToggleBalance}
-                            className="p-1.5 rounded-full bg-white/10 text-white/70 hover:bg-white/20 transition-colors"
-                        >
-                            {showBalance ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                        </button>
-                        <span className="font-bold text-sm text-[#10b981]">View All</span>
-                    </div>
+            {/* Activity — dark transition header bleeding to screen edge */}
+            <div className="bg-[#0f172a] rounded-t-[40px] mt-9 px-6 py-[22px] flex items-center justify-between">
+                <div>
+                    <h3 className="text-white font-extrabold text-base">Activity</h3>
+                    <p className="text-white/35 text-[11px] mt-0.5">
+                        {completedCount} trade{completedCount !== 1 ? 's' : ''} completed · {disputeCount + pendingActions.length} active
+                    </p>
                 </div>
-                <div className="flex gap-4 overflow-x-auto pb-2 -mx-6 px-6 hide-scrollbar">
-                    {balances.map((b: any, i: number) => {
-                        const currencyTxns = allTransactions.filter(t => t.currency === b.currency && t.status === 'FINALIZED');
-                        const tradeCount = currencyTxns.length;
-                        const totalVolume = currencyTxns.reduce((s: number, t: any) => s + Number(t.amount || 0), 0);
-                        return (
-                            <div
-                                key={i}
-                                className="min-w-[158px] rounded-[24px] p-5 flex flex-col justify-between shrink-0"
-                                style={{ backgroundColor: PORTFOLIO_CARD_BG[b.currency] || '#E8ECEF', minHeight: '170px' }}
-                            >
-                                <div className="flex items-center gap-2.5">
-                                    <div className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden shadow-sm bg-white/70">
-                                        <div className="w-6 h-6 flex items-center justify-center">
-                                            {CURRENCY_ICONS[b.currency] || <DollarSign className="w-4 h-4 text-slate-700" />}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <p className="font-bold text-slate-900 text-sm leading-none">{b.currency}</p>
-                                        <p className="text-[10px] text-slate-500 mt-0.5">{CURRENCY_NAMES[b.currency] || b.currency}</p>
-                                    </div>
-                                </div>
-                                <div className="mt-4">
-                                    <p className="font-bold text-slate-900 text-[22px] leading-none">
-                                        {showBalance
-                                            ? `${CURRENCY_SYMBOLS[b.currency] || ''}${b.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`
-                                            : '••••'}
-                                    </p>
-                                    <div className="flex items-center gap-1.5 mt-2">
-                                        <TrendingUp className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                        <span className="text-xs font-bold text-slate-700">
-                                            {tradeCount} trade{tradeCount !== 1 ? 's' : ''}
-                                        </span>
-                                        {totalVolume > 0 && (
-                                            <span className="text-xs text-slate-500 font-medium">
-                                                · {CURRENCY_SYMBOLS[b.currency] || ''}{totalVolume.toLocaleString(undefined, { maximumFractionDigits: 0 })} vol
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
+                <span onClick={onShowAll} className="text-[#10b981] text-[12.5px] font-bold cursor-pointer">View all</span>
             </div>
 
             {/* At a glance — overlaps portfolio panel */}
