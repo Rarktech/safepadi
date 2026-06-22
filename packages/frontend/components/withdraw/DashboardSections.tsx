@@ -114,10 +114,20 @@ export const MobileDashboard = ({
     return (
         <div className="min-h-screen pb-32" style={{ backgroundColor: '#F4F7F6' }}>
             {/* Wallet card — stacked currency chips + active-card balance */}
-            <div className="px-[18px] pt-4">
-                <div className="relative" style={{ height: 300, isolation: 'isolate' }}>
+            <div className="px-[18px] pt-6">
+                <div className="relative" style={{ height: balances.length === 1 ? 250 : 300, isolation: 'isolate' }}>
                     {/* Stacked chips, one per currency */}
-                    <div className="absolute" style={{ top: 0, left: '5%', right: '5%', height: 148, zIndex: 5 }}>
+                    <div
+                        className="absolute"
+                        style={{
+                            top: -15,
+                            left: '5%',
+                            right: '5%',
+                            height: 148,
+                            zIndex: 5,
+                            ...(balances.length === 1 ? { paddingTop: '25%' } : {}),
+                        }}
+                    >
                         {balances.map((b: any, i: number) => {
                             const pos = getStackPos(i);
                             const isActive = pos === balances.length - 1;
@@ -128,7 +138,7 @@ export const MobileDashboard = ({
                                     className="absolute left-0 right-0 flex items-center justify-between rounded-[14px] px-3"
                                     style={{
                                         top: pos * 28,
-                                        height: 52,
+                                        height: 70,
                                         background: WALLET_CHIP_BG[b.currency] || '#475569',
                                         zIndex: 10 + pos * 10,
                                         transition: 'top 0.4s cubic-bezier(.16,1,.3,1)',
