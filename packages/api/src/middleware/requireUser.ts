@@ -80,10 +80,12 @@ export async function requireUser(req: Request, res: Response, next: NextFunctio
             elev_exp: decoded.elev_exp || null,
         };
 
-        // Update last_used_at asynchronously (fire-and-forget)
-        void supabase.from('user_sessions')
+        // Update last_used_at (fire-and-forget, but must be awaited or .then()'d —
+        // postgrest-js builders are lazy thenables and never send the request otherwise)
+        supabase.from('user_sessions')
             .update({ last_used_at: new Date().toISOString() })
-            .eq('jti', decoded.jti);
+            .eq('jti', decoded.jti)
+            .then(() => {});
 
         next();
     } catch (err) {

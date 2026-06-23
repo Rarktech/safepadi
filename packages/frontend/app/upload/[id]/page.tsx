@@ -163,7 +163,7 @@ export default function SecureUploadPage() {
         <div className="min-h-screen bg-[#F7F7F5] flex flex-col font-sans">
             {/* Header */}
             <header className="bg-white border-b border-[#e9eaec] px-6 h-[60px] flex items-center justify-between sticky top-0 z-50">
-                <img src="/assets/logo-main.svg" alt="Safeeely" className="h-[22px]" />
+                <img src="/logo-main.svg" alt="Safeeely" className="h-[22px]" />
 
                 <div className="hidden sm:flex items-center gap-1.5">
                     <StepPill number={1} label="Info" active={step === 1} completed={step > 1} />

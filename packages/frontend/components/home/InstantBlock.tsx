@@ -76,10 +76,10 @@ export function InstantBlock() {
           If your device is stolen or compromised, freeze your Safeeely account from any device in seconds — pausing all activity and protecting your funds.
         </p>
         <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-          <a href="#" style={{ background: "#0f172a", color: "#fff", textDecoration: "none", borderRadius: "999px", padding: "13px 26px", fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: "14px", whiteSpace: "nowrap", boxShadow: "0 10px 24px rgba(15,23,42,.18)", cursor: "pointer", display: "inline-block" }}>
+          <a href="/account/block?mode=deactivate" style={{ background: "#0f172a", color: "#fff", textDecoration: "none", borderRadius: "999px", padding: "13px 26px", fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: "14px", whiteSpace: "nowrap", boxShadow: "0 10px 24px rgba(15,23,42,.18)", cursor: "pointer", display: "inline-block" }}>
             Block Account Now
           </a>
-          <a href="#" style={{ background: "rgba(255,255,255,0.8)", color: "#0f172a", textDecoration: "none", borderRadius: "999px", padding: "12px 24px", fontFamily: "'Inter', sans-serif", fontWeight: 500, fontSize: "14px", whiteSpace: "nowrap", cursor: "pointer", display: "inline-block", border: "1.5px solid rgba(0,0,0,0.08)" }}>
+          <a href="/account/block?mode=activate" style={{ background: "rgba(255,255,255,0.8)", color: "#0f172a", textDecoration: "none", borderRadius: "999px", padding: "12px 24px", fontFamily: "'Inter', sans-serif", fontWeight: 500, fontSize: "14px", whiteSpace: "nowrap", cursor: "pointer", display: "inline-block", border: "1.5px solid rgba(0,0,0,0.08)" }}>
             Unblock Account
           </a>
         </div>

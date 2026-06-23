@@ -214,7 +214,7 @@ router.post('/otp/verify', async (req, res) => {
         }, process.env.JWT_SECRET!, { algorithm: 'HS256', noTimestamp: true });
 
         const expiresAt = new Date(exp * 1000).toISOString();
-        void supabase.from('user_sessions').insert({
+        await supabase.from('user_sessions').insert({
             profile_id: profile.id, jti, platform, platform_id, expires_at: expiresAt
         });
 
@@ -549,7 +549,7 @@ router.post('/account-otp/verify', async (req, res) => {
                 exp,
             }, process.env.JWT_SECRET!, { algorithm: 'HS256', noTimestamp: true });
 
-            void supabase.from('user_sessions').insert({
+            await supabase.from('user_sessions').insert({
                 profile_id: profile.id, jti, platform: 'web', platform_id: profile.id, expires_at: new Date(exp * 1000).toISOString()
             });
 

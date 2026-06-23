@@ -140,11 +140,8 @@ export function AppSidebar({ currentView: propCurrentView, setCurrentView: propS
       <SidebarHeader className="!bg-transparent border-none border-b border-[#f1f5f9] px-[18px] pt-[22px] pb-[18px]">
         <SidebarMenu>
           <SidebarMenuItem>
-            <div className="flex items-center gap-[9px] cursor-pointer" onClick={() => setCurrentView("dashboard")}>
-              <div className="w-7 h-7 rounded-[7px] bg-[#0f172a] flex items-center justify-center shrink-0">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth={2.5}><path d="M12 3 5 6v5c0 4.2 2.8 7.7 7 9 4.2-1.3 7-4.8 7-9V6z"/></svg>
-              </div>
-              <span className="font-['Inter_Tight',sans-serif] text-[17px] font-black text-[#0f172a] tracking-[-.03em]">Safeeely</span>
+            <div className="flex items-center cursor-pointer" onClick={() => setCurrentView("dashboard")}>
+              <img src="/logo-main.svg" alt="Safeeely" className="h-6 w-auto" />
             </div>
           </SidebarMenuItem>
         </SidebarMenu>

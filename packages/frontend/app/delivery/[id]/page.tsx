@@ -189,7 +189,7 @@ export default function DeliveryPortalPage() {
         <div className="min-h-screen bg-[#F7F7F5] flex flex-col font-sans">
             <nav className="bg-white border-b border-[#e9eaec] px-6 h-[60px] flex items-center justify-between sticky top-0 z-50">
                 <div className="flex items-center gap-2.5">
-                    <img src="/assets/logo-main.svg" alt="Safeeely" className="h-5" />
+                    <img src="/logo-main.svg" alt="Safeeely" className="h-5" />
                     <div className="w-px h-4 bg-[#e2e8f0]" />
                     <span className="text-[11.5px] font-semibold text-[#94a3b8]">Delivery Portal</span>
                 </div>

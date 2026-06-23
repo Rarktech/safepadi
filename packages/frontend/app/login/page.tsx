@@ -120,12 +120,7 @@ function LoginContent() {
 
             <div className="relative z-10 flex flex-col items-center pt-11 px-[22px] pb-[60px] max-w-[480px] mx-auto">
                 <Link href="/" className="block no-underline">
-                    <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-[8px] bg-[#0f172a] flex items-center justify-center">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth={2.5}><path d="M12 3 5 6v5c0 4.2 2.8 7.7 7 9 4.2-1.3 7-4.8 7-9V6z" /></svg>
-                        </div>
-                        <span className="font-['Inter_Tight',sans-serif] text-[20px] font-black text-[#0f172a] tracking-[-.03em]">Safeeely</span>
-                    </div>
+                    <img src="/logo-main.svg" alt="Safeeely" className="h-7 w-auto" />
                 </Link>
 
                 <div className="inline-flex items-center gap-[7px] mt-4 px-[13px] py-[6px] bg-[#f0fdf4] border border-[#d1fae5] rounded-full">
