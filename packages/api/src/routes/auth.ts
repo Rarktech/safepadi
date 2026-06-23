@@ -395,6 +395,221 @@ router.post('/email-otp/verify', async (req, res) => {
     }
 });
 
+function maskEmail(email: string): string {
+    const [user, domain] = email.split('@');
+    const maskPart = (s: string) => s.length <= 2 ? `${s[0]}*` : `${s[0]}${'*'.repeat(s.length - 2)}${s[s.length - 1]}`;
+    const [domainName, ...domainRest] = domain.split('.');
+    return `${maskPart(user)}@${maskPart(domainName)}.${domainRest.join('.')}`;
+}
+
+const SendAccountOtpSchema = z.object({
+    email: z.string().email().optional(),
+    safetag: z.string().optional(),
+    purpose: z.enum(['web_login', 'block_account', 'unblock_account']),
+}).refine(d => !!d.email || !!d.safetag, { message: 'email or safetag is required' });
+
+const VerifyAccountOtpSchema = z.object({
+    email: z.string().email().optional(),
+    request_id: z.string().uuid().optional(),
+    code: z.string().length(6),
+    purpose: z.enum(['web_login', 'block_account', 'unblock_account']),
+}).refine(d => !!d.email || !!d.request_id, { message: 'email or request_id is required' });
+
+async function resolveProfileByEmailOrSafetag(email?: string, safetag?: string) {
+    if (email) {
+        const { data } = await supabase.from('profiles').select('id, email, safetag, is_blocked').eq('email', email.toLowerCase()).maybeSingle();
+        return data;
+    }
+    const cleanTag = safetag!.startsWith('@') ? safetag! : `@${safetag}`;
+    const { data } = await supabase.from('profiles').select('id, email, safetag, is_blocked').ilike('safetag', cleanTag).maybeSingle();
+    return data;
+}
+
+/**
+ * POST /api/auth/account-otp/send
+ * Sends a 6-digit email code to verify profile ownership, for either web login
+ * or the self-service account block/unblock flow. Resolves by email or safetag
+ * (safetag is public, so the response only ever reveals a masked email).
+ */
+router.post('/account-otp/send', async (req, res) => {
+    try {
+        const data = SendAccountOtpSchema.parse(req.body);
+        const profile = await resolveProfileByEmailOrSafetag(data.email, data.safetag);
+        if (!profile) return res.status(404).json({ error: 'No account found' });
+
+        if (isRateLimited(`${data.purpose}:${profile.email}`)) {
+            return res.status(429).json({ error: 'Too many requests. Please wait 15 minutes before trying again.' });
+        }
+
+        if (data.purpose === 'block_account' && profile.is_blocked) {
+            return res.status(400).json({ error: 'Account is already blocked' });
+        }
+        if (data.purpose === 'unblock_account' && !profile.is_blocked) {
+            return res.status(400).json({ error: 'Account is not blocked' });
+        }
+
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+        await supabase.from('profile_action_otps').delete().eq('profile_id', profile.id).eq('purpose', data.purpose);
+        const { data: otpRow, error: insertErr } = await supabase.from('profile_action_otps').insert({
+            profile_id: profile.id, code, purpose: data.purpose, expires_at: expiresAt
+        }).select('id').single();
+        if (insertErr) throw insertErr;
+
+        const COPY: Record<string, { subject: string; heading: string; body: string }> = {
+            web_login: { subject: 'is your Safeeely sign-in code', heading: 'Sign in to Safeeely', body: 'Use the code below to sign in to your Safeeely account.' },
+            block_account: { subject: 'is your Safeeely account block code', heading: 'Confirm blocking your account', body: 'Use the code below to confirm you want to block your Safeeely account.' },
+            unblock_account: { subject: 'is your Safeeely account reactivation code', heading: 'Confirm reactivating your account', body: 'Use the code below to confirm you want to reactivate your Safeeely account.' },
+        };
+        const copy = COPY[data.purpose];
+
+        const emailHtml = `
+            <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 8px; text-align: center;">
+                <h2 style="color: #0f172a;">${copy.heading}</h2>
+                <p style="color: #475569; line-height: 1.5;">${copy.body}</p>
+                <div style="font-size: 32px; font-weight: bold; letter-spacing: 8px; padding: 20px; margin: 30px 0; background: #f8fafc; border-radius: 8px; color: #0284c7;">
+                    ${code}
+                </div>
+                <p style="color: #475569; line-height: 1.5;">This code will expire in 10 minutes.</p>
+                <p style="font-size: 13px; color: #94a3b8; margin-top: 40px;">If you did not request this, you can safely ignore this email.</p>
+            </div>
+        `;
+
+        sendEmail({ to: profile.email, subject: `${code} ${copy.subject}`, html: emailHtml }).catch(() => {});
+
+        res.json({ success: true, masked_email: maskEmail(profile.email), request_id: otpRow.id });
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+/**
+ * POST /api/auth/account-otp/verify
+ * Verifies the code from /account-otp/send and performs the requested action:
+ * web_login mints a session, block_account/unblock_account flips profiles.is_blocked
+ * and notifies the user (mirrors the admin block/unblock messaging in admin.ts).
+ */
+router.post('/account-otp/verify', async (req, res) => {
+    try {
+        const { email, request_id, code, purpose } = VerifyAccountOtpSchema.parse(req.body);
+
+        const PROFILE_SELECT = 'id, safetag, first_name, last_name, email, kyc_status, is_blocked, primary_platform, linked_accounts(platform, platform_id)';
+        let profile: any = null;
+        let otpRow: { id: string; expires_at: string } | null = null;
+
+        if (request_id) {
+            const { data: row } = await supabase
+                .from('profile_action_otps')
+                .select('id, profile_id, expires_at')
+                .eq('id', request_id)
+                .eq('purpose', purpose)
+                .eq('code', code)
+                .maybeSingle();
+            if (row) {
+                otpRow = row;
+                const { data } = await supabase.from('profiles').select(PROFILE_SELECT).eq('id', row.profile_id).maybeSingle();
+                profile = data;
+            }
+        } else {
+            const { data } = await supabase.from('profiles').select(PROFILE_SELECT).eq('email', email!.toLowerCase()).maybeSingle();
+            profile = data;
+            if (profile) {
+                const { data: row } = await supabase
+                    .from('profile_action_otps')
+                    .select('id, expires_at')
+                    .eq('profile_id', profile.id)
+                    .eq('purpose', purpose)
+                    .eq('code', code)
+                    .maybeSingle();
+                otpRow = row;
+            }
+        }
+
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+        if (!otpRow || new Date(otpRow.expires_at) < new Date()) {
+            return res.status(400).json({ error: 'Invalid or expired code' });
+        }
+        await supabase.from('profile_action_otps').delete().eq('id', otpRow.id);
+
+        if (purpose === 'web_login') {
+            const jti = crypto.randomUUID();
+            const now = Math.floor(Date.now() / 1000);
+            const exp = now + 30 * 60;
+            const sessionToken = jwt.sign({
+                sub: profile.id,
+                safetag: profile.safetag,
+                platform: 'web',
+                platform_id: profile.id,
+                jti,
+                typ: 'user',
+                elevated_scopes: [],
+                elev_exp: null,
+                iat: now,
+                exp,
+            }, process.env.JWT_SECRET!, { algorithm: 'HS256', noTimestamp: true });
+
+            void supabase.from('user_sessions').insert({
+                profile_id: profile.id, jti, platform: 'web', platform_id: profile.id, expires_at: new Date(exp * 1000).toISOString()
+            });
+
+            (res as any).cookie('sf_session', sessionToken, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'lax',
+                path: '/',
+                maxAge: 30 * 60 * 1000,
+            });
+
+            const { linked_accounts, ...profileOut } = profile as any;
+            return res.json({ success: true, profile: profileOut });
+        }
+
+        // block_account / unblock_account
+        const newBlocked = purpose === 'block_account';
+        await supabase.from('profiles').update({ is_blocked: newBlocked }).eq('id', profile.id);
+
+        const safetag = profile.safetag;
+        const linkedAccounts: any[] = (profile as any).linked_accounts || [];
+        const primaryLinked = linkedAccounts.find((l: any) => l.platform === profile.primary_platform) || linkedAccounts[0];
+
+        if (newBlocked) {
+            const dmMessage = `🚫 <b>Your Safeeely Account Has Been Blocked</b>\n\nYou've blocked your own account <b>@${safetag}</b>. No one can sign in or transact on it until you reactivate it.\n\nChanged your mind? Visit the Account Block page and switch to "Unblock account" any time.`;
+            const emailHtml = `
+                <div style="font-family:sans-serif;max-width:520px;margin:auto;padding:32px;background:#fff;border-radius:16px;border:1px solid #e2e8f0">
+                    <div style="background:#fef2f2;border-radius:12px;padding:20px 24px;margin-bottom:24px;text-align:center">
+                        <span style="font-size:36px">🚫</span>
+                        <h2 style="color:#dc2626;margin:8px 0 0">Account Blocked</h2>
+                    </div>
+                    <p style="color:#374151;font-size:15px">Hi <b>@${safetag}</b>,</p>
+                    <p style="color:#374151;font-size:15px">You've blocked your own Safeeely account. No one can sign in or transact on it until you reactivate it.</p>
+                    <p style="color:#374151;font-size:15px">You can reactivate it any time from the Account Block page using this same email.</p>
+                </div>
+            `;
+            if (primaryLinked?.platform_id) await sendNotification(primaryLinked.platform, primaryLinked.platform_id, dmMessage);
+            sendEmail({ to: profile.email, subject: '🚫 Your Safeeely Account Has Been Blocked', html: emailHtml }).catch(() => {});
+        } else {
+            const dmMessage = `✅ <b>Your Safeeely Account Has Been Reactivated</b>\n\nWelcome back, @${safetag}! Your account is fully active again — all trades, messages and funds remain exactly as they were.`;
+            const emailHtml = `
+                <div style="font-family:sans-serif;max-width:520px;margin:auto;padding:32px;background:#fff;border-radius:16px;border:1px solid #e2e8f0">
+                    <div style="background:#f0fdf4;border-radius:12px;padding:20px 24px;margin-bottom:24px;text-align:center">
+                        <span style="font-size:36px">✅</span>
+                        <h2 style="color:#059669;margin:8px 0 0">Account Reactivated</h2>
+                    </div>
+                    <p style="color:#374151;font-size:15px">Hi <b>@${safetag}</b>,</p>
+                    <p style="color:#374151;font-size:15px">Welcome back! Your Safeeely account is fully active again — all trades, messages and funds remain exactly as they were.</p>
+                </div>
+            `;
+            if (primaryLinked?.platform_id) await sendNotification(primaryLinked.platform, primaryLinked.platform_id, dmMessage);
+            sendEmail({ to: profile.email, subject: '✅ Your Safeeely Account Has Been Reactivated', html: emailHtml }).catch(() => {});
+        }
+
+        res.json({ success: true, is_blocked: newBlocked });
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
 /**
  * GET /api/auth/me
  * Returns the authenticated user's profile and session metadata.

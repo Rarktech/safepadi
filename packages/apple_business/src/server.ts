@@ -204,6 +204,14 @@ app.post('/webhook/:token', (req, res) => {
                     });
                     return;
                 }
+                if (profileRes.data?.is_blocked) {
+                    const reactivateUrl = `${FRONTEND_URL}/account/block?mode=activate&safetag=${encodeURIComponent(profileRes.data.safetag)}`;
+                    await sendJivoChatMessage(clientId, chatId, {
+                        type: 'TEXT',
+                        text: `🚫 This account has been blocked. Want to reactivate it?\n\nTap to reactivate: ${reactivateUrl}`
+                    });
+                    return;
+                }
                 const session = getSession(clientId);
                 const safetag = profileRes.data.safetag;
                 const profileId = profileRes.data.id;

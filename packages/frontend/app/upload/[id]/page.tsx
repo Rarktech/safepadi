@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import {
     Upload,
     CheckCircle,
@@ -9,28 +9,61 @@ import {
     X,
     ArrowRight,
     Shield,
-    Clock,
-    ChevronRight,
     Loader2,
-    CloudUpload
+    CloudUpload,
 } from 'lucide-react';
 import axios from 'axios';
-import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
+import { apiErrorMessage } from '@/lib/apiError';
+
+interface UploadFile {
+    file: File;
+    id: string;
+    name: string;
+    displaySize: string;
+    rawSize: number;
+    progress: number;
+    status: 'pending' | 'uploading' | 'done';
+}
+
+interface Txn {
+    product_name: string;
+    total_amount: number;
+    currency: string;
+    txn_code: string;
+    status: string;
+    buyer?: { safetag?: string };
+}
 
 const API_URL = typeof window !== 'undefined'
     ? (process.env.NEXT_PUBLIC_API_URL || `${window.location.origin}/api`)
     : 'http://localhost:3000/api';
 
+const CHECKLIST = [
+    'Photos or videos of the item being packed and shipped',
+    'Courier receipt or tracking information',
+    'For services — screenshots, exported files, or a work summary',
+    'Any signed agreements or delivery notes',
+];
+
+function formatAmount(amount: number, currency: string) {
+    if (currency === 'USDT' || currency === 'BTC') return `${amount} ${currency}`;
+    try {
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount);
+    } catch {
+        return `${amount} ${currency}`;
+    }
+}
+
 export default function SecureUploadPage() {
     const { id } = useParams();
-    const [step, setStep] = useState(2);
-    const [files, setFiles] = useState<any[]>([]);
+    const [step, setStep] = useState(1);
+    const [files, setFiles] = useState<UploadFile[]>([]);
     const [uploading, setUploading] = useState(false);
     const [success, setSuccess] = useState(false);
-    const [txn, setTxn] = useState<any>(null);
+    const [txn, setTxn] = useState<Txn | null>(null);
     const [loadingTxn, setLoadingTxn] = useState(true);
     const [scanningFiles, setScanningFiles] = useState(false);
+    const [dragOver, setDragOver] = useState(false);
 
     useEffect(() => {
         const fetchTxn = async () => {
@@ -48,15 +81,16 @@ export default function SecureUploadPage() {
         if (id) fetchTxn();
     }, [id]);
 
-    const handleFileChange = (e: any) => {
-        const newFiles = Array.from(e.target.files).map((file: any) => ({
+    const handleFileChange = (fileList: FileList | null) => {
+        if (!fileList) return;
+        const newFiles: UploadFile[] = Array.from(fileList).map((file) => ({
             file,
             id: Math.random().toString(36).substring(7),
             name: file.name,
             displaySize: (file.size / 1024 / 1024).toFixed(2) + ' MB',
             rawSize: file.size,
             progress: 0,
-            status: 'pending'
+            status: 'pending',
         }));
         setFiles(prev => [...prev, ...newFiles]);
     };
@@ -72,19 +106,16 @@ export default function SecureUploadPage() {
         try {
             const updatedFiles = [...files];
 
-            // Simulate scanning local files if multiple are added
             if (files.length > 1) {
                 setScanningFiles(true);
-                await new Promise(r => setTimeout(r, 1000)); // Simulate scan time
+                await new Promise(r => setTimeout(r, 1000));
                 setScanningFiles(false);
             }
 
-            // Sequential "upload" simulation
             for (let i = 0; i < updatedFiles.length; i++) {
                 updatedFiles[i].status = 'uploading';
                 setFiles([...updatedFiles]);
 
-                // Simulate progress
                 for (let p = 0; p <= 100; p += 10) {
                     updatedFiles[i].progress = p;
                     setFiles([...updatedFiles]);
@@ -94,11 +125,8 @@ export default function SecureUploadPage() {
                 setFiles([...updatedFiles]);
             }
 
-            // Real file upload to Supabase Storage via API
             const formData = new FormData();
             files.forEach(f => formData.append('files', f.file));
-
-            console.log(`🚀 Uploading ${files.length} file(s) to: ${API_URL}/transactions/${id}/upload-proof-files`);
 
             await axios.post(`${API_URL}/transactions/${id}/upload-proof-files`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data', 'ngrok-skip-browser-warning': 'true' }
@@ -106,17 +134,9 @@ export default function SecureUploadPage() {
 
             setSuccess(true);
             setTimeout(() => setStep(3), 1500);
-        } catch (err: any) {
+        } catch (err) {
             console.error('❌ Upload failed:', err);
-            const isNgrokMismatch = API_URL.includes('ngrok-free.app') && !API_URL.includes(window.location.host.split('.')[0]);
-
-            let errorMsg = `🚨 [DEBUG] UPLOAD FAILED: ${err.response?.data?.error || err.message}.\n\nURL: ${API_URL}/transactions/${id}/upload-proofs`;
-
-            if (err.response?.status === 404 || err.code === 'ERR_NETWORK') {
-                errorMsg += `\n\n💡 TIP: If you just restarted ngrok, your API subdomain might have changed. Please update NEXT_PUBLIC_API_URL in your packages/frontend/.env.local file.`;
-            }
-
-            alert(errorMsg);
+            alert(`Upload failed: ${apiErrorMessage(err, 'Please try again.')}`);
         } finally {
             setUploading(false);
         }
@@ -124,212 +144,259 @@ export default function SecureUploadPage() {
 
     if (loadingTxn) {
         return (
-            <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-                <div className="text-center">
-                    <Loader2 className="w-10 h-10 text-[#10b981] animate-spin mx-auto mb-4" />
-                    <p className="text-slate-500 font-bold text-xs uppercase tracking-widest animate-pulse">Initializing Portal...</p>
-                </div>
+            <div className="min-h-screen bg-[#F7F7F5] flex items-center justify-center">
+                <Loader2 className="w-8 h-8 text-[#10b981] animate-spin" />
             </div>
         );
     }
 
+    const nextDisabled = uploading || scanningFiles || (step === 2 && !success && files.length === 0);
+    const nextLabel = scanningFiles ? 'Scanning...' : step === 1 ? 'Continue' : step === 2 ? (uploading ? 'Uploading…' : 'Upload files') : 'Done';
+
+    const handleHeaderNext = () => {
+        if (step === 1) { setStep(2); return; }
+        if (step === 2 && !success) { startUpload(); return; }
+        setStep((s) => Math.min(3, s + 1));
+    };
+
     return (
-        <div className="min-h-screen bg-[#f8fafc] font-sans selection:bg-green-100 flex flex-col">
+        <div className="min-h-screen bg-[#F7F7F5] flex flex-col font-sans">
             {/* Header */}
-            <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 px-4 md:px-6 py-3 md:py-4 flex items-center justify-between sticky top-0 z-50">
-                <button
-                    onClick={() => window.close()}
-                    className="text-slate-500 font-bold text-[10px] uppercase tracking-widest hover:text-slate-900 transition-colors"
-                >
-                    Cancel
-                </button>
+            <header className="bg-white border-b border-[#e9eaec] px-6 h-[60px] flex items-center justify-between sticky top-0 z-50">
+                <img src="/assets/logo-main.svg" alt="Safeeely" className="h-[22px]" />
 
-                {/* Desktop Steps */}
-                <div className="hidden sm:flex items-center gap-4 lg:gap-8">
-                    <StepItem number={1} label="Info" active={step === 1} completed={step > 1} />
-                    <div className="h-px w-4 lg:w-8 bg-slate-200" />
-                    <StepItem number={2} label="Upload" active={step === 2} completed={step > 2} />
-                    <div className="h-px w-4 lg:w-8 bg-slate-200" />
-                    <StepItem number={3} label="Done" active={step === 3} completed={step > 3} />
+                <div className="hidden sm:flex items-center gap-1.5">
+                    <StepPill number={1} label="Info" active={step === 1} completed={step > 1} />
+                    <div className="w-6 h-px bg-[#e2e8f0]" />
+                    <StepPill number={2} label="Upload files" active={step === 2} completed={step > 2} />
+                    <div className="w-6 h-px bg-[#e2e8f0]" />
+                    <StepPill number={3} label="Done" active={step === 3} completed={false} />
                 </div>
 
-                {/* Mobile Steps Counter */}
-                <div className="flex sm:hidden items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100">
-                    <span className="text-[10px] font-bold text-slate-400">STEP</span>
-                    <span className="text-xs font-bold text-slate-900">{step}</span>
-                    <span className="text-[10px] font-bold text-slate-300">/</span>
-                    <span className="text-[10px] font-bold text-slate-400">3</span>
+                <div className="sm:hidden">
+                    <span className="text-[11px] font-bold text-[#94a3b8]">Step {step} of 3</span>
                 </div>
 
-                <div className="flex flex-col xs:flex-row items-center gap-2">
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-9 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-900 rounded-xl px-2"
-                        onClick={() => setStep(prev => Math.max(1, prev - 1))}
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setStep((s) => Math.max(1, s - 1))}
                         disabled={step === 1 || success}
+                        className="hidden sm:inline-flex h-11 px-[18px] rounded-full border border-[#e9eaec] text-[#64748b] text-[13px] font-semibold bg-transparent disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                         Back
-                    </Button>
-                    <Button
-                        size="sm"
-                        className="h-9 bg-[#10b981] hover:bg-[#059669] text-white font-bold text-[10px] uppercase tracking-widest px-4 shadow-xl shadow-green-100 rounded-xl"
-                        onClick={step === 2 && !success ? startUpload : () => setStep(prev => Math.min(3, prev + 1))}
-                        disabled={uploading || scanningFiles || (step === 2 && files.length === 0)}
+                    </button>
+                    <button
+                        onClick={handleHeaderNext}
+                        disabled={nextDisabled || step === 3}
+                        className="h-10 px-5 rounded-full bg-[#0f172a] text-white text-[13px] font-bold flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                        {scanningFiles ? 'Scanning...' : (step === 2 ? (uploading ? 'Wait...' : 'Upload') : 'Next')}
-                    </Button>
+                        {(uploading || scanningFiles) && <Loader2 size={14} className="animate-spin" />}
+                        {nextLabel}
+                    </button>
                 </div>
             </header>
 
-            <main className="flex-1 max-w-4xl w-full mx-auto pt-4 md:pt-12 pb-24 px-4 md:px-6">
-                <div className="bg-white rounded-[24px] md:rounded-[40px] border border-slate-100 shadow-[0_20px_60px_rgba(0,0,0,0.03)] overflow-hidden">
-                    {step === 2 && !success && (
-                        <div className="p-5 md:p-12">
-                            {/* Drag & Drop Zone */}
-                            <div
-                                className="relative border-2 border-dashed border-slate-200 rounded-3xl p-8 md:p-20 text-center hover:border-green-400 hover:bg-green-50/30 transition-all cursor-pointer group"
-                                onClick={() => document.getElementById('fileInput')?.click()}
-                            >
-                                <input
-                                    type="file"
-                                    id="fileInput"
-                                    className="hidden"
-                                    multiple
-                                    accept="*"
-                                    onChange={handleFileChange}
-                                />
-                                <div className="w-14 h-14 md:w-20 md:h-20 bg-slate-50 rounded-2xl md:rounded-[32px] flex items-center justify-center mx-auto mb-4 md:mb-8 group-hover:scale-110 group-hover:bg-white transition-all shadow-sm">
-                                    <FileText className="w-6 h-6 md:w-10 md:h-10 text-slate-300 group-hover:text-green-500 transition-colors" />
-                                    <div className="absolute -top-2 -right-2 w-7 h-7 md:w-9 md:h-9 bg-[#10b981] rounded-full flex items-center justify-center border-4 border-white shadow-lg">
-                                        <CloudUpload className="w-3 h-3 md:w-4 md:h-4 text-white" />
-                                    </div>
-                                </div>
-                                <h2 className="text-xl md:text-3xl font-bold text-slate-900 tracking-tight mb-2">Upload Proof [v2.5]</h2>
-                                <p className="text-slate-400 text-[10px] md:text-sm font-bold uppercase tracking-[0.2em] text-[#10b981] mb-2">Portal Active & Connected</p>
-                                <p className="text-slate-400 text-[10px] md:text-xs font-medium max-w-xs mx-auto">Click or drag & drop to upload proofs.<br/>All files supported: <b>Movies, Docs, PSD, 3D & More</b></p>
-                            </div>
+            <main className="flex-1 max-w-[720px] w-full mx-auto px-5 pt-7 pb-[100px]">
 
-                            {/* File List */}
-                            {files.length > 0 && (
-                                <div className="mt-10 md:mt-16 space-y-3 md:space-y-4">
-                                    <div className="flex items-center justify-between px-2">
-                                        <h3 className="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-widest">Files Ready ({files.length})</h3>
-                                        {scanningFiles && (
-                                            <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 animate-pulse">
-                                                <Loader2 className="w-3 h-3 animate-spin" />
-                                                Scanning local files...
+                {step === 1 && txn && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <h1 className="font-['Inter_Tight',sans-serif] text-[26px] font-black text-[#0f172a] tracking-[-.03em] mb-1.5">Upload delivery proof</h1>
+                        <p className="text-[13.5px] text-[#64748b] font-normal mb-6">Share evidence of your completed delivery so funds can be released.</p>
+
+                        <div className="bg-white rounded-[20px] border border-[#e9eaec] overflow-hidden mb-4">
+                            <div className="px-[22px] py-5 border-b border-[#f3f4f6]">
+                                <div className="flex items-center justify-between mb-1">
+                                    <span className="text-[10.5px] font-bold text-[#94a3b8] tracking-[.05em]">TRANSACTION</span>
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-[3px] rounded-full text-[10.5px] font-bold bg-[#eff6ff] text-[#2563eb]">{(txn.status || '').replace(/_/g, ' ')}</span>
+                                </div>
+                                <h2 className="font-['Inter_Tight',sans-serif] text-[20px] font-extrabold text-[#0f172a] mt-1">{txn.product_name}</h2>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-3">
+                                <div className="px-[18px] py-3.5 border-b sm:border-b-0 sm:border-r border-[#f3f4f6]">
+                                    <p className="text-[10.5px] font-semibold text-[#94a3b8] mb-1">Amount</p>
+                                    <p className="font-['Inter_Tight',sans-serif] text-[17px] font-extrabold text-[#0f172a]">{formatAmount(txn.total_amount, txn.currency)}</p>
+                                </div>
+                                <div className="px-[18px] py-3.5 border-b sm:border-b-0 sm:border-r border-[#f3f4f6]">
+                                    <p className="text-[10.5px] font-semibold text-[#94a3b8] mb-1">Buyer</p>
+                                    <p className="text-[13px] font-bold text-[#0f172a]">{txn.buyer?.safetag}</p>
+                                </div>
+                                <div className="px-[18px] py-3.5">
+                                    <p className="text-[10.5px] font-semibold text-[#94a3b8] mb-1">Transaction ID</p>
+                                    <code className="text-[11.5px] font-bold text-[#475569] tracking-[.02em] break-all">{txn.txn_code}</code>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-[20px] border border-[#e9eaec] px-[22px] py-5 mb-4">
+                            <p className="text-[13px] font-extrabold text-[#0f172a] mb-3.5">What to include in your proof</p>
+                            <div className="flex flex-col gap-2.5">
+                                {CHECKLIST.map((item) => (
+                                    <div key={item} className="flex items-start gap-2.5">
+                                        <div className="w-[22px] h-[22px] rounded-full bg-[#f0fdf4] flex items-center justify-center flex-shrink-0 mt-px">
+                                            <CheckCircle size={11} className="text-[#16a34a]" />
+                                        </div>
+                                        <p className="text-[12.5px] text-[#475569] font-medium leading-[1.5]">{item}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="flex items-start gap-3 px-5 py-4 bg-[#eff6ff] rounded-2xl border border-[#dbeafe]">
+                            <div className="w-[34px] h-[34px] rounded-[9px] bg-[#dbeafe] flex items-center justify-center flex-shrink-0">
+                                <Shield size={15} className="text-[#2563eb]" />
+                            </div>
+                            <div>
+                                <p className="text-[12.5px] font-bold text-[#1e40af] mb-0.5">Escrow protected</p>
+                                <p className="text-[11.5px] text-[#3b82f6] font-normal leading-[1.5]">Files are encrypted and stored securely. The buyer will be notified to review and release funds once you submit.</p>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={() => setStep(2)}
+                            className="sm:hidden flex items-center justify-center gap-2 w-full h-[52px] mt-5 bg-[#10b981] text-white rounded-full font-bold text-[14px] shadow-[0_4px_18px_rgba(16,185,129,0.28)]"
+                        >
+                            Continue to upload
+                            <ArrowRight size={14} />
+                        </button>
+                    </div>
+                )}
+
+                {step === 2 && !success && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <h1 className="font-['Inter_Tight',sans-serif] text-[26px] font-black text-[#0f172a] tracking-[-.03em] mb-1.5">Upload your files</h1>
+                        <p className="text-[13.5px] text-[#64748b] mb-[22px]">All file types supported — images, videos, documents, archives</p>
+
+                        <div
+                            className={`border-2 border-dashed rounded-[20px] p-12 text-center cursor-pointer mb-[18px] transition-colors ${dragOver ? 'border-[#10b981] bg-[#10b981]/[0.04] border-solid' : 'border-[#e2e8f0] hover:border-[#10b981] hover:bg-[#10b981]/[0.04]'}`}
+                            onClick={() => document.getElementById('proof-file-input')?.click()}
+                            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                            onDragLeave={() => setDragOver(false)}
+                            onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFileChange(e.dataTransfer.files); }}
+                        >
+                            <input id="proof-file-input" type="file" multiple accept="*" className="hidden" onChange={(e) => handleFileChange(e.target.files)} />
+                            <div className="w-14 h-14 rounded-2xl bg-[#f7f8f9] border border-[#e9eaec] flex items-center justify-center mx-auto mb-4">
+                                <CloudUpload size={22} className="text-[#94a3b8]" />
+                            </div>
+                            <p className="font-['Inter_Tight',sans-serif] text-[16px] font-extrabold text-[#0f172a] mb-1">Drop files here or click to browse</p>
+                            <p className="text-[12px] text-[#94a3b8] font-normal">Images, videos, PDFs, ZIP, PSD, docs — any format</p>
+                        </div>
+
+                        {files.length > 0 && (
+                            <div className="mb-[18px]">
+                                <div className="flex items-center justify-between mb-2.5">
+                                    <h3 className="text-[10.5px] font-bold text-[#94a3b8] uppercase tracking-wide">Files ready ({files.length})</h3>
+                                    {scanningFiles && (
+                                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-[#64748b] animate-pulse">
+                                            <Loader2 className="w-3 h-3 animate-spin" />
+                                            Scanning local files...
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex flex-col gap-2.5 max-h-[350px] overflow-y-auto pr-1">
+                                    {files.map((file) => (
+                                        <div key={file.id} className="flex items-center gap-3 px-4 py-3.5 rounded-[14px] border border-[#e9eaec] bg-white hover:shadow-[0_4px_16px_rgba(15,23,42,0.06)] transition-shadow">
+                                            <div className="w-10 h-10 bg-[#f7f8f9] rounded-xl border border-[#e9eaec] flex items-center justify-center shrink-0">
+                                                <FileText size={18} className={file.status === 'done' ? 'text-[#16a34a]' : 'text-[#94a3b8]'} />
                                             </div>
-                                        )}
-                                    </div>
-                                    <div className="space-y-3 overflow-y-auto max-h-[350px] pr-2 scrollbar-hide">
-                                        {files.map((file) => (
-                                            <div key={file.id} className="bg-slate-50/50 rounded-2xl p-4 md:p-6 flex items-center gap-4 group hover:bg-white hover:shadow-xl hover:shadow-slate-200/50 transition-all border border-transparent hover:border-slate-100">
-                                                <div className="w-10 h-10 md:w-12 md:h-12 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center shrink-0">
-                                                    <FileText className={`w-5 h-5 md:w-6 md:h-6 ${file.status === 'done' ? 'text-green-500' : 'text-slate-300'}`} />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center justify-between mb-1.5">
+                                                    <p className="text-[13px] font-bold text-[#0f172a] truncate">{file.name}</p>
+                                                    <span className="text-[11px] font-bold text-[#94a3b8] ml-2 flex-shrink-0">{file.displaySize}</span>
                                                 </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center justify-between mb-1.5 px-0.5">
-                                                        <p className="text-xs md:text-sm font-bold text-slate-900 truncate tracking-tight">{file.name}</p>
-                                                        <span className="text-[9px] md:text-[11px] font-bold text-slate-400 tracking-tighter ml-2">{file.displaySize}</span>
+                                                <div className="flex items-center gap-2.5">
+                                                    <div className="h-1 flex-1 rounded-full bg-[#f1f5f9] overflow-hidden">
+                                                        <div className="h-full rounded-full bg-[#10b981] transition-[width] duration-150" style={{ width: `${file.progress}%` }} />
                                                     </div>
-                                                    <div className="flex items-center gap-3">
-                                                        <Progress value={file.progress} className="h-1.5 flex-1" indicatorClassName="bg-green-500 shadow-[0_0_10px_rgba(22,163,74,0.3)]" />
-                                                        {file.status === 'done' ? (
-                                                            <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
-                                                        ) : (
-                                                            <span className="text-[9px] font-bold text-slate-400 w-8 text-right italic">{file.progress}%</span>
-                                                        )}
-                                                    </div>
+                                                    {file.status === 'done' ? (
+                                                        <CheckCircle size={15} className="text-[#16a34a] shrink-0" />
+                                                    ) : (
+                                                        <span className="text-[10px] font-bold text-[#94a3b8] w-8 text-right">{file.progress}%</span>
+                                                    )}
                                                 </div>
-                                                {file.status === 'pending' && (
-                                                    <button
-                                                        onClick={() => removeFile(file.id)}
-                                                        className="p-2 md:p-2.5 hover:bg-red-50 rounded-xl text-slate-300 hover:text-red-500 transition-all shrink-0"
-                                                    >
-                                                        <X className="w-4 h-4" />
-                                                    </button>
-                                                )}
                                             </div>
-                                        ))}
-                                    </div>
+                                            {file.status === 'pending' && (
+                                                <button onClick={() => removeFile(file.id)} className="p-2 hover:bg-red-50 rounded-xl text-[#cbd5e1] hover:text-red-500 transition-colors shrink-0">
+                                                    <X size={15} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
                                 </div>
-                            )}
+                            </div>
+                        )}
 
-                            {/* Help Section */}
-                            <div className="mt-12 md:mt-20 pt-8 border-t border-slate-100">
-                                <div className="bg-blue-50/30 rounded-3xl p-6 md:p-8 flex gap-4 md:gap-6 border border-blue-50">
-                                    <div className="w-10 h-10 md:w-12 md:h-12 bg-white rounded-2xl flex items-center justify-center shrink-0 shadow-sm">
-                                        <Shield className="w-5 h-5 md:w-6 md:h-6 text-blue-500" />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-sm md:text-base font-bold text-slate-900 mb-1">Escrow Protected Upload</h4>
-                                        <p className="text-[10px] md:text-sm text-slate-500 leading-relaxed font-medium">
-                                            Your files are encrypted and held securely. Include clear photos of labels and items to ensure a smooth release of funds.
-                                        </p>
-                                    </div>
-                                </div>
+                        <button
+                            onClick={startUpload}
+                            disabled={uploading || scanningFiles || files.length === 0}
+                            className="sm:hidden flex items-center justify-center gap-2 w-full h-[52px] bg-[#0f172a] text-white rounded-full font-bold text-[14px] disabled:opacity-40"
+                        >
+                            {uploading ? <Loader2 size={16} className="animate-spin" /> : `Upload ${files.length} file${files.length === 1 ? '' : 's'}`}
+                        </button>
+                    </div>
+                )}
+
+                {step === 2 && success && (
+                    <div className="py-24 text-center animate-in zoom-in duration-500">
+                        <div className="w-20 h-20 bg-[#10b981] rounded-full flex items-center justify-center mx-auto mb-7 shadow-[0_8px_28px_rgba(16,185,129,0.28)]">
+                            <CheckCircle className="w-10 h-10 text-white" />
+                        </div>
+                        <h2 className="font-['Inter_Tight',sans-serif] text-[26px] font-extrabold text-[#0f172a] tracking-tight mb-2">Upload confirmed!</h2>
+                        <p className="text-[13px] text-[#94a3b8] font-bold uppercase tracking-widest animate-pulse">Taking you to the summary…</p>
+                    </div>
+                )}
+
+                {step === 3 && txn && (
+                    <div className="py-12 text-center animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="w-20 h-20 bg-[#ecfdf5] rounded-3xl flex items-center justify-center mx-auto mb-8 rotate-6">
+                            <Upload className="w-9 h-9 text-[#10b981] -rotate-6" />
+                        </div>
+                        <h2 className="font-['Inter_Tight',sans-serif] text-[32px] font-black text-[#0f172a] tracking-tight mb-4">Delivery secured!</h2>
+                        <p className="text-[14px] text-[#64748b] max-w-md mx-auto mb-10 font-medium leading-relaxed">
+                            Your proof for <span className="text-[#0f172a] font-bold">{txn.product_name}</span> has been submitted. The buyer has been notified to review and release funds.
+                        </p>
+
+                        <div className="grid grid-cols-2 gap-3 max-w-sm mx-auto mb-10">
+                            <div className="bg-white rounded-2xl p-4 text-left border border-[#e9eaec]">
+                                <p className="text-[10px] font-bold text-[#94a3b8] uppercase tracking-widest mb-1">Status</p>
+                                <p className="text-[13px] font-bold text-[#16a34a]">Success</p>
+                            </div>
+                            <div className="bg-white rounded-2xl p-4 text-left border border-[#e9eaec]">
+                                <p className="text-[10px] font-bold text-[#94a3b8] uppercase tracking-widest mb-1">Files uploaded</p>
+                                <p className="text-[13px] font-bold text-[#0f172a]">{files.length}</p>
+                            </div>
+                            <div className="bg-white rounded-2xl p-4 text-left border border-[#e9eaec]">
+                                <p className="text-[10px] font-bold text-[#94a3b8] uppercase tracking-widest mb-1">Transaction ID</p>
+                                <p className="text-[13px] font-bold text-[#0f172a] break-all">{txn.txn_code}</p>
+                            </div>
+                            <div className="bg-white rounded-2xl p-4 text-left border border-[#e9eaec]">
+                                <p className="text-[10px] font-bold text-[#94a3b8] uppercase tracking-widest mb-1">Amount in escrow</p>
+                                <p className="text-[13px] font-bold text-[#0f172a]">{formatAmount(txn.total_amount, txn.currency)}</p>
                             </div>
                         </div>
-                    )}
 
-                    {success && step === 2 && (
-                        <div className="p-16 md:p-32 text-center animate-in zoom-in duration-500">
-                            <div className="w-20 h-20 md:w-24 md:h-24 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-8 shadow-2xl shadow-green-200">
-                                <CheckCircle className="w-10 h-10 md:w-12 md:h-12 text-white" />
-                            </div>
-                            <h2 className="text-2xl md:text-4xl font-bold text-slate-900 tracking-tighter mb-4">Upload Confirmed!</h2>
-                            <p className="text-xs md:text-base text-slate-400 font-bold uppercase tracking-widest animate-pulse">Redirecting to summary...</p>
-                        </div>
-                    )}
-
-                    {step === 3 && (
-                        <div className="p-8 md:p-20 text-center animate-in fade-in slide-in-from-bottom-8 duration-1000">
-                            <div className="w-20 h-20 md:w-24 md:h-24 bg-green-50 rounded-3xl flex items-center justify-center mx-auto mb-10 rotate-6">
-                                <Upload className="w-10 h-10 md:w-12 md:h-12 text-green-500 -rotate-6" />
-                            </div>
-                            <h2 className="text-3xl md:text-5xl font-bold text-slate-900 tracking-tighter mb-6">Delivery Secured!</h2>
-                            <p className="text-sm md:text-lg text-slate-500 max-w-sm md:max-w-md mx-auto mb-12 font-medium leading-relaxed">
-                                Your proof for <span className="text-slate-900 font-bold">{txn?.product_name}</span> has been uploaded. The buyer has been notified.
-                            </p>
-
-                            <div className="grid grid-cols-2 gap-4 max-w-sm mx-auto mb-12">
-                                <div className="bg-slate-50 rounded-2xl p-5 text-left border border-slate-100">
-                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Status</p>
-                                    <p className="text-xs font-bold text-green-600 uppercase">Success</p>
-                                </div>
-                                <div className="bg-slate-50 rounded-2xl p-5 text-left border border-slate-100">
-                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Documents</p>
-                                    <p className="text-xs font-bold text-slate-900 uppercase">{files.length} Files</p>
-                                </div>
-                            </div>
-
-                            <button
-                                onClick={() => window.close()}
-                                className="bg-slate-900 text-white font-bold px-10 h-16 rounded-2xl hover:bg-slate-800 transition-all shadow-2xl shadow-slate-200 flex items-center gap-3 mx-auto text-sm md:text-base"
-                            >
-                                Finish & Return
-                                <ArrowRight className="w-5 h-5" />
-                            </button>
-                        </div>
-                    )}
-                </div>
-
-                <div className="mt-12 text-center">
-                    <img src="/logo-main.svg" alt="Safeeely" className="h-6 md:h-8 mx-auto grayscale opacity-20" />
-                </div>
+                        <button
+                            onClick={() => window.close()}
+                            className="bg-[#0f172a] text-white font-bold px-9 h-14 rounded-2xl hover:opacity-90 transition-opacity flex items-center gap-2.5 mx-auto text-[14px]"
+                        >
+                            Finish and close
+                            <ArrowRight className="w-4 h-4" />
+                        </button>
+                    </div>
+                )}
             </main>
         </div>
     );
 }
 
-function StepItem({ number, label, active, completed }: { number: number; label: string; active?: boolean; completed?: boolean }) {
+function StepPill({ number, label, active, completed }: { number: number; label: string; active?: boolean; completed?: boolean }) {
+    const bg = completed ? 'bg-[#f0fdf4] text-[#16a34a]' : active ? 'bg-[#0f172a] text-white' : 'bg-[#f7f8f9] text-[#94a3b8]';
+    const dotBg = completed ? 'bg-[#16a34a] text-white' : active ? 'bg-white text-[#0f172a]' : 'bg-[#e2e8f0] text-[#94a3b8]';
     return (
-        <div className={`flex items-center gap-3 ${active ? 'opacity-100' : 'opacity-40'}`}>
-            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${completed ? 'bg-green-500 text-white' : active ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-500'}`}>
+        <div className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-bold ${bg}`}>
+            <div className={`w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-bold ${dotBg}`}>
                 {completed ? '✓' : number}
             </div>
-            <span className={`text-xs font-bold uppercase tracking-widest ${active ? 'text-slate-900' : 'text-slate-500'}`}>{label}</span>
+            {label}
         </div>
     );
 }

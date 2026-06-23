@@ -195,6 +195,11 @@ bot.start(async (ctx) => {
                     if (profileRes.data.is_deactivated) {
                         return ctx.reply('⚠️ Your account is deactivated. Contact support@safeeely.com.');
                     }
+                    if (profileRes.data.is_blocked) {
+                        return ctx.reply('🚫 This account has been blocked. Want to reactivate it?', {
+                            reply_markup: { inline_keyboard: [[{ text: '🔓 Reactivate my account', url: `${REVIEWS_URL}/account/block?mode=activate&safetag=${encodeURIComponent(profileRes.data.safetag)}` }]] }
+                        });
+                    }
 
                     return ctx.scene.enter('community_licensing_wizard', {
                         telegram_group_id: telegramGroupId,
@@ -257,6 +262,11 @@ bot.start(async (ctx) => {
             if (response.data && response.data.safetag) {
                 if (response.data.is_deactivated) {
                     return ctx.reply('⚠️ Your Safeeely account has been deactivated. Please contact support@safeeely.com if you believe this is a mistake.');
+                }
+                if (response.data.is_blocked) {
+                    return ctx.reply('🚫 This account has been blocked. Want to reactivate it?', {
+                        reply_markup: { inline_keyboard: [[{ text: '🔓 Reactivate my account', url: `${REVIEWS_URL}/account/block?mode=activate&safetag=${encodeURIComponent(response.data.safetag)}` }]] }
+                    });
                 }
                 // User exists, show menu
                 await ctx.reply(`👋 Welcome back, <b>${response.data.first_name || 'user'}</b>!`, { parse_mode: 'HTML' });

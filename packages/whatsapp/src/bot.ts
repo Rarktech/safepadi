@@ -1127,12 +1127,15 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         let isRegistered = false;
         try {
             const profileRes = await axios.get(`${API_URL}/profiles/by_platform/whatsapp/${from}`);
-            if (profileRes.data?.safetag && !profileRes.data?.is_deactivated) {
+            if (profileRes.data?.safetag && !profileRes.data?.is_deactivated && !profileRes.data?.is_blocked) {
                 isRegistered = true;
                 await sendMainMenu(from, `👋 Welcome back, ${profileRes.data.first_name || 'there'}!`);
             } else if (profileRes.data?.is_deactivated) {
                 isRegistered = true;
                 await sendText(from, '⚠️ Your Safeeely account has been deactivated. Please contact support@safeeely.com if you believe this is a mistake.');
+            } else if (profileRes.data?.is_blocked) {
+                isRegistered = true;
+                await sendCTAUrl(from, '🚫 This account has been blocked. Want to reactivate it?', 'Reactivate account', `${REVIEWS_URL}/account/block?mode=activate&safetag=${encodeURIComponent(profileRes.data.safetag)}`);
             }
         } catch (e: any) {
             if (e.response?.status !== 404) console.error('WA profile check error:', e.message);
@@ -1817,8 +1820,10 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         await sendText(from, '🗑️ Draft discarded. Send a new voice note or message to start a transaction, or use the menu below.');
         try {
             const profileRes = await axios.get(`${API_URL}/profiles/by_platform/whatsapp/${from}`);
-            if (profileRes.data?.safetag && !profileRes.data?.is_deactivated) {
+            if (profileRes.data?.safetag && !profileRes.data?.is_deactivated && !profileRes.data?.is_blocked) {
                 await sendMainMenu(from, `👋 Welcome back, ${profileRes.data.first_name || 'there'}!`);
+            } else if (profileRes.data?.is_blocked) {
+                await sendCTAUrl(from, '🚫 This account has been blocked. Want to reactivate it?', 'Reactivate account', `${REVIEWS_URL}/account/block?mode=activate&safetag=${encodeURIComponent(profileRes.data.safetag)}`);
             }
         } catch (_) {}
     }

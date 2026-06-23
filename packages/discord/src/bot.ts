@@ -543,6 +543,13 @@ client.on('messageCreate', async (message) => {
                     await message.reply('⚠️ Your Safeeely account has been deactivated. Please contact support@safeeely.com if you believe this is a mistake.');
                     return;
                 }
+                if (response.data.is_blocked) {
+                    await message.reply({
+                        content: '🚫 This account has been blocked. Want to reactivate it?',
+                        components: [{ type: 1, components: [{ type: 2, label: '🔓 Reactivate my account', style: 5, url: `${REVIEWS_URL}/account/block?mode=activate&safetag=${encodeURIComponent(response.data.safetag)}` }] }]
+                    });
+                    return;
+                }
                 await sendMainMenu(message);
             }
         } catch (err: any) {
@@ -1211,6 +1218,12 @@ client.on('interactionCreate', async (interaction) => {
                 }
                 if (profileRes.data.is_deactivated) {
                     return interaction.editReply('⚠️ Your account is deactivated. Contact support@safeeely.com.');
+                }
+                if (profileRes.data.is_blocked) {
+                    return interaction.editReply({
+                        content: '🚫 This account has been blocked. Want to reactivate it?',
+                        components: [{ type: 1, components: [{ type: 2, label: '🔓 Reactivate my account', style: 5, url: `${REVIEWS_URL}/account/block?mode=activate&safetag=${encodeURIComponent(profileRes.data.safetag)}` }] }]
+                    });
                 }
                 const guild = client.guilds.cache.get(guildId);
                 const guildName = guild?.name || 'Your Server';

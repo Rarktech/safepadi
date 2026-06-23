@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -7,43 +6,74 @@ import {
     Download,
     FileText,
     Shield,
-    LayoutDashboard,
     ArrowLeft,
     CheckCircle,
     Loader2,
-    Lock,
-    Star,
     Clock,
-    RotateCcw
+    Star,
+    RotateCcw,
+    Package,
 } from 'lucide-react';
 import axios from 'axios';
 import { Button } from '@/components/ui/button';
+import { apiErrorMessage } from '@/lib/apiError';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 
+interface Txn {
+    id: string;
+    txn_code: string;
+    product_name: string;
+    total_amount: number;
+    currency: string;
+    status: string;
+    dispute_id?: string;
+    seller?: { safetag?: string };
+}
+
+interface Proof {
+    id: string;
+    file_name?: string;
+    file_size?: number;
+    file_url: string;
+    mime_type?: string;
+}
+
+function formatAmount(amount: number, currency: string) {
+    if (currency === 'USDT' || currency === 'BTC') return `${amount} ${currency}`;
+    try {
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount);
+    } catch {
+        return `${amount} ${currency}`;
+    }
+}
+
+function statusTag(status: string): { label: string; bg: string; color: string } {
+    switch (status) {
+        case 'FINALIZED': return { label: 'Finalized', bg: 'bg-[#f0fdf4]', color: 'text-[#16a34a]' };
+        case 'RETURN_PENDING': return { label: 'Return in progress', bg: 'bg-[#fffbeb]', color: 'text-[#d97706]' };
+        case 'COMPLETED_BY_SELLER': return { label: 'Awaiting your confirmation', bg: 'bg-[#eff6ff]', color: 'text-[#2563eb]' };
+        default: return { label: (status || '').replace(/_/g, ' '), bg: 'bg-[#f1f5f9]', color: 'text-[#475569]' };
+    }
+}
+
 export default function DeliveryPortalPage() {
     const { id } = useParams();
-    const [txn, setTxn] = useState<any>(null);
-    const [proofs, setProofs] = useState<any[]>([]);
+    const [txn, setTxn] = useState<Txn | null>(null);
+    const [proofs, setProofs] = useState<Proof[]>([]);
     const [loading, setLoading] = useState(true);
+
     useEffect(() => {
         const loadData = async () => {
             try {
-                console.log(`🔗 Loading Delivery Data for ID/Code: ${id}`);
                 const [txnRes, proofsRes] = await Promise.all([
                     axios.get(`${API_URL}/transactions/${id}`, { headers: { 'ngrok-skip-browser-warning': 'true' } }),
                     axios.get(`${API_URL}/transactions/${id}/proofs`, { headers: { 'ngrok-skip-browser-warning': 'true' } })
                 ]);
-                console.log('✅ Found Transaction:', txnRes.data.txn_code);
-                console.log('✅ Found Proofs:', proofsRes.data.length);
                 setTxn(txnRes.data);
                 setProofs(proofsRes.data);
-            } catch (err: any) {
-                console.error('❌ Fetch error:', err.message);
-                if (err.response) {
-                    console.error('📦 API Error Response:', err.response.data);
-                    console.error('🔢 Status Code:', err.response.status);
-                }
+            } catch (err) {
+                console.error('❌ Fetch error:', err);
             } finally {
                 setLoading(false);
             }
@@ -65,8 +95,8 @@ export default function DeliveryPortalPage() {
                 withCredentials: true
             });
             setReturnDone(role);
-        } catch (err: any) {
-            alert(err.response?.data?.error || 'Failed to confirm. Please try again.');
+        } catch (err) {
+            alert(apiErrorMessage(err, 'Failed to confirm. Please try again.'));
         } finally {
             setReturnConfirming(false);
         }
@@ -77,16 +107,12 @@ export default function DeliveryPortalPage() {
 
         setConfirming(true);
         try {
-            const res = await axios.patch(`${API_URL}/transactions/${id}/status`, {
-                status: 'confirm_receipt'
-            }, {
+            await axios.patch(`${API_URL}/transactions/${id}/status`, { status: 'confirm_receipt' }, {
                 headers: { 'ngrok-skip-browser-warning': 'true' },
                 withCredentials: true
             });
-            console.log('✅ Confirmation response:', res.data);
             setConfirmed(true);
-        } catch (err: any) {
-            console.error('Confirmation failed:', err);
+        } catch {
             alert('Failed to confirm delivery. Please try again.');
         } finally {
             setConfirming(false);
@@ -95,7 +121,7 @@ export default function DeliveryPortalPage() {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+            <div className="min-h-screen bg-[#F7F7F5] flex items-center justify-center">
                 <Loader2 className="w-8 h-8 text-[#10b981] animate-spin" />
             </div>
         );
@@ -103,8 +129,8 @@ export default function DeliveryPortalPage() {
 
     if (!txn) {
         return (
-            <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
-                <h1 className="text-2xl font-bold text-slate-900 mb-2">Transaction Not Found</h1>
+            <div className="min-h-screen bg-[#F7F7F5] flex flex-col items-center justify-center p-6 text-center">
+                <h1 className="text-2xl font-bold text-[#0f172a] mb-2">Transaction Not Found</h1>
                 <Button onClick={() => window.close()}>Close Tab</Button>
             </div>
         );
@@ -115,244 +141,233 @@ export default function DeliveryPortalPage() {
         const receiptUrl = `${API_URL}/receipts/${txn.txn_code}.png?type=completed&role=buyer&v=${Date.now()}`;
 
         return (
-            <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in duration-500">
-                <div className="w-20 h-20 bg-[#10b981] rounded-full flex items-center justify-center mb-6 shadow-2xl shadow-green-200">
+            <div className="min-h-screen bg-[#F7F7F5] flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in duration-500">
+                <div className="w-20 h-20 bg-[#10b981] rounded-full flex items-center justify-center mb-6 shadow-[0_8px_28px_rgba(16,185,129,0.28)]">
                     <CheckCircle className="w-10 h-10 text-white" />
                 </div>
-                
-                <h1 className="text-4xl font-bold text-slate-900 tracking-tighter mb-2">Deal Secured!</h1>
-                <p className="text-slate-500 max-w-md mx-auto mb-8 font-medium">
-                    Funds have been released to <span className="text-slate-900 font-bold">{txn.seller?.safetag}</span>. Your transaction is now officially complete.
+
+                <h1 className="font-['Inter_Tight',sans-serif] text-[32px] font-black text-[#0f172a] tracking-tight mb-2">Deal secured!</h1>
+                <p className="text-[#64748b] max-w-md mx-auto mb-8 font-medium">
+                    Funds have been released to <span className="text-[#0f172a] font-bold">{txn.seller?.safetag}</span>. Your transaction is now officially complete.
                 </p>
 
-                {/* Receipt Card */}
-                <div className="bg-white p-4 rounded-[40px] shadow-2xl border border-slate-100 mb-10 max-w-[400px] w-full transform hover:scale-[1.02] transition-transform">
-                    <img 
-                        src={receiptUrl} 
-                        alt="Transaction Receipt" 
-                        className="w-full h-auto rounded-[32px] shadow-sm"
-                        onLoad={() => console.log('Receipt loaded successfully')}
-                    />
+                <div className="bg-white p-4 rounded-[32px] border border-[#e9eaec] mb-10 max-w-[400px] w-full">
+                    <img src={receiptUrl} alt="Transaction Receipt" className="w-full h-auto rounded-[20px]" />
                     <div className="mt-4 flex items-center justify-center gap-2 py-2">
-                        <Shield className="w-4 h-4 text-emerald-500" />
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Verified by Safeeely Protocol</span>
+                        <Shield className="w-4 h-4 text-[#16a34a]" />
+                        <span className="text-[10px] font-bold text-[#94a3b8] uppercase tracking-widest">Verified by Safeeely Protocol</span>
                     </div>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-4 items-center w-full max-w-sm">
+                <div className="flex flex-col sm:flex-row gap-3 items-center w-full max-w-sm">
                     <Button
                         onClick={() => window.open(`${reviewsUrl}/reviews/${txn.id}`, '_blank')}
-                        className="bg-primary hover:bg-primary/90 text-white font-bold px-8 h-16 rounded-2xl shadow-xl shadow-green-100 flex items-center gap-2 flex-1 w-full"
+                        className="bg-[#10b981] hover:bg-[#0ea271] text-white font-bold px-8 h-[52px] rounded-full shadow-[0_4px_18px_rgba(16,185,129,0.28)] flex items-center gap-2 flex-1 w-full"
                     >
-                        <Star className="w-5 h-5 fill-white" />
+                        <Star className="w-4 h-4 fill-white" />
                         Leave a Review
                     </Button>
                     <Button
                         variant="outline"
                         onClick={() => window.close()}
-                        className="text-slate-600 font-bold h-16 px-8 rounded-2xl border-slate-200 flex-1 w-full"
+                        className="text-[#64748b] font-semibold h-[52px] px-8 rounded-full border-[#e9eaec] flex-1 w-full"
                     >
                         Back to Chat
                     </Button>
                 </div>
-                
-                <p className="mt-8 text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em]">
-                    Thank you for trading safely with us
-                </p>
             </div>
         );
     }
 
+    const isFinalized = txn.status === 'FINALIZED';
+    const isReturnPending = txn.status === 'RETURN_PENDING';
+    const canConfirm = txn.status === 'COMPLETED_BY_SELLER';
+    const showConfirmPanel = !isFinalized && !isReturnPending;
+    const tag = statusTag(txn.status);
+
     return (
-        <div className="min-h-screen bg-[#f8fafc] font-sans selection:bg-green-100">
-            {/* Nav */}
-            <nav className="bg-white/80 backdrop-blur-md border-b border-slate-100 px-6 py-4 sticky top-0 z-50">
-                <div className="max-w-5xl mx-auto flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <img src="/logo-main.svg" alt="Safeeely" className="h-6" />
-                        <div className="h-4 w-px bg-slate-200" />
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Delivery Portal</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-green-600">
-                        <Shield className="w-4 h-4" />
-                        <span className="text-[10px] font-bold uppercase tracking-widest">Escrow Protected</span>
-                    </div>
+        <div className="min-h-screen bg-[#F7F7F5] flex flex-col font-sans">
+            <nav className="bg-white border-b border-[#e9eaec] px-6 h-[60px] flex items-center justify-between sticky top-0 z-50">
+                <div className="flex items-center gap-2.5">
+                    <img src="/assets/logo-main.svg" alt="Safeeely" className="h-5" />
+                    <div className="w-px h-4 bg-[#e2e8f0]" />
+                    <span className="text-[11.5px] font-semibold text-[#94a3b8]">Delivery Portal</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-[#16a34a]">
+                    <Shield className="w-[13px] h-[13px]" />
+                    <span className="text-[11px] font-bold tracking-[.04em]">Escrow protected</span>
                 </div>
             </nav>
 
-            <main className="max-w-3xl mx-auto pt-12 pb-24 px-6">
-                {/* Hero Header */}
-                <div className="mb-12">
-                    <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest mb-4 ${
-                        txn.status === 'RETURN_PENDING' ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700'
-                    }`}>
-                        {txn.status === 'FINALIZED' ? <CheckCircle className="w-3 h-3" /> : txn.status === 'RETURN_PENDING' ? <RotateCcw className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-                        {txn.status === 'RETURN_PENDING' ? 'Return in Progress' : txn.status.replace(/_/g, ' ')}
+            <main className="flex-1 max-w-[680px] w-full mx-auto px-5 pt-7 pb-20">
+                <div className="mb-[22px]">
+                    <div className={`inline-flex items-center gap-1.5 mb-3 px-3 py-1.5 rounded-full text-[11px] font-bold ${tag.bg} ${tag.color}`}>
+                        {isFinalized ? <CheckCircle size={11} /> : isReturnPending ? <RotateCcw size={11} /> : <Clock size={11} />}
+                        {tag.label}
                     </div>
-                    <h1 className="text-4xl font-bold text-slate-900 tracking-tighter mb-2">Review Delivery Documents</h1>
-                    <p className="text-slate-500 font-medium">
-                        Delivery for <span className="text-slate-900 font-bold">{txn.product_name}</span> from <span className="text-slate-900 font-bold">{txn.seller?.safetag}</span>
+                    <h1 className="font-['Inter_Tight',sans-serif] text-[24px] font-black text-[#0f172a] tracking-[-.03em] mb-1.5">Review delivery proof</h1>
+                    <p className="text-[13.5px] text-[#64748b]">
+                        Delivery for <strong className="text-[#0f172a]">{txn.product_name}</strong> from <strong className="text-[#0f172a]">{txn.seller?.safetag}</strong>
                     </p>
                 </div>
 
-                {/* Transaction Snap */}
-                <div className="bg-white rounded-[32px] border border-slate-100 p-8 shadow-sm mb-8 flex items-center justify-between">
+                <div className="bg-white rounded-[20px] border border-[#e9eaec] px-[22px] py-[18px] flex items-center justify-between mb-4">
                     <div>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Transaction ID</p>
-                        <p className="text-sm font-bold text-slate-900 font-mono">{txn.txn_code}</p>
+                        <p className="text-[10.5px] font-semibold text-[#94a3b8] mb-1">Transaction ID</p>
+                        <code className="text-[13px] font-bold text-[#0f172a]">{txn.txn_code}</code>
                     </div>
                     <div className="text-right">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Amount</p>
-                        <p className="text-xl font-bold text-slate-900">{txn.total_amount} {txn.currency}</p>
+                        <p className="text-[10.5px] font-semibold text-[#94a3b8] mb-1">Amount in escrow</p>
+                        <p className="font-['Inter_Tight',sans-serif] text-[20px] font-extrabold text-[#0f172a]">{formatAmount(txn.total_amount, txn.currency)}</p>
                     </div>
                 </div>
 
-                {/* Proof List */}
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between mb-6">
-                        <h2 className="text-lg font-bold text-slate-900 tracking-tight">Proof of Delivery ({proofs.length})</h2>
+                <div className="mb-4">
+                    <div className="flex items-center justify-between mb-3">
+                        <h2 className="text-[15px] font-extrabold text-[#0f172a]">Proof of delivery</h2>
+                        <span className="inline-flex items-center px-2.5 py-[3px] rounded-full text-[10.5px] font-bold bg-[#f1f5f9] text-[#475569]">{proofs.length} file{proofs.length === 1 ? '' : 's'}</span>
                     </div>
 
                     {proofs.length === 0 ? (
-                        <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-[32px] p-20 text-center">
-                            <FileText className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                            <p className="text-slate-500 font-medium">No documents have been uploaded yet.</p>
+                        <div className="bg-white border-2 border-dashed border-[#e2e8f0] rounded-[20px] py-12 px-6 text-center">
+                            <FileText className="w-9 h-9 text-[#cbd5e1] mx-auto mb-3" />
+                            <p className="text-[14px] font-bold text-[#0f172a] mb-1">No proofs uploaded yet</p>
+                            <p className="text-[12px] text-[#94a3b8]">The seller hasn&apos;t submitted delivery proof yet. You&apos;ll be notified when they do.</p>
                         </div>
                     ) : (
-                        proofs.map((proof) => (
-                            <div key={proof.id} className="bg-white rounded-[24px] border border-slate-100 p-6 flex items-center gap-6 hover:shadow-lg transition-all group">
-                                <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center group-hover:bg-green-50 transition-colors">
-                                    <FileText className="w-6 h-6 text-slate-400 group-hover:text-[#10b981] transition-colors" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-bold text-slate-900 truncate mb-0.5">{proof.file_name || 'Untitled document'}</p>
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase">File</span>
-                                        <div className="w-1 h-1 rounded-full bg-slate-200" />
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase">{((proof.file_size || 0) / 1024 / 1024).toFixed(2)} MB</span>
+                        <div className="flex flex-col gap-2.5">
+                            {proofs.map((proof) => {
+                                const isImage = (proof.mime_type || '').startsWith('image/');
+                                return (
+                                    <div key={proof.id} className="rounded-2xl border border-[#e9eaec] bg-white overflow-hidden hover:shadow-[0_6px_24px_rgba(15,23,42,0.08)] transition-shadow">
+                                        {isImage && (
+                                            <div className="w-full aspect-[16/10] bg-[#f7f8f9]" style={{ backgroundImage: `url(${proof.file_url})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+                                        )}
+                                        <div className="flex items-center gap-3 px-4 py-3.5">
+                                            <div className="w-10 h-10 bg-[#f7f8f9] rounded-xl flex items-center justify-center shrink-0">
+                                                <FileText size={16} className="text-[#94a3b8]" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-[13px] font-bold text-[#0f172a] truncate">{proof.file_name || 'Untitled document'}</p>
+                                                <p className="text-[11px] text-[#94a3b8] mt-0.5">{((proof.file_size || 0) / 1024 / 1024).toFixed(2)} MB {isImage ? '· Image' : '· File'}</p>
+                                            </div>
+                                            <a
+                                                href={proof.file_url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="w-[38px] h-[38px] bg-[#0f172a] rounded-[10px] flex items-center justify-center text-white shrink-0 hover:bg-[#10b981] transition-colors"
+                                            >
+                                                <Download size={14} />
+                                            </a>
+                                        </div>
                                     </div>
-                                </div>
-                                <a
-                                    href={proof.file_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="h-12 w-12 bg-slate-900 text-white rounded-xl flex items-center justify-center hover:bg-[#10b981] transition-all shadow-lg shadow-slate-200 hover:shadow-green-100"
-                                >
-                                    <Download className="w-5 h-5" />
-                                </a>
-                            </div>
-                        ))
+                                );
+                            })}
+                        </div>
                     )}
                 </div>
 
-                {/* Return-of-Goods Panel (RETURN_PENDING) */}
-                {txn.status === 'RETURN_PENDING' && (
-                    <div className="mt-12 p-8 bg-amber-50/50 rounded-[40px] border border-amber-100 flex flex-col gap-6 shadow-sm">
-                        <div className="flex gap-4">
-                            <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
-                                <RotateCcw className="w-5 h-5 text-amber-600" />
+                {isReturnPending && (
+                    <div className="bg-[#fffbeb] border border-[#fde68a] rounded-[20px] p-[22px] mb-4">
+                        <div className="flex items-start gap-3 mb-[18px]">
+                            <div className="w-[38px] h-[38px] rounded-[10px] bg-[#fef3c7] flex items-center justify-center flex-shrink-0">
+                                <Package className="w-4 h-4 text-[#d97706]" />
                             </div>
                             <div>
-                                <p className="text-lg font-bold text-amber-900 mb-1">Return of Goods in Progress</p>
-                                <p className="text-sm text-amber-700 leading-relaxed font-medium">
-                                    The AI mediator has ruled that the buyer must return the goods to the seller before a refund is issued. Use the button that applies to your role.
-                                </p>
+                                <p className="text-[13.5px] font-extrabold text-[#92400e] mb-1">Return of goods in progress</p>
+                                <p className="text-[12px] text-[#b45309] leading-[1.55]">The mediator has ruled the buyer must return the goods before a refund is issued. Confirm your role below.</p>
                             </div>
                         </div>
 
                         {returnDone ? (
-                            <div className="bg-emerald-500 text-white p-6 rounded-[24px] text-center font-bold flex items-center justify-center gap-3">
-                                <CheckCircle className="w-5 h-5" />
-                                {returnDone === 'BUYER' ? 'Shipping confirmed! Awaiting seller receipt confirmation.' : 'Receipt confirmed! Buyer\'s refund has been credited.'}
+                            <div className="bg-[#10b981] rounded-2xl px-5 py-4 flex items-center gap-2.5 text-white">
+                                <CheckCircle className="w-[18px] h-[18px]" />
+                                <p className="text-[13px] font-bold">{returnDone === 'BUYER' ? 'Shipping confirmed! Awaiting seller receipt confirmation.' : 'Receipt confirmed! Buyer\'s refund has been credited.'}</p>
                             </div>
                         ) : (
-                            <div className="flex flex-col gap-3">
-                                <Button
+                            <div className="flex flex-col gap-2">
+                                <button
                                     onClick={() => handleConfirmReturn('BUYER')}
                                     disabled={returnConfirming}
-                                    className="bg-amber-500 hover:bg-amber-600 text-white font-bold h-14 rounded-[24px] flex items-center justify-center gap-3 w-full shadow-lg shadow-amber-100"
+                                    className="flex items-center justify-center gap-2 h-[52px] rounded-full bg-[#d97706] text-white font-bold text-[14px] shadow-[0_4px_18px_rgba(217,119,6,0.2)] disabled:opacity-50"
                                 >
-                                    {returnConfirming ? <Loader2 className="w-5 h-5 animate-spin" /> : (
-                                        <span>📦 I'm the Buyer — I've Shipped the Goods Back</span>
-                                    )}
-                                </Button>
-                                <Button
+                                    {returnConfirming ? <Loader2 className="w-4 h-4 animate-spin" /> : '📦 I\'m the buyer — I\'ve shipped the goods back'}
+                                </button>
+                                <button
                                     onClick={() => handleConfirmReturn('SELLER')}
                                     disabled={returnConfirming}
-                                    variant="outline"
-                                    className="border-amber-300 text-amber-700 hover:bg-amber-50 font-bold h-14 rounded-[24px] flex items-center justify-center gap-3 w-full"
+                                    className="flex items-center justify-center gap-2 h-[52px] rounded-full bg-white text-[#d97706] border border-[#fde68a] font-bold text-[14px] disabled:opacity-50"
                                 >
-                                    {returnConfirming ? <Loader2 className="w-5 h-5 animate-spin" /> : (
-                                        <span>✅ I'm the Seller — I've Received the Goods Back</span>
-                                    )}
-                                </Button>
+                                    {returnConfirming ? <Loader2 className="w-4 h-4 animate-spin" /> : '✅ I\'m the seller — I\'ve received the goods back'}
+                                </button>
                             </div>
                         )}
                     </div>
                 )}
 
-                {/* Footer Message & Action */}
-                {txn.status !== 'FINALIZED' && txn.status !== 'RETURN_PENDING' && (
-                    <div className="mt-12 p-8 bg-blue-50/50 rounded-[40px] border border-blue-100 flex flex-col gap-8 shadow-sm">
-                        <div className="flex gap-4">
-                            <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
-                                <Shield className="w-5 h-5 text-blue-600" />
+                {showConfirmPanel && (
+                    <div className="bg-white border border-[#e9eaec] rounded-[20px] p-[22px] mb-4">
+                        <div className="flex items-start gap-3 mb-5">
+                            <div className="w-[38px] h-[38px] rounded-[10px] bg-[#f0fdf4] flex items-center justify-center flex-shrink-0">
+                                <Shield className="w-4 h-4 text-[#16a34a]" />
                             </div>
                             <div>
-                                <p className="text-lg font-bold text-blue-900 mb-1">Satisfied with the delivery?</p>
-                                <p className="text-sm text-blue-700 leading-relaxed font-medium">
-                                    {txn.status === 'COMPLETED_BY_SELLER'
+                                <p className="text-[13.5px] font-extrabold text-[#0f172a] mb-1">Satisfied with the delivery?</p>
+                                <p className="text-[12px] text-[#64748b] leading-[1.55]">
+                                    {canConfirm
                                         ? 'If you have reviewed the documents and received your order, you can confirm receipt here. This will instantly release the payment to the seller.'
                                         : 'Once the seller uploads the final delivery documents, you will be able to confirm receipt and release funds here.'}
                                 </p>
                             </div>
                         </div>
 
-                        {txn.status === 'COMPLETED_BY_SELLER' ? (
-                            <Button
+                        {canConfirm ? (
+                            <button
                                 onClick={handleConfirmReceipt}
                                 disabled={confirming}
-                                className="bg-[#10b981] hover:bg-[#059669] text-white font-bold h-16 rounded-[24px] text-lg shadow-xl shadow-green-200 flex items-center gap-3 w-full"
+                                className="w-full flex items-center justify-center gap-2 h-[52px] rounded-full bg-[#10b981] text-white font-bold text-[14px] shadow-[0_4px_18px_rgba(16,185,129,0.28)] disabled:opacity-50"
                             >
                                 {confirming ? (
-                                    <Loader2 className="w-6 h-6 animate-spin" />
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        Confirming…
+                                    </>
                                 ) : (
                                     <>
-                                        Confirm & Release Funds
-                                        <CheckCircle className="w-6 h-6" />
+                                        <CheckCircle className="w-[15px] h-[15px]" />
+                                        Confirm receipt and release funds
                                     </>
                                 )}
-                            </Button>
+                            </button>
                         ) : (
-                            <div className="bg-slate-200 text-slate-500 p-6 rounded-[24px] text-center font-bold flex items-center justify-center gap-3">
-                                <Clock className="w-5 h-5" />
-                                Awaiting Seller Completion
+                            <div className="flex items-center justify-center gap-2 py-4 bg-[#f7f8f9] rounded-2xl text-[#94a3b8]">
+                                <Clock className="w-3.5 h-3.5" />
+                                <span className="text-[12.5px] font-semibold">Awaiting seller submission</span>
                             </div>
                         )}
                     </div>
                 )}
 
-                {txn.status === 'FINALIZED' && (
-                    <div className="mt-12 p-8 bg-green-50 rounded-[40px] border border-green-100 flex items-center gap-6 shadow-sm">
-                        <div className="w-14 h-14 bg-[#10b981] rounded-2xl flex items-center justify-center shrink-0 shadow-lg shadow-green-100">
-                            <CheckCircle className="w-8 h-8 text-white" />
+                {isFinalized && (
+                    <div className="bg-[#0f172a] rounded-[20px] p-6 flex items-center gap-4 mb-4">
+                        <div className="w-12 h-12 rounded-[14px] bg-[#10b981]/[0.15] flex items-center justify-center shrink-0">
+                            <CheckCircle className="w-[22px] h-[22px] text-[#10b981]" />
                         </div>
                         <div>
-                            <p className="text-xl font-bold text-slate-900">Payment Released</p>
-                            <p className="text-sm text-green-700 font-medium">This transaction is complete and funds have been sent to the seller.</p>
+                            <p className="text-[15px] font-extrabold text-white mb-0.5">Payment released</p>
+                            <p className="text-[12px] text-white/45">This transaction is complete and funds have been sent to the seller.</p>
                         </div>
                     </div>
                 )}
 
-                <div className="mt-12 flex justify-center">
-                    <Button
-                        variant="ghost"
+                <div className="text-center pt-2">
+                    <button
                         onClick={() => window.close()}
-                        className="text-slate-400 font-bold hover:text-slate-900"
+                        className="bg-none border-none cursor-pointer text-[13px] font-semibold text-[#94a3b8] hover:text-[#0f172a] inline-flex items-center gap-1.5 transition-colors"
                     >
-                        <ArrowLeft className="w-4 h-4 mr-2" />
-                        Back to Chat
-                    </Button>
+                        <ArrowLeft className="w-[13px] h-[13px]" />
+                        Back to chat
+                    </button>
                 </div>
             </main>
         </div>

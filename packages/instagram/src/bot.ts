@@ -187,6 +187,13 @@ async function checkAndGreet(psid: string) {
             await sendMsg(psid, { text: '⚠️ Your Safeeely account has been deactivated. Please contact support@safeeely.com if you believe this is a mistake.' });
             return;
         }
+        if (profile?.is_blocked) {
+            await sendMsg(psid, btnTemplate(
+                '🚫 This account has been blocked. Want to reactivate it?',
+                [{ type: 'web_url', url: `${REVIEWS_URL}/account/block?mode=activate&safetag=${encodeURIComponent(profile.safetag)}`, title: '🔓 Reactivate my account' }]
+            ));
+            return;
+        }
         if (profile?.safetag) {
             await sendMsg(psid, { text: `👋 Welcome back, ${profile.first_name || 'there'}!` });
             await sendNextOptions(psid, [{ title: '🛒 Create Txn', payload: 'CREATE_TXN' }]);
