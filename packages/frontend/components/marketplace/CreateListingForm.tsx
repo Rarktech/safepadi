@@ -5,6 +5,7 @@ import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/
 import { ImagePlus, X, ChevronLeft, ChevronRight, Globe, MapPin, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import posthog from 'posthog-js';
 import {
     ListingType, FeeHandling, ALL_CATEGORIES, SUB_CATS, COMMON_FEATURES,
     CURRENCIES, ORIGIN_COUNTRIES, DELIVERY_COUNTRIES,
@@ -125,6 +126,7 @@ export function CreateListingForm({ open, onClose, editId, onSaved }: { open: bo
             } else {
                 await api.post('/marketplace', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
                 toast.success('Listing published');
+                posthog.capture('listing_create_form_submitted', { category: type, has_image: photos.length > 0 });
             }
             onSaved();
         } catch (err: any) {

@@ -6,6 +6,7 @@ import { sendEmail } from '../services/email';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { requireUser, AuthedRequest, markJtiRevoked } from '../middleware/requireUser';
+import { track } from '../lib/posthog';
 
 const router = Router();
 
@@ -562,6 +563,7 @@ router.post('/account-otp/verify', async (req, res) => {
             });
 
             const { linked_accounts, ...profileOut } = profile as any;
+            track(profile.safetag, 'login_succeeded', { method: 'otp' });
             return res.json({ success: true, profile: profileOut });
         }
 
@@ -603,6 +605,8 @@ router.post('/account-otp/verify', async (req, res) => {
             if (primaryLinked?.platform_id) await sendNotification(primaryLinked.platform, primaryLinked.platform_id, dmMessage);
             sendEmail({ to: profile.email, subject: '✅ Your Safeeely Account Has Been Reactivated', html: emailHtml }).catch(() => {});
         }
+
+        track(safetag, newBlocked ? 'account_self_blocked' : 'account_self_unblocked', {});
 
         res.json({ success: true, is_blocked: newBlocked });
     } catch (err: any) {

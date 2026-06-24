@@ -53,6 +53,11 @@ const BOT_AUTH_HEADERS = process.env.BOT_API_SECRET
     ? { 'Authorization': `Bearer ${process.env.BOT_API_SECRET}`, 'x-bot-platform': 'telegram' }
     : {};
 
+function trackBotEvent(safetag: string | undefined | null, event: string, properties: Record<string, any> = {}) {
+    if (!safetag) return;
+    axios.post(`${API_URL}/analytics/capture`, { distinct_id: safetag, event, properties }, { headers: BOT_AUTH_HEADERS }).catch(() => {});
+}
+
 // Session maps to avoid exceeding Telegram's 64-byte callback_data limit
 const pendingRefunds = new Map<string, { txnId: string; reason?: string }>();
 const pendingMilestoneActions = new Map<string, Array<{ txnId: string; mId: string; status: string }>>();
@@ -269,12 +274,14 @@ bot.start(async (ctx) => {
                     });
                 }
                 // User exists, show menu
+                trackBotEvent(response.data.safetag, 'bot_started', { is_returning_user: true });
                 await ctx.reply(`👋 Welcome back, <b>${response.data.first_name || 'user'}</b>!`, { parse_mode: 'HTML' });
                 return showMainMenu(ctx);
             }
         } catch (apiErr: any) {
             if (apiErr.response?.status === 404) {
                 console.warn(`⚠️ User ${userId} not found in database. Starting registration wizard.`);
+                trackBotEvent(`telegram:${userId}`, 'bot_registration_prompted', {});
                 // User not found, start registration
                 await ctx.reply('👋 <b>Welcome to Safeeely!</b>\n\nYour trusted escrow service for secure social media transactions.\n\nIt looks like you\'re new here. Let\'s get you registered!', { parse_mode: 'HTML' });
 
@@ -1425,11 +1432,16 @@ bot.on('message', async (ctx) => {
         return; // Ignore other types if not in a scene
     }
 
+    const myTagPromise = axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`).then((r) => r.data?.safetag).catch(() => undefined);
+    const inputModality = audioBuffer ? 'voice' : 'text';
+    myTagPromise.then((tag) => trackBotEvent(tag, 'smart_txn_parse_attempted', { input_modality: inputModality }));
+
     try {
         const aiResult = await processSmartTransaction(textBody, audioBuffer, mimeType, ctx.session?.smartTxnDraft);
         if (ctx.session) ctx.session.smartTxnDraft = aiResult.draft;
 
         if (aiResult.is_complete) {
+            myTagPromise.then((tag) => trackBotEvent(tag, 'smart_txn_parse_succeeded', { input_modality: inputModality }));
             const draft = aiResult.draft;
             let mList = '';
             if (draft.transaction_type === 'MILESTONE' && draft.milestones) {
@@ -1460,6 +1472,7 @@ bot.on('message', async (ctx) => {
         }
     } catch (e: any) {
         console.error('Smart Txn Error:', e.message);
+        myTagPromise.then((tag) => trackBotEvent(tag, 'smart_txn_parse_failed', { input_modality: inputModality }));
         await ctx.reply("❌ Sorry, I had trouble processing that. Please try again or use the standard form.");
     }
 });

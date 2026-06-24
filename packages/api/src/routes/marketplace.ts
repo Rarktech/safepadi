@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import multer from 'multer';
+import { track } from '../lib/posthog';
 
 // Use memory storage for fast transit to Supabase Bucket
 const upload = multer({ storage: multer.memoryStorage() });
@@ -89,6 +90,18 @@ router.post('/', upload.array('images', 5), async (req, res) => {
         if (dbError) throw dbError;
 
         console.log('✅ Listing perfectly created:', listing.id);
+
+        const { data: listingOwner } = await supabase.from('profiles').select('safetag').eq('id', payload.profile_id).maybeSingle();
+        if (listingOwner?.safetag) {
+            track(listingOwner.safetag, 'listing_created', {
+                listing_id: listing.id,
+                category: payload.category_type,
+                price: listing.price,
+                currency: listing.currency,
+                image_count: uploadedImageUrls.length,
+            });
+        }
+
         res.status(201).json(listing);
 
     } catch (err: any) {

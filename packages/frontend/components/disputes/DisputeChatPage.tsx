@@ -8,6 +8,7 @@ import {
 import { format, formatDistanceToNow } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
 import api from '@/lib/api';
+import posthog from 'posthog-js';
 import { VerdictCard } from './VerdictCard';
 import { EscalationView } from './EscalationView';
 import { EvidenceGrid } from './EvidenceGrid';
@@ -202,6 +203,10 @@ export function DisputeChatPage({ dispute: initialDispute, safetag, onBack }: Di
   const isBuyer = safetag.toLowerCase() === txn?.buyer?.safetag?.toLowerCase();
   const isSeller = safetag.toLowerCase() === txn?.seller?.safetag?.toLowerCase();
   const profileId = isBuyer ? buyerId : (isSeller ? sellerId : '');
+
+  useEffect(() => {
+    posthog.capture('dispute_opened', { dispute_id: dispute.id });
+  }, [dispute.id]);
 
   const fetchMessages = useCallback(async () => {
     try {

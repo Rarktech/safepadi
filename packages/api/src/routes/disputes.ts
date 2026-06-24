@@ -12,6 +12,7 @@ import { issueReferralCommissions } from '../services/commissions';
 import { routeDispute } from '../services/disputeRouter';
 import { requireUser, requireUserOrBot, BotOrUserRequest, AuthedRequest } from '../middleware/requireUser';
 import { requireAdmin } from '../middleware/requireAdmin';
+import { track } from '../lib/posthog';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -224,6 +225,15 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
                         issueReferralCommissions(txn).catch(() => {});
                     }
 
+                    if (txn.buyer?.safetag) {
+                        track(txn.buyer.safetag, 'dispute_verdict_executed', {
+                            dispute_id: disputeId,
+                            outcome: aiResult.action,
+                            refund_amount: txnMeta?.buyer_amount ?? (aiResult.action === 'REFUND_BUYER' ? txn.amount : 0),
+                            currency: txn.currency,
+                        });
+                    }
+
                     // Update reputation for all resolved verdicts
                     updateDisputeReputation(txn, aiResult.action).catch(() => {});
 
@@ -414,6 +424,19 @@ router.post('/raise', requireUserOrBot, async (req: Request, res: Response) => {
             .from('transactions')
             .update({ status: 'DISPUTED' })
             .eq('id', data.transaction_id);
+
+        const raiserIsBuyer = data.raised_by === txn.buyer_id;
+        const raiserSafetag = raiserIsBuyer ? txn.buyer?.safetag : txn.seller?.safetag;
+        if (raiserSafetag) {
+            track(raiserSafetag, 'dispute_raised', {
+                dispute_id: dispute.id,
+                transaction_id: txn.id,
+                dispute_type: dispute.dispute_type,
+                raised_by_role: raiserIsBuyer ? 'buyer' : 'seller',
+                amount: txn.amount,
+                currency: txn.currency,
+            });
+        }
 
         // Trigger AI Mediator (fire-and-forget with DB lock)
         runAIForDispute(dispute.id, txn);
@@ -957,6 +980,10 @@ router.post('/:id/confirm-return', requireUser, async (req: Request, res: Respon
 
             await insertBuyerRefundCredit(id, txn, 'RETURN_CONFIRMED', 'RETURN_CONFIRMED');
 
+            if (txn.buyer?.safetag) {
+                track(txn.buyer.safetag, 'dispute_return_confirmed', { dispute_id: id, transaction_id: txn.id });
+            }
+
             await sendVerdictNotifications(id, 'REFUND_BUYER', txn);
 
             return res.json({ message: 'Return confirmed — refund credit has been issued to buyer' });
@@ -991,6 +1018,11 @@ router.post('/:id/escalate', requireUser, async (req: Request, res: Response) =>
 
         // Pause AI mediation
         await supabase.from('disputes').update({ is_ai_paused: true }).eq('id', id);
+
+        track(user.safetag, 'dispute_escalated_to_human', {
+            dispute_id: id,
+            escalated_by_role: user.sub === dt.buyer_id ? 'buyer' : 'seller',
+        });
 
         // Assign best specialist via smart routing
         const specialist = await routeDispute(id, disputeData.dispute_type);

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { CheckCircle, Shield, ArrowRight, MessageSquare } from 'lucide-react';
 import axios from 'axios';
+import posthog from 'posthog-js';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 
@@ -11,6 +12,10 @@ export default function PaymentSuccessPage() {
     const { id } = useParams();
     const router = useRouter();
     const [txn, setTxn] = useState<any>(null);
+
+    useEffect(() => {
+        if (id) posthog.capture('payment_success', { transaction_id: id });
+    }, [id]);
 
     useEffect(() => {
         const fetchTxn = async () => {

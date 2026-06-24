@@ -33,6 +33,11 @@ const BOT_AUTH_HEADERS       = process.env.BOT_API_SECRET
     ? { 'Authorization': `Bearer ${process.env.BOT_API_SECRET}`, 'x-bot-platform': 'instagram' }
     : {};
 
+function trackBotEvent(safetag: string | undefined | null, event: string, properties: Record<string, any> = {}) {
+    if (!safetag) return;
+    axios.post(`${API_URL}/analytics/capture`, { distinct_id: safetag, event, properties }, { headers: BOT_AUTH_HEADERS }).catch(() => {});
+}
+
 console.log(`📸 Safeeely Instagram Bot Starting...`);
 
 // ─── State machine ────────────────────────────────────────────────────────────
@@ -195,6 +200,7 @@ async function checkAndGreet(psid: string) {
             return;
         }
         if (profile?.safetag) {
+            trackBotEvent(profile.safetag, 'bot_started', { is_returning_user: true });
             await sendMsg(psid, { text: `👋 Welcome back, ${profile.first_name || 'there'}!` });
             await sendNextOptions(psid, [{ title: '🛒 Create Txn', payload: 'CREATE_TXN' }]);
             return;
@@ -202,6 +208,7 @@ async function checkAndGreet(psid: string) {
     } catch (e: any) {
         if (e.response?.status !== 404) console.error('Instagram profile check error:', e.message);
     }
+    trackBotEvent(`instagram:${psid}`, 'bot_registration_prompted', {});
     await sendWelcome(psid);
 }
 
@@ -585,6 +592,8 @@ async function createTransaction(psid: string) {
         const txn = res.data;
         delete userStates[psid];
 
+        trackBotEvent(p.safetag, 'txn_wizard_completed', { entry_method: fd.is_smart_draft ? 'smart_ai' : 'form' });
+
         const counterpartyRole = fd.role === 'buyer' ? 'Seller' : 'Buyer';
         await sendMsg(psid, {
             text:
@@ -605,6 +614,7 @@ async function createTransaction(psid: string) {
         delete userStates[psid];
         const errData = err.response?.data;
         if (errData?.error === 'AMOUNT_LIMIT_EXCEEDED') {
+            getProfile(psid).then((p) => trackBotEvent(p?.safetag, 'bot_amount_limit_hit', { currency: fd.currency })).catch(() => {});
             const kycUrl = await buildMagicLink({ platform_id: psid, scope: 'kyc', fallbackUrl: `${REVIEWS_URL}/kyc` }).catch(() => `${REVIEWS_URL}/kyc`);
             await sendMsg(psid, btnTemplate(
                 `⚠️ Transaction Limit Exceeded\n\n${errData.message || 'Your unverified account has a transaction limit. Complete identity verification to unlock higher amounts.'}`,
@@ -1087,14 +1097,16 @@ async function handleMessage(psid: string, message: any) {
 
     // If logged in and no active state → smart transaction
     try {
-        await getProfile(psid);
+        const profile = await getProfile(psid);
         // User is registered — treat free text as smart transaction
         userStates[psid] = { mode: 'SMART_TXN', step: 'PROCESSING', smartDraft: {} };
         await sendMsg(psid, { text: '🎙️ Processing your request...' });
+        trackBotEvent(profile?.safetag, 'smart_txn_parse_attempted', { input_modality: 'text' });
         try {
             const result = await processSmartTransaction(rawText);
             userStates[psid] = { mode: 'SMART_TXN', step: 'AWAITING_SMART_CONFIRM', smartDraft: result.draft };
             if (result.is_complete) {
+                trackBotEvent(profile?.safetag, 'smart_txn_parse_succeeded', { input_modality: 'text' });
                 await showSmartTxnDraft(psid, result.draft);
             } else {
                 userStates[psid].step = 'AWAITING_EDIT';
@@ -1105,6 +1117,7 @@ async function handleMessage(psid: string, message: any) {
             }
         } catch (_) {
             delete userStates[psid];
+            trackBotEvent(profile?.safetag, 'smart_txn_parse_failed', { input_modality: 'text' });
             await sendMsg(psid, { text: '❌ Could not process your message. Use the menu below or say "Hello" to see options.' });
             await sendNextOptions(psid, [{ title: '🛒 Create Txn', payload: 'CREATE_TXN' }]);
         }
@@ -1617,6 +1630,7 @@ async function handlePostback(psid: string, payload: string) {
     // ── Create transaction ────────────────────────────────────────────────────
     } else if (payload === 'CREATE_TXN') {
         userStates[psid] = { mode: 'CREATE_TXN', step: 'AWAITING_ROLE', formData: {} };
+        getProfile(psid).then((p) => trackBotEvent(p?.safetag, 'txn_wizard_started', { entry_method: 'form' })).catch(() => {});
         await sendMsg(psid, qr('🛒 Create Transaction\n\nWhat is your role?', [
             { title: '🛒 Buyer',  payload: 'ROLE_BUYER'  },
             { title: '🤝 Seller', payload: 'ROLE_SELLER' }
@@ -1754,7 +1768,8 @@ async function handlePostback(psid: string, payload: string) {
                     milestones:            draft.milestones,
                     fee_allocation:        draft.fee_allocation,
                     counterparty_safetag:  safetag,
-                    counterparty_profile:  profile
+                    counterparty_profile:  profile,
+                    is_smart_draft:        true
                 }
             };
             await showCounterpartyPreview(psid, profile, safetag);

@@ -236,7 +236,7 @@ export const SheetWithdrawal = ({
 
     return (
         <Sheet open={isOpen} onOpenChange={(open) => !open && reset()}>
-            <SheetContent className="sm:max-w-[460px] w-full border-none p-0 bg-white flex flex-col gap-0">
+            <SheetContent className="sm:max-w-[460px] w-full border-none p-0 bg-white flex flex-col gap-0 ph-no-capture">
                 <SheetHeader className="sr-only">
                     <SheetTitle>Withdrawal Portal</SheetTitle>
                     <SheetDescription>Securely withdraw your funds to a bank account or crypto wallet.</SheetDescription>

@@ -12,6 +12,8 @@ Sentry.init({
     tracesSampleRate: 0.1,
 });
 
+import { shutdownPostHog } from './lib/posthog';
+
 // Fail fast on missing secrets — never allow the server to start insecurely
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
     console.error('FATAL: JWT_SECRET env var is not set or is too short (min 32 chars). Refusing to start.');
@@ -44,6 +46,7 @@ import notificationRoutes from './routes/notifications';
 import communityRoutes from './routes/communities';
 import feedbackRoutes from './routes/feedback';
 import reportRoutes from './routes/reports';
+import analyticsRoutes from './routes/analytics';
 import cron from 'node-cron';
 import { runWeeklyDigest } from './cron/weeklyDigest';
 import { runLicenseExpiryCheck } from './cron/licenseExpiry';
@@ -123,6 +126,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/communities', communityRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // 🔍 Health Check & Diagnostics
 app.get('/api/ping', (req, res) => {
@@ -203,4 +207,8 @@ cron.schedule('0 */4 * * *', () => {
 
 app.listen(PORT, () => {
     console.log(`Safeeely API is running on port ${PORT}`);
+});
+
+process.on('SIGTERM', () => {
+    shutdownPostHog().catch(() => {});
 });

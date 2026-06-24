@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import axios from "axios";
 import { Loader2 } from "lucide-react";
+import posthog from "posthog-js";
 
 const API_URL = "/api";
 
@@ -17,7 +18,8 @@ export default function AdminAuthProvider({ children }: { children: React.ReactN
         const isLoginPage = pathname === "/admin/login";
 
         axios.get(`${API_URL}/admin/auth/me`, { headers: { 'ngrok-skip-browser-warning': 'true' } })
-            .then(() => {
+            .then((res) => {
+                if (res.data?.id) posthog.identify(res.data.id, { role: 'admin' });
                 if (isLoginPage) router.replace("/admin/dashboard");
                 setIsAuthorized(true);
             })

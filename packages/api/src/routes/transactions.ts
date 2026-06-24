@@ -10,6 +10,7 @@ import { maybeSendFeedbackPrompt } from './feedback';
 import { requireUser, requireUserOrBot, AuthedRequest, BotOrUserRequest } from '../middleware/requireUser';
 import { buildInternalMagicLink } from '../services/magicLinkInternal';
 import { CRYPTO_CURRENCIES, AUTO_DISBURSE_THRESHOLDS } from '../constants/payouts';
+import { track } from '../lib/posthog';
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -211,6 +212,17 @@ router.post('/create', async (req, res) => {
         const recipientTag = isBuyerInitiated ? data.seller_safetag : data.buyer_safetag;
         const initiatorTag = isBuyerInitiated ? data.buyer_safetag : data.seller_safetag;
         const initiatorRole = isBuyerInitiated ? 'buyer' : 'seller';
+
+        track(initiatorTag, 'transaction_created', {
+            transaction_id: txn.id,
+            role_of_creator: initiatorRole,
+            type: data.transaction_type,
+            currency: data.currency,
+            amount: data.amount,
+            has_milestones: data.transaction_type === 'MILESTONE',
+            milestone_count: data.milestones?.length || 0,
+            fee_allocation: data.fee_allocation,
+        });
 
         console.log(`🔔 Preparing notification for ${isBuyerInitiated ? 'seller' : 'buyer'} (${recipientTag})...`);
 
@@ -609,6 +621,14 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
                 [{ label: '🏠 Main Menu', customId: 'main_menu' }]
             ).catch(() => {});
 
+            if (txn.seller?.safetag) {
+                track(txn.seller.safetag, 'transaction_cancelled', {
+                    transaction_id: txn.id,
+                    cancelled_by_role: 'seller',
+                    stage_at_cancel: txn.status,
+                });
+            }
+
             return res.json({ success: true, message: 'Transaction cancelled and buyer refunded' });
         }
 
@@ -625,6 +645,24 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
             .eq('id', txn.id);
 
         if (updateError) throw updateError;
+
+        const STATUS_EVENT_NAMES: Record<string, string> = {
+            ACCEPTED: 'transaction_accepted',
+            DECLINED: 'transaction_declined',
+            AWAITING_PROOF: 'transaction_awaiting_proof',
+            COMPLETED_BY_SELLER: 'transaction_proof_submitted',
+            FINALIZED: 'transaction_finalized',
+        };
+        const statusEventName = STATUS_EVENT_NAMES[newStatus];
+        const responderTag = actorId === txn.seller_id ? txn.seller?.safetag : txn.buyer?.safetag;
+        if (statusEventName && responderTag) {
+            track(responderTag, statusEventName, {
+                transaction_id: txn.id,
+                responder_role: actorId === txn.seller_id ? 'seller' : 'buyer',
+                amount: txn.amount,
+                currency: txn.currency,
+            });
+        }
 
         // Cascade milestone rows to RELEASED when a milestone transaction is finalized via confirm_receipt
         // (WhatsApp/Instagram/Messenger/Apple have no per-milestone UI; buyer confirms the whole job at once)
@@ -681,6 +719,15 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
                             status: 'COMPLETED'
                         });
                         console.log(`💰 Paid Tier 1 Commission: ${tier1Amount} ${txn.currency} to ${tier1ReferrerId}`);
+                        const { data: tier1ReferrerProfile } = await supabase.from('profiles').select('safetag').eq('id', tier1ReferrerId).maybeSingle();
+                        if (tier1ReferrerProfile?.safetag) {
+                            track(tier1ReferrerProfile.safetag, 'referral_commission_earned', {
+                                tier: 1,
+                                amount: tier1Amount,
+                                currency: txn.currency,
+                                source_transaction_id: txn.id,
+                            });
+                        }
                         sendReferralNotification(
                             tier1ReferrerId,
                             `💰 <b>Commission Earned!</b>\n\nYou just earned a <b>Tier 1</b> referral commission of <b>${tier1Amount.toFixed(2)} ${txn.currency}</b>. Keep it up!`,
@@ -698,6 +745,9 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
                             if (tier1Count && REFERRAL_MILESTONES.includes(tier1Count)) {
                                 const { data: referrerProfile } = await supabase.from('profiles').select('safetag, email').eq('id', tier1ReferrerId).single();
                                 const earningsSummary = `${tier1Amount.toFixed(2)} ${txn.currency} (latest)`;
+                                if (referrerProfile?.safetag) {
+                                    track(referrerProfile.safetag, 'referral_milestone_reached', { milestone: tier1Count });
+                                }
                                 routeNotification(
                                     tier1ReferrerId,
                                     `🏆 <b>Referral Milestone!</b>\n\nYou just hit <b>${tier1Count} referral${tier1Count > 1 ? 's' : ''}</b> on Safeeely! Keep sharing to earn more for life.`,
@@ -730,6 +780,15 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
                                 status: 'COMPLETED'
                             });
                             console.log(`💰 Paid Tier 2 Commission: ${tier2Amount} ${txn.currency} to ${tier2ReferrerId}`);
+                            const { data: tier2ReferrerProfile } = await supabase.from('profiles').select('safetag').eq('id', tier2ReferrerId).maybeSingle();
+                            if (tier2ReferrerProfile?.safetag) {
+                                track(tier2ReferrerProfile.safetag, 'referral_commission_tier2_earned', {
+                                    tier: 2,
+                                    amount: tier2Amount,
+                                    currency: txn.currency,
+                                    source_transaction_id: txn.id,
+                                });
+                            }
                             sendReferralNotification(
                                 tier2ReferrerId,
                                 `💰 <b>Commission Earned!</b>\n\nYou just earned a <b>Tier 2</b> referral commission of <b>${tier2Amount.toFixed(2)} ${txn.currency}</b>. Keep it up!`,

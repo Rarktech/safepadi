@@ -6,6 +6,7 @@ import { sendWithdrawalInitiatedEmail } from '../services/email';
 import { disburseFunds } from '../services/payout';
 import { requireUser, requireSafetagOwner, requireElevation, AuthedRequest } from '../middleware/requireUser';
 import { CRYPTO_CURRENCIES, AUTO_DISBURSE_THRESHOLDS, KYC_THRESHOLDS } from '../constants/payouts';
+import { track } from '../lib/posthog';
 
 const router = Router();
 
@@ -121,12 +122,27 @@ router.post('/:safetag', requireUser, requireSafetagOwner, requireElevation('wit
         ).catch(() => {});
         recordNotification(profileId, 'withdrawal', '💸 Withdrawal Request Received', `${numAmount} ${currency} — ${requiresApproval ? 'pending approval' : 'processing'}`, { withdrawal_id: withdrawalId, amount: numAmount, currency, reference, link_url: `/withdraw/${encodeURIComponent(profile.safetag)}?view=withdraw` }).catch(() => {});
 
+        track(profile.safetag, 'withdrawal_requested', {
+            amount: numAmount,
+            currency,
+            initial_status: status,
+            kyc_verified: profile.kyc_status === 'VERIFIED',
+            velocity_flagged: (pendingCount ?? 0) > 0,
+        });
+
         // Auto-disburse for amounts below threshold (fire-and-forget)
         if (!requiresApproval) {
+            track(profile.safetag, 'withdrawal_auto_disbursed', { amount: numAmount, currency });
             setImmediate(() => {
                 disburseFunds(withdrawalId).catch(err =>
                     console.error(`[Withdrawal] Auto-disburse failed for ${withdrawalId}:`, err.message)
                 );
+            });
+        } else {
+            track(profile.safetag, 'withdrawal_held_for_approval', {
+                amount: numAmount,
+                currency,
+                hold_reason: isCrypto ? 'crypto' : 'amount_threshold',
             });
         }
 

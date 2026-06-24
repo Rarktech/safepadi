@@ -32,6 +32,11 @@ const BOT_AUTH_HEADERS = process.env.BOT_API_SECRET
     ? { 'Authorization': `Bearer ${process.env.BOT_API_SECRET}`, 'x-bot-platform': 'whatsapp' }
     : {};
 
+function trackBotEvent(safetag: string | undefined | null, event: string, properties: Record<string, any> = {}) {
+    if (!safetag) return;
+    axios.post(`${API_URL}/analytics/capture`, { distinct_id: safetag, event, properties }, { headers: BOT_AUTH_HEADERS }).catch(() => {});
+}
+
 // ─── Flow security (RSA for WhatsApp Flows) ───────────────────────────────────
 const PRIVATE_KEY_PATH = path.resolve(__dirname, '../private.pem');
 let flowCrypto: FlowCrypto | null = null;
@@ -589,6 +594,8 @@ async function createTransaction(from: string) {
         const txn = res.data;
         txnSessions.delete(from);
 
+        trackBotEvent(p.safetag, 'txn_wizard_completed', { entry_method: fd.is_smart_draft ? 'smart_ai' : 'form' });
+
         const displayAmount = `${totalAmount} ${fd.currency}`;
         const counterpartyRole = fd.role === 'buyer' ? 'Seller' : 'Buyer';
 
@@ -613,6 +620,7 @@ async function createTransaction(from: string) {
         txnSessions.delete(from);
         const errData = err.response?.data;
         if (errData?.error === 'AMOUNT_LIMIT_EXCEEDED') {
+            getProfile(from).then((p) => trackBotEvent(p?.safetag, 'bot_amount_limit_hit', { currency: fd.currency })).catch(() => {});
             const kycUrl = await buildMagicLink({ platform_id: from, scope: 'kyc', fallbackUrl: `${REVIEWS_URL}/kyc` }).catch(() => `${REVIEWS_URL}/kyc`);
             await sendCTAUrl(from, errData.message || 'Your unverified account has a transaction limit. Complete identity verification to unlock higher amounts.', '✅ Verify Account', kycUrl);
             await sendButtons(from, 'Or return to the main menu:', [{ id: 'MAIN_MENU', title: '🏠 Main Menu' }]);
@@ -1060,10 +1068,13 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
                 mimeType    = message.audio.mime_type || 'audio/ogg';
             }
             const existingDraft = smartTxnSessions.get(from);
+            const inputModality = msgType === 'audio' ? 'voice' : 'text';
+            getProfile(from).then((p) => trackBotEvent(p?.safetag, 'smart_txn_parse_attempted', { input_modality: inputModality })).catch(() => {});
             const aiResult = await processSmartTransaction(msgType === 'text' ? rawText : '', audioBuffer, mimeType, existingDraft);
             smartTxnSessions.set(from, aiResult.draft);
 
             if (aiResult.is_complete) {
+                getProfile(from).then((p) => trackBotEvent(p?.safetag, 'smart_txn_parse_succeeded', { input_modality: inputModality })).catch(() => {});
                 const draft = aiResult.draft;
                 let milestoneText = '';
                 if (draft.transaction_type === 'MILESTONE' && draft.milestones?.length) {
@@ -1098,6 +1109,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
             }
         } catch (e: any) {
             console.error('Smart Txn Error:', e.message);
+            getProfile(from).then((p) => trackBotEvent(p?.safetag, 'smart_txn_parse_failed', { input_modality: msgType === 'audio' ? 'voice' : 'text' })).catch(() => {});
             await sendText(from, '❌ Sorry, I had trouble processing that. Please try again or use the menu.');
         }
         return;
@@ -1129,6 +1141,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
             const profileRes = await axios.get(`${API_URL}/profiles/by_platform/whatsapp/${from}`);
             if (profileRes.data?.safetag && !profileRes.data?.is_deactivated && !profileRes.data?.is_blocked) {
                 isRegistered = true;
+                trackBotEvent(profileRes.data.safetag, 'bot_started', { is_returning_user: true });
                 await sendMainMenu(from, `👋 Welcome back, ${profileRes.data.first_name || 'there'}!`);
             } else if (profileRes.data?.is_deactivated) {
                 isRegistered = true;
@@ -1141,6 +1154,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
             if (e.response?.status !== 404) console.error('WA profile check error:', e.message);
         }
         if (!isRegistered) {
+            trackBotEvent(`whatsapp:${from}`, 'bot_registration_prompted', {});
             await sendButtons(from,
                 '👋 *Welcome to Safeeely!*\n\nYour trusted escrow service for secure social media transactions.\n\n🔒 Secure | 🌍 Cross-Platform | ⚡ Fast\n\nBefore we begin, please review and agree to our Privacy Policy to protect your data: https://safeeely.com/privacy',
                 [{ id: 'AGREE_POLICY', title: '✅ Agree & Continue' }]
@@ -1606,6 +1620,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
     // Create transaction flow
     } else if (interactiveId === 'CREATE_TXN') {
         txnSessions.set(from, { step: 'AWAITING_ROLE', formData: {} });
+        getProfile(from).then((p) => trackBotEvent(p?.safetag, 'txn_wizard_started', { entry_method: 'form' })).catch(() => {});
         await sendButtons(from, '🛒 *Create Transaction*\n\nWhat is your role?', [
             { id: 'ROLE_BUYER',  title: '🛒 Buyer'  },
             { id: 'ROLE_SELLER', title: '🤝 Seller' }
@@ -1765,7 +1780,8 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
                     product_name: draft.product_name, description: draft.description || '',
                     currency: draft.currency, amount: draft.amount,
                     milestones: draft.milestones, fee_allocation: draft.fee_allocation,
-                    counterparty_safetag: safetag, counterparty_profile: res.data
+                    counterparty_safetag: safetag, counterparty_profile: res.data,
+                    is_smart_draft: true
                 }
             });
             smartTxnSessions.delete(from);

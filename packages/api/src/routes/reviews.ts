@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { sendNotification, routeNotification, recordNotification } from '../services/notifications';
 import { sendReviewReceivedEmail } from '../services/email';
 import { requireUser, AuthedRequest } from '../middleware/requireUser';
+import { track } from '../lib/posthog';
 
 const router = Router();
 
@@ -93,6 +94,13 @@ router.post('/create', async (req, res) => {
 
         if (error) throw error;
 
+        track(data.reviewer_safetag, 'review_created', {
+            transaction_id: data.transaction_id,
+            rating: data.rating,
+            reviewer_role: reviewer.id === txn.buyer_id ? 'buyer' : 'seller',
+            has_comment: !!data.comment,
+        });
+
         // Notify the reviewee they received a new review
         const stars = '⭐'.repeat(data.rating);
         const reviewMsg = `${stars} <b>New Review!</b>\n\n<b>${data.reviewer_safetag}</b> left you a <b>${data.rating}/5</b> review.\n\n"${data.comment || '(no comment)'}"`;
@@ -110,6 +118,7 @@ router.post('/create', async (req, res) => {
         const TRUST_MILESTONES = [3.0, 4.0, 4.5, 5.0];
         const crossed = TRUST_MILESTONES.find(m => prevAvg < m && newAvg >= m);
         if (crossed) {
+            track(reviewee.safetag, 'trust_milestone_reached', { milestone_threshold: crossed, avg_rating: newAvg });
             const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
             routeNotification(
                 reviewee.id,

@@ -4,6 +4,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
+import posthog from 'posthog-js';
 import api from '@/lib/api';
 import { apiErrorMessage } from '@/lib/apiError';
 import { OtpInput, focusOtpBox } from '@/components/auth/OtpInput';
@@ -96,6 +97,7 @@ function LoginContent() {
             const res = await api.post<{ profile?: { safetag?: string } }>('/auth/account-otp/verify', { email: email.trim(), code, purpose: 'web_login' });
             setStep('success');
             const safetag = res.data?.profile?.safetag;
+            if (safetag) posthog.identify(safetag, { primary_platform: 'WEB' });
             const destination = next || (safetag ? `/withdraw/${encodeURIComponent(safetag)}` : '/');
             setTimeout(() => router.push(destination), 1800);
         } catch (err) {

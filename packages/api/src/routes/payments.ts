@@ -6,6 +6,7 @@ import { queryAndSyncStatus } from '../services/payout';
 import * as palmPayProvider from '../services/providers/palmPay';
 import crypto from 'crypto';
 import axios from 'axios';
+import { track } from '../lib/posthog';
 
 const router = Router();
 
@@ -101,6 +102,15 @@ router.post('/opay/webhook', async (req, res) => {
                     metadata: { ...(txn.metadata || {}), payment_gateway: 'OPay' }
                 }).eq('id', txn.id);
 
+                if (txn.buyer?.safetag) {
+                    track(txn.buyer.safetag, 'payment_succeeded', {
+                        transaction_id: txn.id,
+                        provider: 'opay',
+                        amount: txn.total_amount,
+                        currency: txn.currency,
+                    });
+                }
+
                 console.log(`✅ [OPay Webhook] Transaction ${txnCode} marked as PAID`);
 
                 const apiBaseUrl = process.env.API_URL || 'http://localhost:3000/api';
@@ -179,6 +189,15 @@ router.post('/airwallex/webhook', async (req, res) => {
                     status: 'PAID',
                     metadata: { ...(txn.metadata || {}), payment_gateway: 'Airwallex' }
                 }).eq('id', txn.id);
+
+                if (txn.buyer?.safetag) {
+                    track(txn.buyer.safetag, 'payment_succeeded', {
+                        transaction_id: txn.id,
+                        provider: 'airwallex',
+                        amount: txn.total_amount,
+                        currency: txn.currency,
+                    });
+                }
 
                 console.log(`✅ [Airwallex Webhook] Transaction ${txnCode} marked as PAID`);
 
@@ -272,6 +291,15 @@ router.post('/chainrails/webhook', async (req, res) => {
                         chainrails_tx_hash: intent.tx_hash
                     }
                 }).eq('id', txn.id);
+
+                if (txn.buyer?.safetag) {
+                    track(txn.buyer.safetag, 'crypto_payment_confirmed', {
+                        transaction_id: txn.id,
+                        provider: 'chainrails',
+                        amount: txn.total_amount,
+                        currency: txn.currency,
+                    });
+                }
 
                 console.log(`✅ [ChainRails] Transaction ${txn.txn_code} marked as PAID`);
 
@@ -367,6 +395,14 @@ router.post('/flutterwave/webhook', async (req, res) => {
                         .single();
                     if (group) {
                         console.log(`✅ [Upgrade] "${group.group_name}" upgraded to ${targetTier}, expires ${expiresAt}`);
+                        const { data: adminProfile } = await supabase.from('profiles').select('safetag').eq('id', group.admin_profile_id).maybeSingle();
+                        if (adminProfile?.safetag) {
+                            track(adminProfile.safetag, 'license_upgraded', {
+                                license_tier: targetTier,
+                                admin_revenue_share: newShare,
+                                community_id: group.id,
+                            });
+                        }
                         const tierName = targetTier.charAt(0).toUpperCase() + targetTier.slice(1);
                         const expiryStr = new Date(expiresAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
                         const platformMsg =
@@ -479,6 +515,15 @@ router.post('/flutterwave/webhook', async (req, res) => {
                     status: 'PAID',
                     metadata: { ...(txn.metadata || {}), payment_gateway: 'Flutterwave', flw_id: flwId }
                 }).eq('id', txn.id);
+
+                if (txn.buyer?.safetag) {
+                    track(txn.buyer.safetag, 'payment_succeeded', {
+                        transaction_id: txn.id,
+                        provider: 'flutterwave',
+                        amount: txn.total_amount,
+                        currency: txn.currency,
+                    });
+                }
 
                 console.log(`✅ [Flutterwave Webhook] Transaction ${txnCode} marked as PAID`);
 

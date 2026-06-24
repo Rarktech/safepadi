@@ -7,6 +7,7 @@ import multer from 'multer';
 import rateLimit from 'express-rate-limit';
 import { requireUser, requireSafetagOwner, requireElevation, requireUserOrBot, markJtiRevoked, AuthedRequest, BotOrUserRequest } from '../middleware/requireUser';
 import { requireBot, BotAuthedRequest } from '../middleware/requireBot';
+import { track, identify } from '../lib/posthog';
 
 // 5 name-enquiry calls per user per 10 minutes — prevents account enumeration
 const verifyBankRateLimit = rateLimit({
@@ -151,6 +152,7 @@ router.post('/register', async (req, res) => {
         }
 
         // --- EARLY BIRD BADGE ---
+        let earlyBirdAwarded = false;
         try {
             const { count } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
             if (count !== null && count <= 100) {
@@ -158,11 +160,23 @@ router.post('/register', async (req, res) => {
                     profile_id: profile.id,
                     badge_key: 'early_bird'
                 });
+                earlyBirdAwarded = true;
                 console.log(`🏆 Awarded Early Bird badge to ${profile.id} (Total users: ${count})`);
+                track(profile.safetag, 'early_bird_awarded', { total_users_at_award: count });
             }
         } catch (badgeErr) {
             console.error('Failed to award Early Bird badge:', badgeErr);
         }
+
+        identify(profile.safetag, {
+            primary_platform: data.primary_platform,
+            referred: !!referredById,
+            early_bird: earlyBirdAwarded,
+        });
+        track(profile.safetag, 'user_registered', {
+            platform: data.primary_platform,
+            referred: !!referredById,
+        });
 
         // Welcome email (non-blocking)
         const reviewsUrl = process.env.REVIEWS_URL || 'https://safeeely.com';
@@ -1273,6 +1287,7 @@ router.post('/:safetag/kyc/submit', requireUser, requireSafetagOwner, requireEle
             await sendNotification(linked.platform, linked.platform_id, msg);
         }
         recordNotification(profile.id, 'kyc', '🛡️ KYC Submitted', 'Your identity documents are under review — you\'ll be notified when approved', { link_url: '/kyc' }).catch(() => {});
+        track(profile.safetag, 'kyc_submitted', { id_type: nin ? 'nin' : 'unknown', country });
 
         console.log(`✅ KYC Submitted & Saved for ${profile.safetag}`);
         res.json({ message: 'KYC submitted successfully. Awaiting review.' });

@@ -4,8 +4,17 @@ import { useState, useEffect, useCallback, type CSSProperties } from 'react';
 import { useParams, useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import { ShieldCheck, Landmark, AlertTriangle } from 'lucide-react';
+import posthog from 'posthog-js';
 import api from '@/lib/api';
 import type { ViewType } from '@/types/view';
+
+function bucketBalance(amount: number): string {
+    if (amount <= 0) return '0';
+    if (amount < 100) return '<100';
+    if (amount < 1000) return '100-999';
+    if (amount < 10000) return '1000-9999';
+    return '10000+';
+}
 
 // Shadcn components
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -180,6 +189,11 @@ export default function WithdrawDashboard() {
 
             setFromCurrency(fetchedBalances[0]?.currency || 'USD');
             setToCurrency(fetchedBalances.length > 1 ? fetchedBalances[1]?.currency : 'BTC');
+
+            posthog.capture('withdrawal_page_viewed', {
+                available_balance_bucket: bucketBalance(fetchedBalances[0]?.amount || 0),
+                currency: fetchedBalances[0]?.currency,
+            });
         } catch (e: any) {
             console.error('❌ Dashboard Load Error:', e.message);
             console.error('🔗 Failed URL:', e.config?.url);
@@ -535,6 +549,7 @@ export default function WithdrawDashboard() {
                 preselectedCurrency={preselectedCurrency}
                 onSuccess={(data) => {
                     console.log('✅ Withdrawal Success:', data);
+                    posthog.capture('withdrawal_submitted_web', { amount: data.amount, currency: data.currency });
                     loadData(); // Refresh balances and profile
                     setViewRefreshKey(prev => prev + 1); // Signal WithdrawalView to refresh history
                 }}

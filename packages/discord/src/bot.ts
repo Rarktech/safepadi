@@ -24,6 +24,11 @@ const BOT_AUTH_HEADERS = process.env.BOT_API_SECRET
     ? { 'Authorization': `Bearer ${process.env.BOT_API_SECRET}`, 'x-bot-platform': 'discord' }
     : {};
 
+function trackBotEvent(safetag: string | undefined | null, event: string, properties: Record<string, any> = {}) {
+    if (!safetag) return;
+    axios.post(`${API_URL}/analytics/capture`, { distinct_id: safetag, event, properties }, { headers: BOT_AUTH_HEADERS }).catch(() => {});
+}
+
 console.log(`🤖 Bot Startup Configuration:`);
 console.log(`📡 API_URL: ${API_URL}`);
 console.log(`🔗 REVIEWS_URL: ${REVIEWS_URL}`);
@@ -127,6 +132,7 @@ const txnDrafts = new Collection<string, {
     milestones?: { title: string, amount: number }[],
     creatorTag?: string,
     incomingGroupId?: string,
+    isSmartDraft?: boolean,
 }>();
 
 // Community bot — per-guild cooldown and incoming group session tracking
@@ -313,11 +319,13 @@ client.on('messageCreate', async (message) => {
                     const mimeType = attachment.contentType || 'audio/ogg';
 
                     const existingDraft = smartTxnSessions.get(message.author.id);
+                    trackBotEvent(mySafetag, 'smart_txn_parse_attempted', { input_modality: 'voice' });
                     const aiResult = await processSmartTransaction('', audioBuffer, mimeType, existingDraft);
-                    
+
                     smartTxnSessions.set(message.author.id, aiResult.draft);
 
                     if (aiResult.is_complete) {
+                        trackBotEvent(mySafetag, 'smart_txn_parse_succeeded', { input_modality: 'voice' });
                         const draft = aiResult.draft;
                         const desc = draft.description ? `\n📝 **Description:** ${draft.description}` : '';
                         
@@ -361,6 +369,7 @@ client.on('messageCreate', async (message) => {
                     }
                 } catch (e: any) {
                     console.error('Smart Txn Error:', e.message);
+                    trackBotEvent(mySafetag, 'smart_txn_parse_failed', { input_modality: 'voice' });
                     await message.reply("❌ Sorry, I had trouble processing that voice note. Please try again.");
                 }
                 return;
@@ -402,11 +411,14 @@ client.on('messageCreate', async (message) => {
         const existingDraft = smartTxnSessions.get(message.author.id);
         // Only process as AI if it looks like a transaction intent or there's an ongoing session
         if (existingDraft || message.content.split(' ').length > 3) {
+            const textTagPromise = axios.get(`${API_URL}/profiles/by_platform/discord/${message.author.id}`).then((r) => r.data?.safetag).catch(() => undefined);
+            textTagPromise.then((tag) => trackBotEvent(tag, 'smart_txn_parse_attempted', { input_modality: 'text' }));
             try {
                 const aiResult = await processSmartTransaction(message.content, undefined, undefined, existingDraft);
                 smartTxnSessions.set(message.author.id, aiResult.draft);
 
                 if (aiResult.is_complete) {
+                    textTagPromise.then((tag) => trackBotEvent(tag, 'smart_txn_parse_succeeded', { input_modality: 'text' }));
                     const draft = aiResult.draft;
                     const desc = draft.description ? `\n📝 **Description:** ${draft.description}` : '';
                     
@@ -451,6 +463,7 @@ client.on('messageCreate', async (message) => {
                 }
             } catch (e) {
                 console.error('Text AI Error:', e);
+                textTagPromise.then((tag) => trackBotEvent(tag, 'smart_txn_parse_failed', { input_modality: 'text' }));
             }
             return;
         }
@@ -550,10 +563,12 @@ client.on('messageCreate', async (message) => {
                     });
                     return;
                 }
+                trackBotEvent(response.data.safetag, 'bot_started', { is_returning_user: true });
                 await sendMainMenu(message);
             }
         } catch (err: any) {
             if (err.response?.status === 404) {
+                trackBotEvent(`discord:${message.author.id}`, 'bot_registration_prompted', {});
                 const customId = referralCode ? `start_registration|${referralCode}` : 'start_registration';
                 await message.reply({
                     content: '👋 **Welcome to Safeeely!**\n\nYour trusted escrow service for secure social media transactions.\n\n🔒 Secure | 🌍 Cross-Platform | ⚡ Fast\n\nIt looks like you\'re new here. Do you already have a Safeeely account from another platform?',
@@ -889,6 +904,9 @@ client.on('interactionCreate', async (interaction) => {
                     ]
                 });
             } else if (customId === 'create_txn') {
+                axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`)
+                    .then((r) => trackBotEvent(r.data?.safetag, 'txn_wizard_started', { entry_method: 'form' }))
+                    .catch(() => {});
                 await interaction.reply({
                     content: '🛒 **Create New Transaction**\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nAre you the **Buyer** or the **Seller** in this transaction?\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
                     components: [
@@ -1132,6 +1150,8 @@ client.on('interactionCreate', async (interaction) => {
                     });
                     txnDrafts.delete(interaction.user.id);
                     if (draft.incomingGroupId) incomingGuildIds.delete(interaction.user.id);
+
+                    trackBotEvent(creatorTag, 'txn_wizard_completed', { entry_method: draft.isSmartDraft ? 'smart_ai' : 'form' });
 
                     const roleLabel = draft.role === 'buyer' ? 'seller' : 'buyer';
                     const finalMsg = `✅ **Transaction Created!**\n\n` +
@@ -1884,6 +1904,7 @@ client.on('interactionCreate', async (interaction) => {
                     transaction_type: draft.transaction_type as any,
                     milestones: draft.milestones,
                     incomingGroupId: (incomingEntry && incomingEntry.expires > Date.now()) ? incomingEntry.communityId : undefined,
+                    isSmartDraft: true,
                 });
                 try {
                     const statsRes = await axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(otherSafetag)}`);

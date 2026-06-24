@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { Shield, CreditCard, Lock, CheckCircle, ArrowRight, X, Zap, Layers, Globe, Package, ShieldCheck } from 'lucide-react';
 import axios from 'axios';
+import posthog from 'posthog-js';
 import { usePaymentSession, PaymentModal } from '@chainrails/react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
@@ -52,6 +53,12 @@ export default function PaymentPage() {
                     throw new Error('Invalid data format received from API');
                 }
                 setTxn(res.data);
+                posthog.capture('payment_page_viewed', {
+                    transaction_id: res.data.id,
+                    amount: res.data.total_amount,
+                    currency: res.data.currency,
+                    txn_status: res.data.status,
+                });
             } catch (err: any) {
                 setError(err.message || 'Transaction not found');
             } finally {
@@ -60,6 +67,14 @@ export default function PaymentPage() {
         };
         if (id) fetchTxn();
     }, [id]);
+
+    useEffect(() => {
+        if (!txn) return;
+        const isPaidNow = txn.status === 'PAID' || txn.status === 'FINALIZED' || txn.status === 'COMPLETED_BY_SELLER';
+        if (isPaidNow || crSuccess) {
+            posthog.capture('payment_page_paid_render', { transaction_id: txn.id });
+        }
+    }, [txn, crSuccess]);
 
     const initPayment = async (platform: string) => {
         setInitializing(true);
@@ -141,7 +156,7 @@ export default function PaymentPage() {
                 </div>
 
                 {/* main card */}
-                <div className="w-full mt-[26px] bg-white border border-[#edeff3] rounded-[26px] shadow-[0_24px_60px_rgba(15,23,42,.08)] overflow-hidden">
+                <div className="w-full mt-[26px] bg-white border border-[#edeff3] rounded-[26px] shadow-[0_24px_60px_rgba(15,23,42,.08)] overflow-hidden ph-no-capture">
                     {/* header band */}
                     <div className="px-[26px] pt-6 pb-[22px] border-b border-[#f1f3f6]">
                         <div className="flex items-center justify-between gap-3 mb-[18px]">
@@ -269,13 +284,13 @@ export default function PaymentPage() {
                 </div>
             </main>
 
-            <PaymentModal {...cr} />
+            <div className="ph-no-capture"><PaymentModal {...cr} /></div>
 
             {/* Payment Methods Modal — currency-aware */}
             {showMethods && (
                 <div
                     onClick={() => !initializing && setShowMethods(false)}
-                    className="fixed inset-0 z-50 flex items-center justify-center p-[22px] bg-[rgba(15,23,42,.45)] backdrop-blur-[5px] animate-in fade-in duration-200"
+                    className="fixed inset-0 z-50 flex items-center justify-center p-[22px] bg-[rgba(15,23,42,.45)] backdrop-blur-[5px] animate-in fade-in duration-200 ph-no-capture"
                 >
                     <div onClick={(e) => e.stopPropagation()} className="w-full max-w-[400px] bg-white rounded-3xl shadow-[0_30px_80px_rgba(15,23,42,.28)] px-7 pt-[34px] pb-7 animate-in zoom-in-95 duration-300">
                         {initializing ? (

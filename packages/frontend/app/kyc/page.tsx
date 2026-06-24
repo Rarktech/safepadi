@@ -38,6 +38,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import csc from 'countrycitystatejson';
+import posthog from 'posthog-js';
 
 interface Country {
     name: string;
@@ -63,6 +64,10 @@ const btnClasses = "w-full h-14 bg-emerald-600 hover:bg-emerald-700 text-white r
 function KYCVerification() {
     const [safetag, setSafetag] = useState("");
     const [step, setStep] = useState(1);
+
+    useEffect(() => {
+        posthog.capture('kyc_form_step_viewed', { step_index: step });
+    }, [step]);
 
     useEffect(() => {
         axios.get(`${API_URL}/auth/me`, { withCredentials: true })
@@ -168,6 +173,7 @@ function KYCVerification() {
                 frontUrl: docs.frontUrl,
                 backUrl: docs.backUrl
             });
+            posthog.capture('kyc_form_submitted', { id_type: docs.country === 'NG' ? 'nin' : 'document', country: docs.country });
             setStep(5);
         } catch (err) {
             console.error("KYC Submission error:", err);
@@ -340,7 +346,7 @@ function KYCVerification() {
                 )}
                 <div className="w-10" />
             </div>
-            <div className="px-6 pt-6 max-w-lg mx-auto">
+            <div className="px-6 pt-6 max-w-lg mx-auto ph-no-capture">
                 {step === 1 && renderPhoneStep()}
                 {step === 2 && renderOtpStep()}
                 {step === 3 && renderInfoStep()}

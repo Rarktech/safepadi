@@ -6,6 +6,7 @@ import { ProductSkeleton } from "./ProductSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SearchX } from "lucide-react";
 import { useSearchParams } from "next/navigation";
+import posthog from "posthog-js";
 
 export function MarketplaceList() {
     const searchParams = useSearchParams();
@@ -56,6 +57,9 @@ export function MarketplaceList() {
                 setLiveListings(prev => [...(prev || []), ...newItems]);
             }
             setTotalCount(data.total || sourceItems.length || 0);
+            if (offset === 0) {
+                posthog.capture('marketplace_browsed', { result_count: newItems.length, category_filter: typeParam });
+            }
         } catch (err) {
             console.error("Failed to fetch listings:", err);
             if (offset === 0) setLiveListings([]);

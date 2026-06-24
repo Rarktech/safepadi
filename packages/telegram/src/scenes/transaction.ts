@@ -15,11 +15,22 @@ let REVIEWS_URL = process.env.REVIEWS_URL || 'http://localhost:3001';
 if (REVIEWS_URL.includes('localhost')) {
     REVIEWS_URL = REVIEWS_URL.replace('localhost', '127.0.0.1');
 }
+const BOT_AUTH_HEADERS = process.env.BOT_API_SECRET
+    ? { 'Authorization': `Bearer ${process.env.BOT_API_SECRET}`, 'x-bot-platform': 'telegram' }
+    : {};
+function trackBotEvent(safetag: string | undefined | null, event: string, properties: Record<string, any> = {}) {
+    if (!safetag) return;
+    axios.post(`${API_URL}/analytics/capture`, { distinct_id: safetag, event, properties }, { headers: BOT_AUTH_HEADERS }).catch(() => {});
+}
 
 export const transactionScene = new Scenes.WizardScene(
     'transaction_wizard',
     // Step 0: Role Selection
     async (ctx: any) => {
+        axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`)
+            .then((res) => trackBotEvent(res.data?.safetag, 'txn_wizard_started', { entry_method: ctx.scene.session.state.smartDraft ? 'smart_ai' : 'form' }))
+            .catch(() => {});
+
         if (ctx.scene.session.state.smartDraft) {
             const draft = ctx.scene.session.state.smartDraft;
             ctx.wizard.state.formData = {
@@ -508,6 +519,8 @@ export const transactionScene = new Scenes.WizardScene(
             if ((ctx as any).session?.incomingGroupId) {
                 delete (ctx as any).session.incomingGroupId;
             }
+
+            trackBotEvent(my_safetag, 'txn_wizard_completed', { entry_method: ctx.wizard.state.isSmartDraft ? 'smart_ai' : 'form' });
 
             const counterpartyRole = role === 'buyer' ? 'Seller' : 'Buyer';
             const finalMsg = `✅ <b>Transaction Created!</b>\n\n` +

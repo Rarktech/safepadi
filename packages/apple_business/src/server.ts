@@ -36,6 +36,11 @@ const BOT_AUTH_HEADERS = process.env.BOT_API_SECRET
     ? { 'Authorization': `Bearer ${process.env.BOT_API_SECRET}`, 'x-bot-platform': 'apple' }
     : {};
 
+function trackBotEvent(safetag: string | undefined | null, event: string, properties: Record<string, any> = {}) {
+    if (!safetag) return;
+    axios.post(`${API_URL}/analytics/capture`, { distinct_id: safetag, event, properties }, { headers: BOT_AUTH_HEADERS }).catch(() => {});
+}
+
 console.log(`🚀 Safeeely Apple Messages for Business Bot (via JivoChat) Starting...`);
 
 // Health check endpoint
@@ -224,6 +229,7 @@ app.post('/webhook/:token', (req, res) => {
                 // or if the user explicitly typed 'back'
                 if (isExplicitBack || (isGreeting && (session.state === 'IDLE' || session.state === 'CONFIRMATION'))) {
                     resetSession(clientId);
+                    if (isGreeting) trackBotEvent(safetag, 'bot_started', { is_returning_user: true });
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'BUTTONS',
                         title: `🏠 Main Menu`,
@@ -301,6 +307,7 @@ app.post('/webhook/:token', (req, res) => {
                 // Transition: Menu -> Transaction Wizard
                 if (messageText.includes('create transaction') || messageText === '1') {
                     session.state = 'ROLE_SELECTION';
+                    trackBotEvent(safetag, 'txn_wizard_started', { entry_method: 'form' });
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'BUTTONS',
                         title: '🛒 Create New Transaction',
@@ -659,6 +666,7 @@ app.post('/webhook/:token', (req, res) => {
                                 ...(transaction_type === 'MILESTONE' && milestones?.length ? { transaction_type: 'MILESTONE', milestones } : {}),
                             });
                             const txnCode = res.data.txn_code;
+                            trackBotEvent(safetag, 'txn_wizard_completed', { entry_method: 'form' });
                             await sendJivoChatMessage(clientId, chatId, {
                                 type: 'TEXT',
                                 text: `✅ *Transaction Created!*\n\nYour transaction has been sent to the ${role === 'buyer' ? 'seller' : 'buyer'}.\n\n📋 Transaction ID: ${txnCode}\n💰 Amount: ${amount} ${currency}\n\nYou'll be notified of any updates.` +
@@ -670,6 +678,7 @@ app.post('/webhook/:token', (req, res) => {
                         } catch (err: any) {
                             const errData = err.response?.data;
                             if (errData?.error === 'AMOUNT_LIMIT_EXCEEDED') {
+                                trackBotEvent(safetag, 'bot_amount_limit_hit', { currency: session.formData.currency });
                                 const kycUrl = await buildMagicLink({ platform_id: clientId, scope: 'kyc', fallbackUrl: `${FRONTEND_URL}/kyc` }).catch(() => `${FRONTEND_URL}/kyc`);
                                 await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `⚠️ Transaction Limit Exceeded\n\n${errData.message || 'Your unverified account has a transaction limit. Complete identity verification to unlock higher amounts.'}\n\nTap to verify: ${kycUrl}` });
                             } else {
@@ -1291,6 +1300,7 @@ app.post('/webhook/:token', (req, res) => {
                         });
                     } else {
                         console.log(`[BOT STEP] 1: User ${clientId} is new. Sending Privacy Policy.`);
+                        trackBotEvent(`apple:${clientId}`, 'bot_registration_prompted', {});
 
                         let statsLine = '';
                         try {

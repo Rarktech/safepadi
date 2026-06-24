@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
+import { PostHogProvider } from "./providers";
 
 export const metadata: Metadata = {
   title: "Safeeely | Secure Your Deals",
@@ -19,8 +20,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,600;1,700;1,800&family=Inter:wght@300;400;450;500;600;700;800;900&display=swap" rel="stylesheet" />
       </head>
       <body>
-        {children}
-        <Toaster position="top-center" richColors />
+        <PostHogProvider>
+          {children}
+          <Toaster position="top-center" richColors />
+        </PostHogProvider>
       </body>
     </html>
   );
