@@ -3,6 +3,22 @@ import { routeNotification, recordNotification } from '../services/notifications
 import { buildInternalMagicLink } from '../services/magicLinkInternal';
 import { sendDisputeResolvedEmail } from '../services/email';
 import { issueReferralCommissions } from '../services/commissions';
+import { insertBuyerRefundCredit } from '../routes/disputes';
+import { releaseRemainingMilestones } from '../services/milestoneEscrow';
+import { runFinalizeSideEffects } from '../services/finalizeTransactionSideEffects';
+
+// PAY_SELLER on a MILESTONE transaction must release the remaining phases and
+// run the full finalize side-effects (same reasoning as the AI/admin verdict
+// paths in disputes.ts) — otherwise un-released phases are never counted in
+// the seller's balance and never refunded either. ONE_TIME is untouched.
+async function finalizePaySeller(txn: any): Promise<void> {
+    if (txn.transaction_type === 'MILESTONE') {
+        await releaseRemainingMilestones(txn.id);
+        await runFinalizeSideEffects(txn);
+    } else {
+        issueReferralCommissions(txn).catch(() => {});
+    }
+}
 
 // How long a party has to respond to an AI question (milliseconds)
 const EVIDENCE_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -55,8 +71,10 @@ async function processEvidenceDeadlines(now: Date): Promise<void> {
             reminder_1_sent, reminder_2_sent,
             transaction:transactions(
                 id, txn_code, product_name, amount, currency,
+                transaction_type, fee_amount, group_id, buyer_id, seller_id,
                 buyer:buyer_id(id, safetag, email),
-                seller:seller_id(id, safetag, email)
+                seller:seller_id(id, safetag, email),
+                milestones:transaction_milestones(*)
             )
         `)
         .eq('status', 'OPEN')
@@ -149,22 +167,9 @@ async function applyReturnDeadlineInference(dispute: any, txn: any): Promise<voi
     await supabase.from('transactions').update({ status: txnStatus }).eq('id', txn.id);
 
     if (action === 'REFUND_BUYER') {
-        try {
-            await supabase.from('buyer_refund_credits').insert({
-                transaction_id: txn.id,
-                dispute_id: dispute.id,
-                buyer_id: txn.buyer.id,
-                amount: Number(txn.amount),
-                currency: txn.currency,
-                refund_type: 'RETURN_CONFIRMED',
-                status: 'PENDING',
-                resolution_source: 'SLA'
-            });
-        } catch (err) {
-            console.warn('⚠️ [enforcement] Could not insert return refund credit:', (err as Error).message);
-        }
+        await insertBuyerRefundCredit(dispute.id, txn, 'RETURN_CONFIRMED', 'SLA');
     } else {
-        issueReferralCommissions(txn).catch(() => {});
+        await finalizePaySeller(txn).catch((e: any) => console.error('❌ [enforcement] Milestone PAY_SELLER finalize failed:', e?.message || e));
     }
 
     const label = action === 'REFUND_BUYER' ? '✅ Refund issued to buyer' : '✅ Payment released to seller';
@@ -234,25 +239,14 @@ async function applyAdverseInference(dispute: any, txn: any): Promise<void> {
 
     // Insert buyer refund credit so admin knows money is owed back
     if (action === 'REFUND_BUYER') {
-        try {
-            await supabase.from('buyer_refund_credits').insert({
-                transaction_id: txn.id,
-                dispute_id: dispute.id,
-                buyer_id: txn.buyer.id,
-                amount: Number(txn.amount),
-                currency: txn.currency,
-                refund_type: 'FULL',
-                status: 'PENDING',
-                resolution_source: 'SLA'
-            });
-        } catch (err) {
-            console.warn('⚠️ [enforcement] Could not insert buyer_refund_credit:', (err as Error).message);
-        }
+        await insertBuyerRefundCredit(dispute.id, txn, 'FULL', 'SLA');
     }
 
-    // Issue referral commissions when seller wins via SLA
+    // Seller wins via SLA — release any remaining milestone phases + run full
+    // finalize side-effects for MILESTONE transactions; ONE_TIME keeps the
+    // original referral-commissions-only behavior.
     if (action === 'PAY_SELLER') {
-        issueReferralCommissions(txn).catch(() => {});
+        finalizePaySeller(txn).catch((e: any) => console.error('❌ [enforcement] Milestone PAY_SELLER finalize failed:', e?.message || e));
     }
 
     // Notify both parties

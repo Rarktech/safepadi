@@ -50,16 +50,20 @@ function buildMilestoneBlock(ctx: DisputeContext): string {
         .reduce((sum, m) => sum + Number(m.amount), 0);
     const completionPct = totalAmount > 0 ? Math.round((completedValue / totalAmount) * 100) : 0;
 
+    const flaggedId = ctx.dispute.flagged_milestone_id;
     const lines = ctx.milestones.map(m =>
-        `  [${m.status}] "${m.title}" — ${ctx.transaction.currency} ${m.amount}`
+        `  [${m.status}] "${m.title}" — ${ctx.transaction.currency} ${m.amount}${m.id === flaggedId ? '  ⚠️ BUYER FLAGGED THIS PHASE' : ''}`
     ).join('\n');
+    const flagged = flaggedId ? ctx.milestones.find(m => m.id === flaggedId) : undefined;
+    const remaining = totalAmount - releasedValue;
 
     return `MILESTONE TRANSACTION:
 ${lines}
 Completion by value: ${completionPct}% (${ctx.transaction.currency} ${completedValue} of ${totalAmount})
 Already released (irrevocable): ${ctx.transaction.currency} ${releasedValue}
-
-MILESTONE RULE: Never issue REFUND_BUYER for already-RELEASED milestones. Default SPLIT = completed ratio (${completionPct}% to seller) unless completed work has documented defects.`;
+Remaining in escrow (the ONLY pool any verdict in this case can move): ${ctx.transaction.currency} ${remaining}
+${flagged ? `\nThe buyer flagged phase "${flagged.title}" [${flagged.status}] specifically — weigh evidence about that phase most heavily, but the verdict still resolves the whole remaining transaction, not just this phase.` : ''}
+MILESTONE RULE: Never issue REFUND_BUYER for already-RELEASED milestones — that money is gone and not part of this case. Default SPLIT = completed ratio (${completionPct}% to seller) of the REMAINING amount, unless completed work has documented defects.`;
 }
 
 export function buildJudgePrompt(ctx: DisputeContext, invOut: InvestigatorOutput): string {

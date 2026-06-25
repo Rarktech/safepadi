@@ -381,7 +381,8 @@ router.get('/disputes/:id', async (req, res) => {
                 transaction:transaction_id (
                     *,
                     buyer:buyer_id(*),
-                    seller:seller_id(*)
+                    seller:seller_id(*),
+                    milestones:transaction_milestones(*)
                 )
             `)
             .eq('id', id)

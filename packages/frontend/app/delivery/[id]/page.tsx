@@ -20,6 +20,14 @@ import { apiErrorMessage } from '@/lib/apiError';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 
+interface Milestone {
+    id: string;
+    index_num: number;
+    title: string;
+    amount: number;
+    status: 'PENDING' | 'COMPLETED' | 'RELEASED' | 'DISPUTED';
+}
+
 interface Txn {
     id: string;
     txn_code: string;
@@ -28,6 +36,8 @@ interface Txn {
     currency: string;
     status: string;
     dispute_id?: string;
+    transaction_type?: 'ONE_TIME' | 'MILESTONE';
+    milestones?: Milestone[];
     seller?: { safetag?: string };
 }
 
@@ -37,6 +47,7 @@ interface Proof {
     file_size?: number;
     file_url: string;
     mime_type?: string;
+    milestone_id?: string | null;
 }
 
 function formatAmount(amount: number, currency: string) {
@@ -85,6 +96,41 @@ export default function DeliveryPortalPage() {
     const [confirmed, setConfirmed] = useState(false);
     const [returnConfirming, setReturnConfirming] = useState(false);
     const [returnDone, setReturnDone] = useState<'BUYER' | 'SELLER' | null>(null);
+    const [releasingId, setReleasingId] = useState<string | null>(null);
+    const [releaseNotice, setReleaseNotice] = useState<string | null>(null);
+
+    const refetchTxnAndProofs = async () => {
+        const [txnRes, proofsRes] = await Promise.all([
+            axios.get(`${API_URL}/transactions/${id}`, { headers: { 'ngrok-skip-browser-warning': 'true' } }),
+            axios.get(`${API_URL}/transactions/${id}/proofs`, { headers: { 'ngrok-skip-browser-warning': 'true' } })
+        ]);
+        setTxn(txnRes.data);
+        setProofs(proofsRes.data);
+        return txnRes.data as Txn;
+    };
+
+    const handleReleaseMilestone = async (milestone: Milestone) => {
+        if (!window.confirm(`Release ${formatAmount(milestone.amount, txn?.currency || 'NGN')} for "${milestone.title}"? This cannot be undone.`)) return;
+        setReleasingId(milestone.id);
+        setReleaseNotice(null);
+        try {
+            const res = await axios.patch(`${API_URL}/transactions/${id}/milestones/${milestone.id}/status`, { status: 'RELEASED' }, {
+                headers: { 'ngrok-skip-browser-warning': 'true' },
+                withCredentials: true
+            });
+            const updatedTxn = await refetchTxnAndProofs();
+            if (res.data?.parent_status === 'FINALIZED') {
+                setConfirmed(true);
+            } else {
+                const remaining = (updatedTxn.milestones || []).filter((m) => m.status !== 'RELEASED').length;
+                setReleaseNotice(`Phase released! ${remaining} more phase(s) to go before this project is fully complete.`);
+            }
+        } catch (err) {
+            alert(apiErrorMessage(err, 'Failed to release this phase. Please try again.'));
+        } finally {
+            setReleasingId(null);
+        }
+    };
 
     const handleConfirmReturn = async (role: 'BUYER' | 'SELLER') => {
         if (!txn?.dispute_id) { alert('No dispute found for this transaction.'); return; }
@@ -181,9 +227,41 @@ export default function DeliveryPortalPage() {
 
     const isFinalized = txn.status === 'FINALIZED';
     const isReturnPending = txn.status === 'RETURN_PENDING';
+    const isDisputed = txn.status === 'DISPUTED';
     const canConfirm = txn.status === 'COMPLETED_BY_SELLER';
-    const showConfirmPanel = !isFinalized && !isReturnPending;
+    const isMilestone = txn.transaction_type === 'MILESTONE';
+    const showConfirmPanel = !isMilestone && !isFinalized && !isReturnPending && !isDisputed;
+    const sortedMilestones = [...(txn.milestones || [])].sort((a, b) => a.index_num - b.index_num);
+    const unassignedProofs = proofs.filter((p) => !p.milestone_id);
     const tag = statusTag(txn.status);
+
+    const renderProofCard = (proof: Proof) => {
+        const isImage = (proof.mime_type || '').startsWith('image/');
+        return (
+            <div key={proof.id} className="rounded-2xl border border-[#e9eaec] bg-white overflow-hidden hover:shadow-[0_6px_24px_rgba(15,23,42,0.08)] transition-shadow">
+                {isImage && (
+                    <div className="w-full aspect-[16/10] bg-[#f7f8f9]" style={{ backgroundImage: `url(${proof.file_url})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+                )}
+                <div className="flex items-center gap-3 px-4 py-3.5">
+                    <div className="w-10 h-10 bg-[#f7f8f9] rounded-xl flex items-center justify-center shrink-0">
+                        <FileText size={16} className="text-[#94a3b8]" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-bold text-[#0f172a] truncate">{proof.file_name || 'Untitled document'}</p>
+                        <p className="text-[11px] text-[#94a3b8] mt-0.5">{((proof.file_size || 0) / 1024 / 1024).toFixed(2)} MB {isImage ? '· Image' : '· File'}</p>
+                    </div>
+                    <a
+                        href={proof.file_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-[38px] h-[38px] bg-[#0f172a] rounded-[10px] flex items-center justify-center text-white shrink-0 hover:bg-[#10b981] transition-colors"
+                    >
+                        <Download size={14} />
+                    </a>
+                </div>
+            </div>
+        );
+    };
 
     return (
         <div className="min-h-screen bg-[#F7F7F5] flex flex-col font-sans">
@@ -222,50 +300,115 @@ export default function DeliveryPortalPage() {
                     </div>
                 </div>
 
-                <div className="mb-4">
-                    <div className="flex items-center justify-between mb-3">
-                        <h2 className="text-[15px] font-extrabold text-[#0f172a]">Proof of delivery</h2>
-                        <span className="inline-flex items-center px-2.5 py-[3px] rounded-full text-[10.5px] font-bold bg-[#f1f5f9] text-[#475569]">{proofs.length} file{proofs.length === 1 ? '' : 's'}</span>
-                    </div>
-
-                    {proofs.length === 0 ? (
-                        <div className="bg-white border-2 border-dashed border-[#e2e8f0] rounded-[20px] py-12 px-6 text-center">
-                            <FileText className="w-9 h-9 text-[#cbd5e1] mx-auto mb-3" />
-                            <p className="text-[14px] font-bold text-[#0f172a] mb-1">No proofs uploaded yet</p>
-                            <p className="text-[12px] text-[#94a3b8]">The seller hasn&apos;t submitted delivery proof yet. You&apos;ll be notified when they do.</p>
+                {isDisputed && (
+                    <div className="bg-[#fffbeb] border border-[#fde68a] rounded-[20px] p-[22px] mb-4 flex items-start gap-3">
+                        <div className="w-[38px] h-[38px] rounded-[10px] bg-[#fef3c7] flex items-center justify-center flex-shrink-0">
+                            <Package className="w-4 h-4 text-[#d97706]" />
                         </div>
-                    ) : (
-                        <div className="flex flex-col gap-2.5">
-                            {proofs.map((proof) => {
-                                const isImage = (proof.mime_type || '').startsWith('image/');
-                                return (
-                                    <div key={proof.id} className="rounded-2xl border border-[#e9eaec] bg-white overflow-hidden hover:shadow-[0_6px_24px_rgba(15,23,42,0.08)] transition-shadow">
-                                        {isImage && (
-                                            <div className="w-full aspect-[16/10] bg-[#f7f8f9]" style={{ backgroundImage: `url(${proof.file_url})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
-                                        )}
-                                        <div className="flex items-center gap-3 px-4 py-3.5">
-                                            <div className="w-10 h-10 bg-[#f7f8f9] rounded-xl flex items-center justify-center shrink-0">
-                                                <FileText size={16} className="text-[#94a3b8]" />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-[13px] font-bold text-[#0f172a] truncate">{proof.file_name || 'Untitled document'}</p>
-                                                <p className="text-[11px] text-[#94a3b8] mt-0.5">{((proof.file_size || 0) / 1024 / 1024).toFixed(2)} MB {isImage ? '· Image' : '· File'}</p>
-                                            </div>
-                                            <a
-                                                href={proof.file_url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="w-[38px] h-[38px] bg-[#0f172a] rounded-[10px] flex items-center justify-center text-white shrink-0 hover:bg-[#10b981] transition-colors"
-                                            >
-                                                <Download size={14} />
-                                            </a>
+                        <div>
+                            <p className="text-[13.5px] font-extrabold text-[#92400e] mb-1">This transaction is under dispute</p>
+                            <p className="text-[12px] text-[#b45309] leading-[1.55]">Funds are locked until the dispute is resolved. Check your dispute case for evidence requests and updates.</p>
+                        </div>
+                    </div>
+                )}
+
+                {isMilestone ? (
+                    <div className="mb-4 flex flex-col gap-4">
+                        {releaseNotice && (
+                            <div className="bg-[#eff6ff] border border-[#dbeafe] rounded-2xl px-5 py-3.5 flex items-center gap-2.5">
+                                <CheckCircle className="w-4 h-4 text-[#2563eb] shrink-0" />
+                                <p className="text-[12.5px] font-semibold text-[#1e40af]">{releaseNotice}</p>
+                            </div>
+                        )}
+                        {sortedMilestones.map((m) => {
+                            const milestoneProofs = proofs.filter((p) => p.milestone_id === m.id);
+                            const isReleased = m.status === 'RELEASED';
+                            const canRelease = m.status === 'COMPLETED' && !isDisputed;
+                            return (
+                                <div key={m.id} className="bg-white rounded-[20px] border border-[#e9eaec] overflow-hidden">
+                                    <div className="px-[22px] py-4 border-b border-[#f3f4f6] flex items-center justify-between gap-3">
+                                        <div>
+                                            <p className="text-[10.5px] font-bold text-[#94a3b8] mb-0.5 tracking-[.04em]">PHASE {m.index_num} OF {sortedMilestones.length}</p>
+                                            <p className="text-[14px] font-extrabold text-[#0f172a]">{m.title}</p>
+                                        </div>
+                                        <div className="text-right shrink-0">
+                                            <span className={`inline-flex items-center px-2.5 py-[3px] rounded-full text-[10.5px] font-bold ${isReleased ? 'bg-[#f0fdf4] text-[#16a34a]' : canRelease ? 'bg-[#eff6ff] text-[#2563eb]' : 'bg-[#f1f5f9] text-[#475569]'}`}>
+                                                {isReleased ? 'Released' : canRelease ? 'Awaiting your review' : 'Pending delivery'}
+                                            </span>
+                                            <p className="text-[13px] font-extrabold text-[#0f172a] mt-1">{formatAmount(m.amount, txn.currency)}</p>
                                         </div>
                                     </div>
-                                );
-                            })}
+                                    <div className="px-[22px] py-4">
+                                        {milestoneProofs.length === 0 ? (
+                                            <p className="text-[12px] text-[#94a3b8]">No proof uploaded for this phase yet.</p>
+                                        ) : (
+                                            <div className="flex flex-col gap-2.5">
+                                                {milestoneProofs.map(renderProofCard)}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="px-[22px] pb-[18px]">
+                                        {canRelease ? (
+                                            <button
+                                                onClick={() => handleReleaseMilestone(m)}
+                                                disabled={releasingId === m.id}
+                                                className="w-full flex items-center justify-center gap-2 h-[48px] rounded-full bg-[#10b981] text-white font-bold text-[13.5px] disabled:opacity-50"
+                                            >
+                                                {releasingId === m.id ? (
+                                                    <><Loader2 className="w-4 h-4 animate-spin" /> Releasing…</>
+                                                ) : (
+                                                    <><CheckCircle className="w-[14px] h-[14px]" /> Release funds for this phase</>
+                                                )}
+                                            </button>
+                                        ) : isReleased ? (
+                                            <div className="flex items-center justify-center gap-2 py-3 bg-[#f0fdf4] rounded-2xl text-[#16a34a]">
+                                                <CheckCircle className="w-3.5 h-3.5" />
+                                                <span className="text-[12.5px] font-semibold">Released to seller</span>
+                                            </div>
+                                        ) : isDisputed && m.status === 'COMPLETED' ? (
+                                            <div className="flex items-center justify-center gap-2 py-3 bg-[#fffbeb] rounded-2xl text-[#d97706]">
+                                                <Clock className="w-3.5 h-3.5" />
+                                                <span className="text-[12.5px] font-semibold">This transaction is under dispute — paused until resolved</span>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center justify-center gap-2 py-3 bg-[#f7f8f9] rounded-2xl text-[#94a3b8]">
+                                                <Clock className="w-3.5 h-3.5" />
+                                                <span className="text-[12.5px] font-semibold">Awaiting seller submission</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        {unassignedProofs.length > 0 && (
+                            <div>
+                                <h3 className="text-[12.5px] font-extrabold text-[#94a3b8] mb-2.5">Unassigned proof</h3>
+                                <div className="flex flex-col gap-2.5">
+                                    {unassignedProofs.map(renderProofCard)}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <div className="mb-4">
+                        <div className="flex items-center justify-between mb-3">
+                            <h2 className="text-[15px] font-extrabold text-[#0f172a]">Proof of delivery</h2>
+                            <span className="inline-flex items-center px-2.5 py-[3px] rounded-full text-[10.5px] font-bold bg-[#f1f5f9] text-[#475569]">{proofs.length} file{proofs.length === 1 ? '' : 's'}</span>
                         </div>
-                    )}
-                </div>
+
+                        {proofs.length === 0 ? (
+                            <div className="bg-white border-2 border-dashed border-[#e2e8f0] rounded-[20px] py-12 px-6 text-center">
+                                <FileText className="w-9 h-9 text-[#cbd5e1] mx-auto mb-3" />
+                                <p className="text-[14px] font-bold text-[#0f172a] mb-1">No proofs uploaded yet</p>
+                                <p className="text-[12px] text-[#94a3b8]">The seller hasn&apos;t submitted delivery proof yet. You&apos;ll be notified when they do.</p>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col gap-2.5">
+                                {proofs.map(renderProofCard)}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {isReturnPending && (
                     <div className="bg-[#fffbeb] border border-[#fde68a] rounded-[20px] p-[22px] mb-4">

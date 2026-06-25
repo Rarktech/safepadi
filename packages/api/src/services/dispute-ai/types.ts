@@ -59,6 +59,10 @@ export interface DisputeContext {
         critic_max_iterations: number;
         restricted_to: string;
         ai_rounds: number;
+        // Set when the buyer raised this dispute against one specific phase of a
+        // MILESTONE transaction (optional context only — the verdict still
+        // resolves the whole remaining transaction, never just this one phase).
+        flagged_milestone_id?: string | null;
     };
     transaction: {
         id: string;

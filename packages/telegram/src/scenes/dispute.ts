@@ -20,20 +20,72 @@ const CATEGORY_KEYBOARD = {
     ]
 };
 
+async function showCategoryPicker(ctx: any) {
+    await ctx.reply('⚠️ <b>Raise Dispute — Step 1 of 2</b>\n\nPlease select the category that best describes your issue:', {
+        parse_mode: 'HTML',
+        reply_markup: CATEGORY_KEYBOARD
+    });
+}
+
 export const disputeScene = new Scenes.WizardScene(
     'dispute_wizard',
-    // Step 0 — show category picker
+    // Step 0 — entry. If a milestoneId was passed in (buyer tapped "Dispute" on a
+    // specific phase), confirm which phase first; otherwise go straight to the
+    // unchanged category picker.
     async (ctx: any) => {
         const state = ctx.scene.session.state as any;
         ctx.wizard.state.txnId = state.txnId;
+        ctx.wizard.state.milestoneId = state.milestoneId;
 
-        await ctx.reply('⚠️ <b>Raise Dispute — Step 1 of 2</b>\n\nPlease select the category that best describes your issue:', {
-            parse_mode: 'HTML',
-            reply_markup: CATEGORY_KEYBOARD
-        });
+        if (!state.milestoneId) {
+            await showCategoryPicker(ctx);
+            return ctx.wizard.selectStep(2);
+        }
+
+        try {
+            const res = await axios.get(`${API_URL}/transactions/${state.txnId}`);
+            const milestone = (res.data.milestones || []).find((m: any) => m.id === state.milestoneId);
+            const idx = (res.data.milestones || []).findIndex((m: any) => m.id === state.milestoneId);
+
+            if (!milestone) {
+                await showCategoryPicker(ctx);
+                return ctx.wizard.selectStep(2);
+            }
+
+            await ctx.reply(`⚠️ <b>Dispute Phase ${idx + 1}: ${milestone.title} (${milestone.amount} ${res.data.currency})?</b>\n\nYou're about to raise a dispute specifically about this phase. Continue?`, {
+                parse_mode: 'HTML',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '✅ Continue', callback_data: 'dispute_ms_continue' }],
+                        [{ text: '🔙 Cancel', callback_data: 'dispute_ms_cancel' }]
+                    ]
+                }
+            });
+            return ctx.wizard.next();
+        } catch (err: any) {
+            console.error('Dispute milestone confirm error:', err.message);
+            await showCategoryPicker(ctx);
+            return ctx.wizard.selectStep(2);
+        }
+    },
+    // Step 1 — Continue/Cancel response to the phase-confirmation prompt above.
+    async (ctx: any) => {
+        const data = ctx.callbackQuery?.data;
+        if (data === 'dispute_ms_cancel') {
+            try { await ctx.answerCbQuery(); } catch {}
+            await ctx.reply('❌ Dispute cancelled.');
+            return ctx.scene.leave();
+        }
+        if (data !== 'dispute_ms_continue') {
+            await ctx.reply('⚠️ Please tap Continue or Cancel above.');
+            return;
+        }
+        try { await ctx.answerCbQuery(); } catch {}
+        await showCategoryPicker(ctx);
         return ctx.wizard.next();
     },
-    // Step 1 — capture category, prompt for reason
+    // Step 2 — capture category, prompt for reason (unchanged from the
+    // transaction-wide dispute flow)
     async (ctx: any) => {
         if (!ctx.callbackQuery || !ctx.callbackQuery.data?.startsWith('dispute_cat_')) {
             await ctx.reply('⚠️ Please tap one of the category buttons above.', {
@@ -49,11 +101,13 @@ export const disputeScene = new Scenes.WizardScene(
         });
         return ctx.wizard.next();
     },
-    // Step 2 — validate reason and submit
+    // Step 3 — validate reason and submit (unchanged from the transaction-wide
+    // dispute flow, plus milestone_id when present)
     async (ctx: any) => {
         const reason = ctx.message?.text;
         const txnId = ctx.wizard.state.txnId;
         const category = ctx.wizard.state.category;
+        const milestoneId = ctx.wizard.state.milestoneId;
 
         if (!reason || reason.length < 10) {
             ctx.reply('❌ Please provide a more detailed reason (at least 10 characters).');
@@ -68,7 +122,8 @@ export const disputeScene = new Scenes.WizardScene(
                 transaction_id: txnId,
                 raised_by: profile.id,
                 reason: reason,
-                category: category
+                category: category,
+                ...(milestoneId ? { milestone_id: milestoneId } : {})
             }, { headers: BOT_AUTH_HEADERS });
 
             const disputeUrl = await buildMagicLink({ platform_id: String(ctx.from.id), scope: 'dispute', txn_id: txnId, fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(profile.safetag)}?view=dispute_details&txnId=${txnId}` });

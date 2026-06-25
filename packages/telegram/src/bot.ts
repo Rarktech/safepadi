@@ -61,6 +61,47 @@ function trackBotEvent(safetag: string | undefined | null, event: string, proper
 // Session maps to avoid exceeding Telegram's 64-byte callback_data limit
 const pendingRefunds = new Map<string, { txnId: string; reason?: string }>();
 const pendingMilestoneActions = new Map<string, Array<{ txnId: string; mId: string; status: string }>>();
+const pendingProofCandidates = new Map<string, { proofUrl: string; candidates: Array<{ txnId: string; mId: string | null; label: string }> }>();
+
+// Shared milestone-progress renderer used by view_txn_details, ms|, and ms_confirm| —
+// only offers "Mark Complete" for the next-in-sequence non-RELEASED phase, so a seller
+// can't jump ahead and complete a later phase before an earlier one is released.
+function buildMilestoneButtons(t: any, myTag: string, chatKey: string): { milestoneInfo: string; buttons: any[][] } {
+    let milestoneInfo = '\n\n🪜 <b>Milestone Progress:</b>\n';
+    const buttons: any[][] = [];
+    const msActions: Array<{ txnId: string; mId: string; status: string }> = [];
+    let proofButtonAdded = false;
+
+    const sorted = [...t.milestones].sort((a: any, b: any) => a.index_num - b.index_num);
+    const nextPending = sorted.find((m: any) => m.status !== 'RELEASED');
+
+    sorted.forEach((m: any) => {
+        const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
+        milestoneInfo += `${statusEmoji} ${m.title}: <b>${m.amount} ${t.currency}</b> (${m.status})\n`;
+
+        if (m.status === 'PENDING' && myTag === t.seller.safetag && t.status === 'PAID' && nextPending?.id === m.id) {
+            const idx = msActions.length;
+            msActions.push({ txnId: t.id, mId: m.id, status: 'COMPLETED' });
+            buttons.push([{ text: `📦 Mark "${m.title}" Complete`, callback_data: `ms|${idx}` }]);
+        } else if (m.status === 'COMPLETED' && myTag === t.buyer.safetag) {
+            if (!proofButtonAdded) {
+                buttons.push([{ text: '🔍 View Delivery Proof', url: `${REVIEWS_URL}/delivery/${t.id}` }]);
+                proofButtonAdded = true;
+            }
+            const releaseIdx = msActions.length;
+            msActions.push({ txnId: t.id, mId: m.id, status: 'RELEASED' });
+            const disputeIdx = msActions.length;
+            msActions.push({ txnId: t.id, mId: m.id, status: 'DISPUTE' });
+            buttons.push([
+                { text: `💸 Release "${m.title}"`, callback_data: `ms|${releaseIdx}` },
+                { text: `⚠️ Dispute "${m.title}"`, callback_data: `ms|${disputeIdx}` }
+            ]);
+        }
+    });
+
+    if (msActions.length > 0) pendingMilestoneActions.set(chatKey, msActions);
+    return { milestoneInfo, buttons };
+}
 
 // Telegram API rejects 'localhost' in inline keyboard URLs
 if (REVIEWS_URL.includes('localhost')) {
@@ -597,73 +638,58 @@ bot.action(/^view_txns_category\|(.+)$/, async (ctx) => {
     }
 });
 
+async function replyTxnDetails(ctx: any, t: any, myTag: string) {
+    let milestoneInfo = '';
+    const buttons: any[] = [];
+
+    if (t.transaction_type === 'MILESTONE' && t.milestones && t.milestones.length > 0) {
+        const built = buildMilestoneButtons(t, myTag, String(ctx.from?.id));
+        milestoneInfo = built.milestoneInfo;
+        buttons.push(...built.buttons);
+    }
+
+    if (['COMPLETED', 'FINALIZED'].includes(t.status)) {
+        buttons.push([{ text: '✍️ Leave a Review', callback_data: `leave_review_${t.id}` }]);
+    }
+
+    const msg = `📋 <b>Transaction Details</b>\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 ID: <b>${t.txn_code}</b>\n📦 Type: <b>${t.transaction_type}</b>\n🛒 Product: <b>${t.product_name}</b>\n📝 Desc: ${t.description || 'N/A'}\n💰 Total: <b>${t.amount} ${t.currency}</b>\n💵 Fee: <b>${t.fee_amount}</b> (${t.fee_allocation})\n💳 Escrow: <b>${t.total_amount}</b>\n👤 Buyer: <code>${t.buyer.safetag}</code>\n👤 Seller: <code>${t.seller.safetag}</code>\n💠 Status: <b>${t.status.replace(/_/g, ' ')}</b>${milestoneInfo}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+
+    const navButtons = [{ text: '🔙 Back', callback_data: 'my_txns' }];
+
+    const isOngoing = ['PENDING_SELLER_ACCEPTANCE', 'ACCEPTED', 'PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(t.status);
+    if (isOngoing && t.transaction_type === 'ONE_TIME') {
+        navButtons.push({ text: '🚀 Action', callback_data: `txn_resume|${t.id}` });
+    } else if (t.status === 'PENDING_SELLER_ACCEPTANCE' || t.status === 'ACCEPTED') {
+         // For milestones, we still need these two basic actions
+         navButtons.push({ text: '🚀 Action', callback_data: `txn_resume|${t.id}` });
+    }
+
+    buttons.push(navButtons);
+
+    const canDispute = ['PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(t.status);
+    if (canDispute) {
+        buttons.push([{ text: '⚠️ Dispute Transaction', callback_data: `txn_dispute_${t.id}` }]);
+    }
+
+    return ctx.reply(msg, {
+        parse_mode: 'HTML',
+        reply_markup: {
+            inline_keyboard: buttons
+        }
+    });
+}
+
 bot.action(/^view_txn_details\|(.+)$/, async (ctx) => {
     const txnId = ctx.match[1];
     try { await ctx.answerCbQuery(); } catch (e) { console.error('Answer CB Error:', e); }
     try {
         const profileRes = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
         const myTag = profileRes.data.safetag;
-        
+
         const res = await axios.get(`${API_URL}/transactions/${txnId}`);
         const t = res.data;
-        
-        let milestoneInfo = '';
-        const buttons: any[] = [];
 
-        if (t.transaction_type === 'MILESTONE' && t.milestones && t.milestones.length > 0) {
-            milestoneInfo = '\n\n🪜 <b>Milestone Progress:</b>\n';
-            const msActions: Array<{ txnId: string; mId: string; status: string }> = [];
-            let proofButtonAdded = false;
-            t.milestones.sort((a: any, b: any) => a.index_num - b.index_num).forEach((m: any) => {
-                const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
-                milestoneInfo += `${statusEmoji} ${m.title}: <b>${m.amount} ${t.currency}</b> (${m.status})\n`;
-
-                if (m.status === 'PENDING' && myTag === t.seller.safetag && t.status === 'PAID') {
-                    const idx = msActions.length;
-                    msActions.push({ txnId: t.id, mId: m.id, status: 'COMPLETED' });
-                    buttons.push([{ text: `📦 Mark "${m.title}" Complete`, callback_data: `ms|${idx}` }]);
-                } else if (m.status === 'COMPLETED' && myTag === t.buyer.safetag) {
-                    if (!proofButtonAdded) {
-                        buttons.push([{ text: '🔍 View Delivery Proof', url: `${REVIEWS_URL}/delivery/${t.id}` }]);
-                        proofButtonAdded = true;
-                    }
-                    const idx = msActions.length;
-                    msActions.push({ txnId: t.id, mId: m.id, status: 'RELEASED' });
-                    buttons.push([{ text: `💸 Release "${m.title}"`, callback_data: `ms|${idx}` }]);
-                }
-            });
-            if (msActions.length > 0) pendingMilestoneActions.set(String(ctx.from?.id), msActions);
-        }
-
-        if (['COMPLETED', 'FINALIZED'].includes(t.status)) {
-            buttons.push([{ text: '✍️ Leave a Review', callback_data: `leave_review_${t.id}` }]);
-        }
-
-        const msg = `📋 <b>Transaction Details</b>\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 ID: <b>${t.txn_code}</b>\n📦 Type: <b>${t.transaction_type}</b>\n🛒 Product: <b>${t.product_name}</b>\n📝 Desc: ${t.description || 'N/A'}\n💰 Total: <b>${t.amount} ${t.currency}</b>\n💵 Fee: <b>${t.fee_amount}</b> (${t.fee_allocation})\n💳 Escrow: <b>${t.total_amount}</b>\n👤 Buyer: <code>${t.buyer.safetag}</code>\n👤 Seller: <code>${t.seller.safetag}</code>\n💠 Status: <b>${t.status.replace(/_/g, ' ')}</b>${milestoneInfo}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
-
-        const navButtons = [{ text: '🔙 Back', callback_data: 'my_txns' }];
-
-        const isOngoing = ['PENDING_SELLER_ACCEPTANCE', 'ACCEPTED', 'PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(t.status);
-        if (isOngoing && t.transaction_type === 'ONE_TIME') {
-            navButtons.push({ text: '🚀 Action', callback_data: `txn_resume|${t.id}` });
-        } else if (t.status === 'PENDING_SELLER_ACCEPTANCE' || t.status === 'ACCEPTED') {
-             // For milestones, we still need these two basic actions
-             navButtons.push({ text: '🚀 Action', callback_data: `txn_resume|${t.id}` });
-        }
-
-        buttons.push(navButtons);
-
-        const canDispute = ['PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(t.status);
-        if (canDispute) {
-            buttons.push([{ text: '⚠️ Dispute Transaction', callback_data: `txn_dispute_${t.id}` }]);
-        }
-
-        return ctx.reply(msg, {
-            parse_mode: 'HTML',
-            reply_markup: {
-                inline_keyboard: buttons
-            }
-        });
+        return replyTxnDetails(ctx, t, myTag);
     } catch (err: any) {
         ctx.reply(`❌ Error: ${err.message}`);
     }
@@ -681,12 +707,19 @@ bot.action(/^txn_resume\|(.+)$/, async (ctx) => {
         const isBuyer = myTag === t.buyer.safetag;
         const isSeller = myTag === t.seller.safetag;
 
+        const isMilestone = t.transaction_type === 'MILESTONE';
         let nextAction = '';
         if (t.status === 'PENDING_SELLER_ACCEPTANCE' && isSeller) nextAction = 'accept_prompt';
         else if (t.status === 'ACCEPTED' && isBuyer) nextAction = 'pay_prompt';
-        else if (t.status === 'PAID' && isSeller) nextAction = 'complete_prompt';
-        else if (t.status === 'AWAITING_PROOF' && isSeller) nextAction = 'complete_yes';
-        else if (t.status === 'COMPLETED_BY_SELLER' && isBuyer) nextAction = 'confirm_receipt_prompt';
+        else if (!isMilestone && t.status === 'PAID' && isSeller) nextAction = 'complete_prompt';
+        else if (!isMilestone && t.status === 'AWAITING_PROOF' && isSeller) nextAction = 'complete_yes';
+        else if (!isMilestone && t.status === 'COMPLETED_BY_SELLER' && isBuyer) nextAction = 'confirm_receipt_prompt';
+
+        // Milestone transactions past the accept/pay stage don't have a single "next
+        // action" — show the per-phase progress view instead of the generic flow.
+        if (!nextAction && isMilestone && ['PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(t.status)) {
+            return replyTxnDetails(ctx, t, myTag);
+        }
 
         if (nextAction) {
             const statusRes = await axios.patch(`${API_URL}/transactions/${txnId}/status`, {
@@ -875,6 +908,10 @@ bot.action(/^ms\|(\d+)$/, async (ctx) => {
         const { txnId, mId, status } = msActions[idx];
         await ctx.answerCbQuery();
 
+        if (status === 'DISPUTE') {
+            return ctx.scene.enter('dispute_wizard', { txnId, milestoneId: mId });
+        }
+
         if (status === 'COMPLETED') {
             // 2-step: show upload CTA first, seller confirms after uploading proof
             return ctx.editMessageText(
@@ -883,7 +920,7 @@ bot.action(/^ms\|(\d+)$/, async (ctx) => {
                     parse_mode: 'HTML',
                     reply_markup: {
                         inline_keyboard: [
-                            [{ text: '📎 Upload Proof Now', url: `${REVIEWS_URL}/upload/${txnId}` }],
+                            [{ text: '📎 Upload Proof Now', url: `${REVIEWS_URL}/upload/${txnId}?milestone_id=${mId}` }],
                             [{ text: '✅ Mark as Complete', callback_data: `ms_confirm|${txnId}|${mId}` }],
                             [{ text: '🔙 Cancel', callback_data: `view_txn_details|${txnId}` }]
                         ]
@@ -900,30 +937,7 @@ bot.action(/^ms\|(\d+)$/, async (ctx) => {
         const t = res.data;
         const myTag = tgProfile.data.safetag;
 
-        let milestoneInfo = '\n\n🪜 <b>Milestone Progress:</b>\n';
-        const buttons: any[] = [];
-        const newMsActions: Array<{ txnId: string; mId: string; status: string }> = [];
-        let proofButtonAdded = false;
-
-        t.milestones.sort((a: any, b: any) => a.index_num - b.index_num).forEach((m: any) => {
-            const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
-            milestoneInfo += `${statusEmoji} ${m.title}: <b>${m.amount} ${t.currency}</b> (${m.status})\n`;
-            if (m.status === 'PENDING' && myTag === t.seller.safetag && t.status === 'PAID') {
-                const newIdx = newMsActions.length;
-                newMsActions.push({ txnId: t.id, mId: m.id, status: 'COMPLETED' });
-                buttons.push([{ text: `📦 Mark "${m.title}" Complete`, callback_data: `ms|${newIdx}` }]);
-            } else if (m.status === 'COMPLETED' && myTag === t.buyer.safetag) {
-                if (!proofButtonAdded) {
-                    buttons.push([{ text: '🔍 View Delivery Proof', url: `${REVIEWS_URL}/delivery/${t.id}` }]);
-                    proofButtonAdded = true;
-                }
-                const newIdx = newMsActions.length;
-                newMsActions.push({ txnId: t.id, mId: m.id, status: 'RELEASED' });
-                buttons.push([{ text: `💸 Release "${m.title}"`, callback_data: `ms|${newIdx}` }]);
-            }
-        });
-
-        pendingMilestoneActions.set(String(ctx.from?.id), newMsActions);
+        const { milestoneInfo, buttons } = buildMilestoneButtons(t, myTag, String(ctx.from?.id));
 
         const msg = `📋 <b>Transaction Details</b>\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 ID: <b>${t.txn_code}</b>\n📦 Type: <b>${t.transaction_type}</b>\n🛒 Product: <b>${t.product_name}</b>\n💠 Status: <b>${t.status.replace(/_/g, ' ')}</b>${milestoneInfo}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
         buttons.push([{ text: '🔙 Back', callback_data: 'my_txns' }]);
@@ -939,10 +953,10 @@ bot.action(/^ms\|(\d+)$/, async (ctx) => {
 });
 
 bot.action(/^ms_confirm\|([^|]+)\|([^|]+)$/, async (ctx) => {
+    const txnId = ctx.match[1];
+    const mId   = ctx.match[2];
     try {
         await ctx.answerCbQuery('✅ Marking phase as complete...');
-        const txnId = ctx.match[1];
-        const mId   = ctx.match[2];
         const tgProfile = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
         await axios.patch(`${API_URL}/transactions/${txnId}/milestones/${mId}/status`, { status: 'COMPLETED', updater_safetag: tgProfile.data.safetag }, { headers: BOT_AUTH_HEADERS });
 
@@ -950,25 +964,21 @@ bot.action(/^ms_confirm\|([^|]+)\|([^|]+)$/, async (ctx) => {
         const t = res.data;
         const myTag = tgProfile.data.safetag;
 
-        let milestoneInfo = '\n\n🪜 <b>Milestone Progress:</b>\n';
-        const buttons: any[] = [];
-        const newMsActions: Array<{ txnId: string; mId: string; status: string }> = [];
-
-        t.milestones.sort((a: any, b: any) => a.index_num - b.index_num).forEach((m: any) => {
-            const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
-            milestoneInfo += `${statusEmoji} ${m.title}: <b>${m.amount} ${t.currency}</b> (${m.status})\n`;
-            if (m.status === 'PENDING' && myTag === t.seller.safetag && t.status === 'PAID') {
-                const newIdx = newMsActions.length;
-                newMsActions.push({ txnId: t.id, mId: m.id, status: 'COMPLETED' });
-                buttons.push([{ text: `📦 Mark "${m.title}" Complete`, callback_data: `ms|${newIdx}` }]);
-            }
-        });
-
-        pendingMilestoneActions.set(String(ctx.from?.id), newMsActions);
+        const { milestoneInfo, buttons } = buildMilestoneButtons(t, myTag, String(ctx.from?.id));
         const msg = `📦 <b>Phase Marked Complete!</b>\n\nThe buyer has been notified to review your proof and release funds.\n\n📋 ID: <b>${t.txn_code}</b>\n💠 Status: <b>${t.status.replace(/_/g, ' ')}</b>${milestoneInfo}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
         buttons.push([{ text: '🔙 Back', callback_data: 'my_txns' }]);
         return ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } });
     } catch (err: any) {
+        const apiError = err.response?.data?.error;
+        if (apiError === 'PROOF_REQUIRED') {
+            return ctx.reply(
+                `⚠️ <b>Proof Required</b>\n\nYou need to upload delivery proof for this phase before marking it complete.\n\nTap below to upload, then try again:`,
+                { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '📎 Upload Proof Now', url: `${REVIEWS_URL}/upload/${txnId}?milestone_id=${mId}` }]] } }
+            );
+        }
+        if (apiError === 'OUT_OF_SEQUENCE') {
+            return ctx.reply(`⏳ <b>Complete the Previous Phase First</b>\n\n${err.response?.data?.message || 'Please finish the earlier phase before starting this one.'}`, { parse_mode: 'HTML' });
+        }
         console.error('Milestone Confirm Error:', err.message);
         ctx.reply('❌ Failed to mark phase as complete. Please try again.');
     }
@@ -1062,22 +1072,73 @@ bot.on('photo', async (ctx) => {
         const profileRes = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
         const mySafetag = profileRes.data.safetag;
 
-        // Check for active transactions awaiting proof
-        const txnsRes = await axios.get(`${API_URL}/transactions`, {
+        const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+        const link = await ctx.telegram.getFileLink(fileId);
+
+        // Candidate 1: ONE_TIME transactions awaiting proof (existing behavior)
+        const oneTimeRes = await axios.get(`${API_URL}/transactions`, {
             params: { seller_safetag: mySafetag, status: 'AWAITING_PROOF' }
         });
+        const candidates: Array<{ txnId: string; mId: string | null; label: string }> = (oneTimeRes.data || []).map((t: any) => ({
+            txnId: t.id, mId: null, label: t.product_name
+        }));
 
-        if (txnsRes.data && txnsRes.data.length > 0) {
-            const txn = txnsRes.data[0];
-            const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
-            const link = await ctx.telegram.getFileLink(fileId);
+        // Candidate 2: MILESTONE transactions with a next-pending phase awaiting proof
+        const milestoneRes = await axios.get(`${API_URL}/transactions`, {
+            params: { seller_safetag: mySafetag, status: 'PAID', transaction_type: 'MILESTONE' }
+        });
+        (milestoneRes.data || []).forEach((t: any) => {
+            const sorted = [...(t.milestones || [])].sort((a: any, b: any) => a.index_num - b.index_num);
+            const nextIdx = sorted.findIndex((m: any) => m.status === 'PENDING');
+            if (nextIdx !== -1) {
+                candidates.push({ txnId: t.id, mId: sorted[nextIdx].id, label: `${t.product_name} — Phase ${nextIdx + 1}: ${sorted[nextIdx].title}` });
+            }
+        });
 
-            await axios.post(`${API_URL}/transactions/${txn.id}/upload-proof`, {
-                proof_url: link.href
+        if (candidates.length === 0) return;
+
+        if (candidates.length === 1) {
+            const c = candidates[0];
+            await axios.post(`${API_URL}/transactions/${c.txnId}/upload-proof`, {
+                proof_url: link.href,
+                ...(c.mId ? { milestone_id: c.mId } : {})
             });
+            return;
         }
+
+        // Multiple candidates — don't guess, ask which delivery this photo belongs to
+        pendingProofCandidates.set(String(ctx.from?.id), { proofUrl: link.href, candidates });
+        await ctx.reply(
+            `📦 <b>Which delivery is this for?</b>\n\nYou have more than one phase awaiting proof. Pick the right one:`,
+            {
+                parse_mode: 'HTML',
+                reply_markup: {
+                    inline_keyboard: candidates.map((c, idx) => [{ text: c.label, callback_data: `proof_pick|${idx}` }])
+                }
+            }
+        );
     } catch (err: any) {
         console.error('Photo Upload Error:', err.message);
+    }
+});
+
+bot.action(/^proof_pick\|(\d+)$/, async (ctx) => {
+    try {
+        await ctx.answerCbQuery();
+        const idx = parseInt(ctx.match[1], 10);
+        const pending = pendingProofCandidates.get(String(ctx.from?.id));
+        if (!pending || !pending.candidates[idx]) return ctx.reply('⚠️ Session expired. Please resend the photo.');
+        const c = pending.candidates[idx];
+        pendingProofCandidates.delete(String(ctx.from?.id));
+
+        await axios.post(`${API_URL}/transactions/${c.txnId}/upload-proof`, {
+            proof_url: pending.proofUrl,
+            ...(c.mId ? { milestone_id: c.mId } : {})
+        });
+        return ctx.editMessageText(`✅ Got it — proof attached to <b>${c.label}</b>.`, { parse_mode: 'HTML' });
+    } catch (err: any) {
+        console.error('Proof Pick Error:', err.message);
+        ctx.reply('❌ Failed to attach proof. Please try again.');
     }
 });
 

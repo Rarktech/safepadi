@@ -71,13 +71,16 @@ function buildMilestoneBlock(ctx: DisputeContext): string {
         .reduce((sum, m) => sum + Number(m.amount), 0);
     const completionPct = totalAmount > 0 ? Math.round((completedValue / totalAmount) * 100) : 0;
 
+    const flaggedId = ctx.dispute.flagged_milestone_id;
     const lines = ctx.milestones.map(m =>
-        `  - [${m.index_num}] "${m.title}" [${m.status}] — ${ctx.transaction.currency} ${m.amount}`
+        `  - [${m.index_num}] "${m.title}" [${m.status}] — ${ctx.transaction.currency} ${m.amount}${m.id === flaggedId ? '  ⚠️ BUYER FLAGGED THIS PHASE' : ''}`
     ).join('\n');
+
+    const flagged = flaggedId ? ctx.milestones.find(m => m.id === flaggedId) : undefined;
 
     return `MILESTONE TRANSACTION CONTEXT:
 ${lines}
-Completion: ${completionPct}% by value (${ctx.transaction.currency} ${completedValue} of ${totalAmount} delivered)`;
+Completion: ${completionPct}% by value (${ctx.transaction.currency} ${completedValue} of ${totalAmount} delivered)${flagged ? `\n\nThe buyer raised this dispute specifically about phase "${flagged.title}" — focus evidence-gathering on that phase, but other phases' history is still relevant context.` : ''}`;
 }
 
 function buildSellerProofBlock(ctx: DisputeContext): string {

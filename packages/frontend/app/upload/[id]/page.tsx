@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import {
     Upload,
     CheckCircle,
@@ -25,12 +25,22 @@ interface UploadFile {
     status: 'pending' | 'uploading' | 'done';
 }
 
+interface Milestone {
+    id: string;
+    index_num: number;
+    title: string;
+    amount: number;
+    status: 'PENDING' | 'COMPLETED' | 'RELEASED' | 'DISPUTED';
+}
+
 interface Txn {
     product_name: string;
     total_amount: number;
     currency: string;
     txn_code: string;
     status: string;
+    transaction_type?: 'ONE_TIME' | 'MILESTONE';
+    milestones?: Milestone[];
     buyer?: { safetag?: string };
 }
 
@@ -54,8 +64,9 @@ function formatAmount(amount: number, currency: string) {
     }
 }
 
-export default function SecureUploadPage() {
+function UploadPageContent() {
     const { id } = useParams();
+    const searchParams = useSearchParams();
     const [step, setStep] = useState(1);
     const [files, setFiles] = useState<UploadFile[]>([]);
     const [uploading, setUploading] = useState(false);
@@ -64,6 +75,7 @@ export default function SecureUploadPage() {
     const [loadingTxn, setLoadingTxn] = useState(true);
     const [scanningFiles, setScanningFiles] = useState(false);
     const [dragOver, setDragOver] = useState(false);
+    const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchTxn = async () => {
@@ -72,6 +84,14 @@ export default function SecureUploadPage() {
                     headers: { 'ngrok-skip-browser-warning': 'true' }
                 });
                 setTxn(res.data);
+
+                if (res.data.transaction_type === 'MILESTONE' && res.data.milestones?.length) {
+                    const sorted = [...res.data.milestones].sort((a: Milestone, b: Milestone) => a.index_num - b.index_num);
+                    const fromUrl = searchParams.get('milestone_id');
+                    const validFromUrl = fromUrl && sorted.find((m) => m.id === fromUrl && m.status !== 'RELEASED');
+                    const nextPending = sorted.find((m) => m.status !== 'RELEASED');
+                    setSelectedMilestoneId(validFromUrl ? fromUrl : (nextPending?.id ?? null));
+                }
             } catch (err) {
                 console.error('Failed to fetch txn:', err);
             } finally {
@@ -79,7 +99,13 @@ export default function SecureUploadPage() {
             }
         };
         if (id) fetchTxn();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
+
+    const isMilestone = txn?.transaction_type === 'MILESTONE';
+    const sortedMilestones = [...(txn?.milestones || [])].sort((a, b) => a.index_num - b.index_num);
+    const selectableMilestones = sortedMilestones.filter((m) => m.status !== 'RELEASED');
+    const selectedMilestone = sortedMilestones.find((m) => m.id === selectedMilestoneId) || null;
 
     const handleFileChange = (fileList: FileList | null) => {
         if (!fileList) return;
@@ -127,6 +153,7 @@ export default function SecureUploadPage() {
 
             const formData = new FormData();
             files.forEach(f => formData.append('files', f.file));
+            if (isMilestone && selectedMilestoneId) formData.append('milestone_id', selectedMilestoneId);
 
             await axios.post(`${API_URL}/transactions/${id}/upload-proof-files`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data', 'ngrok-skip-browser-warning': 'true' }
@@ -213,8 +240,8 @@ export default function SecureUploadPage() {
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-3">
                                 <div className="px-[18px] py-3.5 border-b sm:border-b-0 sm:border-r border-[#f3f4f6]">
-                                    <p className="text-[10.5px] font-semibold text-[#94a3b8] mb-1">Amount</p>
-                                    <p className="font-['Inter_Tight',sans-serif] text-[17px] font-extrabold text-[#0f172a]">{formatAmount(txn.total_amount, txn.currency)}</p>
+                                    <p className="text-[10.5px] font-semibold text-[#94a3b8] mb-1">{isMilestone && selectedMilestone ? 'Phase Amount' : 'Amount'}</p>
+                                    <p className="font-['Inter_Tight',sans-serif] text-[17px] font-extrabold text-[#0f172a]">{formatAmount(isMilestone && selectedMilestone ? selectedMilestone.amount : txn.total_amount, txn.currency)}</p>
                                 </div>
                                 <div className="px-[18px] py-3.5 border-b sm:border-b-0 sm:border-r border-[#f3f4f6]">
                                     <p className="text-[10.5px] font-semibold text-[#94a3b8] mb-1">Buyer</p>
@@ -226,6 +253,25 @@ export default function SecureUploadPage() {
                                 </div>
                             </div>
                         </div>
+
+                        {isMilestone && selectableMilestones.length > 0 && (
+                            <div className="bg-white rounded-[20px] border border-[#e9eaec] px-[22px] py-5 mb-4">
+                                <p className="text-[13px] font-extrabold text-[#0f172a] mb-1">Which phase is this proof for?</p>
+                                <p className="text-[12px] text-[#64748b] mb-3.5">Select the milestone you&apos;re submitting delivery proof for.</p>
+                                <div className="flex flex-col gap-2">
+                                    {selectableMilestones.map((m) => (
+                                        <button
+                                            key={m.id}
+                                            onClick={() => setSelectedMilestoneId(m.id)}
+                                            className={`text-left px-4 py-3 rounded-2xl border transition-colors ${selectedMilestoneId === m.id ? 'border-[#10b981] bg-[#10b981]/[0.06]' : 'border-[#e9eaec] hover:border-[#cbd5e1]'}`}
+                                        >
+                                            <p className="text-[13px] font-bold text-[#0f172a]">Phase {m.index_num}: {m.title}</p>
+                                            <p className="text-[11.5px] text-[#64748b] mt-0.5">{formatAmount(m.amount, txn.currency)} · {m.status === 'COMPLETED' ? 'Already marked complete' : 'Pending'}</p>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         <div className="bg-white rounded-[20px] border border-[#e9eaec] px-[22px] py-5 mb-4">
                             <p className="text-[13px] font-extrabold text-[#0f172a] mb-3.5">What to include in your proof</p>
@@ -352,7 +398,11 @@ export default function SecureUploadPage() {
                         </div>
                         <h2 className="font-['Inter_Tight',sans-serif] text-[32px] font-black text-[#0f172a] tracking-tight mb-4">Delivery secured!</h2>
                         <p className="text-[14px] text-[#64748b] max-w-md mx-auto mb-10 font-medium leading-relaxed">
-                            Your proof for <span className="text-[#0f172a] font-bold">{txn.product_name}</span> has been submitted. The buyer has been notified to review and release funds.
+                            {isMilestone && selectedMilestone ? (
+                                <>Your proof for <span className="text-[#0f172a] font-bold">Phase {selectedMilestone.index_num} — {selectedMilestone.title}</span> of <span className="text-[#0f172a] font-bold">{txn.product_name}</span> has been submitted. The buyer has been notified to review and release this phase.</>
+                            ) : (
+                                <>Your proof for <span className="text-[#0f172a] font-bold">{txn.product_name}</span> has been submitted. The buyer has been notified to review and release funds.</>
+                            )}
                         </p>
 
                         <div className="grid grid-cols-2 gap-3 max-w-sm mx-auto mb-10">
@@ -385,6 +435,18 @@ export default function SecureUploadPage() {
                 )}
             </main>
         </div>
+    );
+}
+
+export default function SecureUploadPage() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-screen bg-[#F7F7F5] flex items-center justify-center">
+                <Loader2 className="w-8 h-8 text-[#10b981] animate-spin" />
+            </div>
+        }>
+            <UploadPageContent />
+        </Suspense>
     );
 }
 

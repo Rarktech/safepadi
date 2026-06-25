@@ -10,6 +10,8 @@ import { classifyDisputeType } from '../services/dispute-ai/classifier';
 import { quickTierHint } from '../services/dispute-ai/config/disputeTypes';
 import { issueReferralCommissions } from '../services/commissions';
 import { routeDispute } from '../services/disputeRouter';
+import { getRemainingMilestoneEscrow, releaseRemainingMilestones } from '../services/milestoneEscrow';
+import { runFinalizeSideEffects } from '../services/finalizeTransactionSideEffects';
 import { requireUser, requireUserOrBot, BotOrUserRequest, AuthedRequest } from '../middleware/requireUser';
 import { requireAdmin } from '../middleware/requireAdmin';
 import { track } from '../lib/posthog';
@@ -22,7 +24,8 @@ const RaiseDisputeSchema = z.object({
     transaction_id: z.string().uuid(),
     raised_by: z.string().uuid(),
     reason: z.string().min(10),
-    category: z.string().optional()
+    category: z.string().optional(),
+    milestone_id: z.string().uuid().optional()
 });
 
 const ResolveDisputeSchema = z.object({
@@ -99,7 +102,7 @@ async function updateDisputeReputation(txn: any, action: string) {
     }
 }
 
-async function insertBuyerRefundCredit(
+export async function insertBuyerRefundCredit(
     disputeId: string,
     txn: any,
     refundType: 'FULL' | 'SPLIT_SHARE' | 'RETURN_CONFIRMED',
@@ -107,7 +110,11 @@ async function insertBuyerRefundCredit(
     overrideAmount?: number
 ) {
     try {
-        const amount = overrideAmount ?? Number(txn.amount);
+        // Cap at what's actually still in escrow — for MILESTONE transactions this
+        // excludes phases already RELEASED to the seller, which are final and not
+        // reopened by a later dispute. For ONE_TIME (or unloaded milestones) this
+        // is identical to the old `Number(txn.amount)` behavior.
+        const amount = overrideAmount ?? getRemainingMilestoneEscrow(txn);
         if (!amount || amount <= 0) {
             console.warn(`⚠️ insertBuyerRefundCredit skipped: amount=${amount} (txn.id=${txn?.id})`);
             return;
@@ -196,8 +203,9 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
                 if (aiResult.action === 'REFUND_AFTER_RETURN') newTxnStatus = 'RETURN_PENDING';
 
                 const splitBuyerPct = aiResult.split_pct_buyer ?? 0;
+                const splitPool = txn ? getRemainingMilestoneEscrow(txn) : 0;
                 const txnMeta = (aiResult.action === 'SPLIT' && splitBuyerPct != null && txn)
-                    ? { resolution: 'SPLIT', buyer_pct: splitBuyerPct, seller_pct: 100 - splitBuyerPct, buyer_amount: +(txn.amount * splitBuyerPct / 100).toFixed(2), seller_amount: +(txn.amount * (100 - splitBuyerPct) / 100).toFixed(2) }
+                    ? { resolution: 'SPLIT', buyer_pct: splitBuyerPct, seller_pct: 100 - splitBuyerPct, buyer_amount: +(splitPool * splitBuyerPct / 100).toFixed(2), seller_amount: +(splitPool * (100 - splitBuyerPct) / 100).toFixed(2) }
                     : undefined;
 
                 await supabase.from('disputes').update({
@@ -220,9 +228,20 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
                         await insertBuyerRefundCredit(disputeId, txn, 'SPLIT_SHARE', 'AI', txnMeta.buyer_amount);
                     }
 
-                    // Issue referral commissions on PAY_SELLER verdicts (skipped by confirm_receipt path)
+                    // PAY_SELLER on a MILESTONE transaction: release any still-pending
+                    // phases (otherwise that money is never counted in the seller's
+                    // balance and never refunded either) and run the full finalize
+                    // side-effects so the seller gets the same badges/auto-settlement
+                    // treatment a normal full completion would. ONE_TIME is untouched —
+                    // it keeps issuing exactly the referral commissions it always has.
                     if (aiResult.action === 'PAY_SELLER') {
-                        issueReferralCommissions(txn).catch(() => {});
+                        if (txn.transaction_type === 'MILESTONE') {
+                            releaseRemainingMilestones(txn.id)
+                                .then(() => runFinalizeSideEffects(txn))
+                                .catch((e: any) => console.error('❌ Milestone PAY_SELLER finalize failed:', e?.message || e));
+                        } else {
+                            issueReferralCommissions(txn).catch(() => {});
+                        }
                     }
 
                     if (txn.buyer?.safetag) {
@@ -353,7 +372,7 @@ router.post('/raise', requireUserOrBot, async (req: Request, res: Response) => {
 
         const { data: txn, error: txnError } = await supabase
             .from('transactions')
-            .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+            .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
             .eq('id', data.transaction_id)
             .single();
 
@@ -370,6 +389,13 @@ router.post('/raise', requireUserOrBot, async (req: Request, res: Response) => {
             return res.status(403).json({ error: 'Only a transaction party may raise a dispute.' });
         }
 
+        // milestone_id is optional context only (which phase the buyer is unhappy
+        // with) — it never narrows what the dispute resolves, so just validate it
+        // actually belongs to this transaction.
+        if (data.milestone_id && !(txn.milestones || []).some((m: any) => m.id === data.milestone_id)) {
+            return res.status(400).json({ error: 'milestone_id does not belong to this transaction' });
+        }
+
         const { data: dispute, error: disputeError } = await supabase
             .from('disputes')
             .insert({
@@ -377,7 +403,8 @@ router.post('/raise', requireUserOrBot, async (req: Request, res: Response) => {
                 raised_by: data.raised_by,
                 reason: data.reason,
                 status: 'OPEN',
-                user_category: data.category ?? null
+                user_category: data.category ?? null,
+                milestone_id: data.milestone_id ?? null
             })
             .select()
             .single();
@@ -677,7 +704,7 @@ router.post('/:id/messages', requireUser, async (req: Request, res: Response) =>
         // 1. Initial Dispute Check
         const { data: disputeData, error: dError } = await supabase
             .from('disputes')
-            .select('*, transaction:transaction_id(*, buyer:buyer_id(*), seller:seller_id(*))')
+            .select('*, transaction:transaction_id(*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*))')
             .eq('id', id)
             .single();
 
@@ -812,6 +839,26 @@ router.post('/:id/resolve', requireAdmin, async (req: Request, res: Response) =>
 
         if (fetchError || !dispute) return res.status(404).json({ error: 'Dispute not found' });
 
+        // Loaded up front (with milestones) so SPLIT amounts can be validated
+        // against what's actually still in escrow before anything is written.
+        const { data: txnForValidation } = await supabase
+            .from('transactions')
+            .select('*, milestones:transaction_milestones(*)')
+            .eq('id', dispute.transaction_id)
+            .single();
+
+        if (data.resolution_type === 'SPLIT') {
+            const remaining = getRemainingMilestoneEscrow(txnForValidation);
+            const requested = (data.buyer_amount ?? 0) + (data.seller_amount ?? 0);
+            if (requested > remaining + 0.01) {
+                return res.status(400).json({
+                    error: 'SPLIT_EXCEEDS_REMAINING_ESCROW',
+                    message: `Buyer + seller amounts (${requested}) exceed the ${remaining} still in escrow for this transaction.`,
+                    remaining_escrow: remaining
+                });
+            }
+        }
+
         const isReturnFlow = data.resolution_type === 'REFUND_AFTER_RETURN';
         let resolutionText = data.resolution_type;
         if (data.resolution_type === 'SPLIT') {
@@ -864,7 +911,7 @@ router.post('/:id/resolve', requireAdmin, async (req: Request, res: Response) =>
         // Fetch transaction + parties for notifications and credit inserts
         const { data: txnFull } = await supabase
             .from('transactions')
-            .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+            .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
             .eq('id', dispute.transaction_id)
             .single();
 
@@ -877,9 +924,17 @@ router.post('/:id/resolve', requireAdmin, async (req: Request, res: Response) =>
                     await insertBuyerRefundCredit(id, txnFull, 'SPLIT_SHARE', 'ADMIN', data.buyer_amount);
                 }
 
-                // Issue referral commissions for PAY_SELLER
+                // PAY_SELLER on a MILESTONE transaction: release remaining phases +
+                // run full finalize side-effects (same reasoning as the AI verdict
+                // handler above). ONE_TIME keeps the original referral-commissions-only call.
                 if (data.resolution_type === 'PAY_SELLER') {
-                    issueReferralCommissions(txnFull).catch(() => {});
+                    if (txnFull.transaction_type === 'MILESTONE') {
+                        releaseRemainingMilestones(txnFull.id)
+                            .then(() => runFinalizeSideEffects(txnFull))
+                            .catch((e: any) => console.error('❌ Milestone PAY_SELLER finalize failed:', e?.message || e));
+                    } else {
+                        issueReferralCommissions(txnFull).catch(() => {});
+                    }
                 }
 
                 // Notify both parties
@@ -926,7 +981,7 @@ router.post('/:id/confirm-return', requireUser, async (req: Request, res: Respon
 
         const { data: dispute, error: dErr } = await supabase
             .from('disputes')
-            .select('*, transaction:transaction_id(*, buyer:buyer_id(*), seller:seller_id(*))')
+            .select('*, transaction:transaction_id(*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*))')
             .eq('id', id)
             .single();
 
@@ -1097,7 +1152,7 @@ router.post('/:id/notify-leave', requireAdmin, async (req: Request, res: Respons
 
         const { data: disputeData } = await supabase
             .from('disputes')
-            .select('*, transaction:transaction_id(*, buyer:buyer_id(*), seller:seller_id(*))')
+            .select('*, transaction:transaction_id(*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*))')
             .eq('id', id)
             .single();
 
@@ -1230,7 +1285,7 @@ router.post('/cron/timeouts', async (req: Request, res: Response) => {
                         try {
                             const { data: fullTxn } = await supabase
                                 .from('transactions')
-                                .select('*, buyer:buyer_id(*), seller:seller_id(*)')
+                                .select('*, buyer:buyer_id(*), seller:seller_id(*), milestones:transaction_milestones(*)')
                                 .eq('id', dispute.transaction_id)
                                 .single();
                             if (fullTxn) {
@@ -1239,7 +1294,13 @@ router.post('/cron/timeouts', async (req: Request, res: Response) => {
                                     await insertBuyerRefundCredit(dispute.id, fullTxn, 'FULL', 'SLA');
                                 }
                                 if (action === 'PAY_SELLER') {
-                                    issueReferralCommissions(fullTxn).catch(() => {});
+                                    if (fullTxn.transaction_type === 'MILESTONE') {
+                                        releaseRemainingMilestones(fullTxn.id)
+                                            .then(() => runFinalizeSideEffects(fullTxn))
+                                            .catch((e: any) => console.error('❌ Milestone PAY_SELLER finalize failed:', e?.message || e));
+                                    } else {
+                                        issueReferralCommissions(fullTxn).catch(() => {});
+                                    }
                                 }
                             }
                         } catch { /* non-critical */ }

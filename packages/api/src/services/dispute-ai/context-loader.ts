@@ -52,7 +52,7 @@ export async function loadDisputeContext(disputeId: string): Promise<DisputeCont
     const { data: dispute, error: dErr } = await supabase
         .from('disputes')
         .select(`
-            id, reason, status, dispute_type, pipeline_tier,
+            id, reason, status, dispute_type, pipeline_tier, milestone_id,
             critic_iterations, critic_max_iterations, restricted_to, ai_rounds,
             transactions (
                 id, product_name, description, amount, currency, status, transaction_type,
@@ -128,7 +128,8 @@ export async function loadDisputeContext(disputeId: string): Promise<DisputeCont
             critic_iterations: dispute.critic_iterations || 0,
             critic_max_iterations: dispute.critic_max_iterations || 2,
             restricted_to: dispute.restricted_to || 'ALL',
-            ai_rounds: dispute.ai_rounds || 0
+            ai_rounds: dispute.ai_rounds || 0,
+            flagged_milestone_id: (dispute as any).milestone_id || null
         },
         transaction: {
             id: txn.id,

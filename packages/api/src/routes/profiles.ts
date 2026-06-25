@@ -458,13 +458,12 @@ router.get('/:safetag/balance', requireUser, requireSafetagOwner, async (req, re
                 .select('id, amount, currency, fee_amount, fee_allocation, transaction_type, status, milestones:transaction_milestones(*)')
                 .eq('seller_id', profileId)
                 .or('status.eq.FINALIZED,transaction_type.eq.MILESTONE'),
-            // Seller split-verdict earnings: RESOLVED_SPLIT one-time txns where seller has a share
+            // Seller split-verdict earnings: RESOLVED_SPLIT txns (ONE_TIME or MILESTONE) where seller has a share
             supabase
                 .from('transactions')
                 .select('id, amount, currency, fee_amount, fee_allocation, transaction_type, metadata')
                 .eq('seller_id', profileId)
-                .eq('status', 'RESOLVED_SPLIT')
-                .eq('transaction_type', 'ONE_TIME'),
+                .eq('status', 'RESOLVED_SPLIT'),
             supabase
                 .from('transactions')
                 .select('amount, currency, fee_amount, fee_allocation, transaction_type')
@@ -632,8 +631,7 @@ router.post('/bot-balance', requireBot, async (req, res) => {
                 .from('transactions')
                 .select('id, amount, currency, fee_amount, fee_allocation, transaction_type, metadata')
                 .eq('seller_id', profileId)
-                .eq('status', 'RESOLVED_SPLIT')
-                .eq('transaction_type', 'ONE_TIME'),
+                .eq('status', 'RESOLVED_SPLIT'),
             supabase
                 .from('transactions')
                 .select('amount, currency, fee_amount, fee_allocation, transaction_type')

@@ -334,12 +334,25 @@ export default function AdminDisputePage() {
         }
     };
 
+    // What's actually still in escrow — for MILESTONE transactions this excludes
+    // phases already RELEASED to the seller, which are final and not reopened by
+    // this dispute. For ONE_TIME this is just the full amount.
+    const remainingEscrow = (txn: any): number => {
+        const total = Number(txn?.amount) || 0;
+        if (txn?.transaction_type !== 'MILESTONE' || !Array.isArray(txn?.milestones)) return total;
+        const released = txn.milestones
+            .filter((m: any) => m.status === 'RELEASED')
+            .reduce((sum: number, m: any) => sum + Number(m.amount), 0);
+        return Math.max(0, total - released);
+    };
+
     const resolveDispute = async (type: string) => {
         try {
             const payload: any = { resolution_type: type };
             if (type === 'SPLIT') {
-                payload.buyer_amount = (dispute.transaction.amount * buyerSplit) / 100;
-                payload.seller_amount = (dispute.transaction.amount * (100 - buyerSplit)) / 100;
+                const remaining = remainingEscrow(dispute.transaction);
+                payload.buyer_amount = (remaining * buyerSplit) / 100;
+                payload.seller_amount = (remaining * (100 - buyerSplit)) / 100;
             }
             if (type === 'REFUND_AFTER_RETURN') {
                 payload.return_deadline_hours = 72;
@@ -614,6 +627,9 @@ export default function AdminDisputePage() {
                                             </h4>
                                             <button onClick={() => setSplitMode(false)} className="text-[10px] font-bold text-slate-400 hover:text-rose-500">Cancel</button>
                                         </div>
+                                        <p className="text-[10px] font-bold text-slate-400 mb-4">
+                                            Splitting {remainingEscrow(txn).toLocaleString()} {txn.currency} still in escrow{txn.transaction_type === 'MILESTONE' ? ' (already-released phases are excluded)' : ''}
+                                        </p>
                                         <div className="space-y-6">
                                             <div className="flex items-center justify-between">
                                                 <div className="text-center">
@@ -845,9 +861,26 @@ export default function AdminDisputePage() {
                                 </div>
                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Amount</p>
                                 <p className="text-4xl font-black text-slate-900 tracking-tighter">{txn.total_amount} <span className="text-xl text-slate-400 tracking-normal">{txn.currency}</span></p>
+                                {txn.transaction_type === 'MILESTONE' && Array.isArray(txn.milestones) && (
+                                    <p className="text-[10px] font-bold text-slate-400 mt-2">
+                                        {(txn.milestones.filter((m: any) => m.status === 'RELEASED').reduce((s: number, m: any) => s + Number(m.amount), 0)).toLocaleString()} {txn.currency} already released to seller · {remainingEscrow(txn).toLocaleString()} {txn.currency} remaining in escrow
+                                    </p>
+                                )}
                             </div>
                         </div>
                     </div>
+
+                    {dispute.milestone_id && Array.isArray(txn.milestones) && (() => {
+                        const flagged = txn.milestones.find((m: any) => m.id === dispute.milestone_id);
+                        if (!flagged) return null;
+                        return (
+                            <div className="p-5 bg-rose-50 rounded-[28px] border border-rose-200">
+                                <p className="text-[10px] font-black text-rose-700 uppercase tracking-widest mb-1">Flagged Phase</p>
+                                <p className="text-sm font-black text-slate-900">{flagged.title}</p>
+                                <p className="text-xs text-rose-600 font-medium mt-1">{flagged.amount} {txn.currency} · {flagged.status}</p>
+                            </div>
+                        );
+                    })()}
 
                         <div className="space-y-4">
                             <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest px-1">Product Details</h4>

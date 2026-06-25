@@ -114,7 +114,7 @@ process.on('uncaughtException', (error) => {
 });
 
 const reviewStates = new Collection<string, { txnId: string, stars?: number, proofUrl?: string, role?: string }>();
-const pendingDisputeData = new Map<string, { txnId: string; category: string }>();
+const pendingDisputeData = new Map<string, { txnId: string; category: string; milestoneId?: string }>();
 const AWAITING_REVIEW_REMARK = new Collection<string, boolean>();
 const feedbackStates = new Collection<string, { source: string; refId?: string; rating?: number; safetag?: string }>();
 const AWAITING_FEEDBACK_COMMENT = new Collection<string, boolean>();
@@ -157,6 +157,38 @@ const formatMessageForDiscord = (text: string): string => {
         .replace(/<code>(.*?)<\/code>/gi, '`$1`')
         .replace(/<a\s+href="([^"]+)">([^<]+)<\/a>/gi, '[$2]($1)');
 };
+
+const pendingProofCandidates = new Map<string, { proofUrl: string; fileName?: string; fileSize?: number; candidates: Array<{ txnId: string; mId: string | null; label: string }> }>();
+
+// Shared milestone-progress renderer used by every milestone listing view — only offers
+// "Complete" for the next-in-sequence non-RELEASED phase, so a seller can't jump ahead
+// and complete a later phase before an earlier one is released.
+function buildMilestoneButtons(t: any, myTag: string): { milestoneInfo: string; mButtons: any[] } {
+    let milestoneInfo = '\n\n🪜 **Milestone Progress:**\n';
+    const mButtons: any[] = [];
+    let proofButtonAdded = false;
+
+    const sorted = [...t.milestones].sort((a: any, b: any) => a.index_num - b.index_num);
+    const nextPending = sorted.find((m: any) => m.status !== 'RELEASED');
+
+    sorted.forEach((m: any) => {
+        const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
+        milestoneInfo += `${statusEmoji} ${m.title}: **${m.amount} ${t.currency}** (${m.status})\n`;
+
+        if (m.status === 'PENDING' && myTag === t.seller.safetag && t.status === 'PAID' && nextPending?.id === m.id) {
+            mButtons.push({ type: 2, label: `📦 Complete "${m.title.slice(0,20)}"`, style: 1, custom_id: `m_status|${t.id}|${m.id}|COMPLETED` });
+        } else if (m.status === 'COMPLETED' && myTag === t.buyer.safetag) {
+            if (!proofButtonAdded) {
+                mButtons.push({ type: 2, label: '🔍 View Delivery Proof', style: 5, url: `${REVIEWS_URL}/delivery/${t.id}` });
+                proofButtonAdded = true;
+            }
+            mButtons.push({ type: 2, label: `💸 Release "${m.title.slice(0,20)}"`, style: 3, custom_id: `m_status|${t.id}|${m.id}|RELEASED` });
+            mButtons.push({ type: 2, label: `⚠️ Dispute "${m.title.slice(0,20)}"`, style: 4, custom_id: `m_status|${t.id}|${m.id}|DISPUTE` });
+        }
+    });
+
+    return { milestoneInfo, mButtons };
+}
 
 const sendMainMenu = async (messageOrInteraction: any) => {
     const userId: string | undefined = messageOrInteraction.author?.id || messageOrInteraction.user?.id;
@@ -386,20 +418,52 @@ client.on('messageCreate', async (message) => {
                     return;
                 }
 
-                const txnsRes = await axios.get(`${API_URL}/transactions`, {
+                // Candidate 1: ONE_TIME transactions awaiting proof (existing behavior)
+                const oneTimeRes = await axios.get(`${API_URL}/transactions`, {
                     params: { seller_safetag: mySafetag, status: 'AWAITING_PROOF' }
                 });
+                const candidates: Array<{ txnId: string; mId: string | null; label: string }> = (oneTimeRes.data || []).map((t: any) => ({
+                    txnId: t.id, mId: null, label: t.product_name
+                }));
 
-                if (txnsRes.data && txnsRes.data.length > 0) {
-                    const txn = txnsRes.data[0];
-                    await axios.post(`${API_URL}/transactions/${txn.id}/upload-proof`, {
+                // Candidate 2: MILESTONE transactions with a next-pending phase awaiting proof
+                const milestoneRes = await axios.get(`${API_URL}/transactions`, {
+                    params: { seller_safetag: mySafetag, status: 'PAID', transaction_type: 'MILESTONE' }
+                });
+                (milestoneRes.data || []).forEach((t: any) => {
+                    const sorted = [...(t.milestones || [])].sort((a: any, b: any) => a.index_num - b.index_num);
+                    const nextIdx = sorted.findIndex((m: any) => m.status === 'PENDING');
+                    if (nextIdx !== -1) {
+                        candidates.push({ txnId: t.id, mId: sorted[nextIdx].id, label: `${t.product_name} — Phase ${nextIdx + 1}: ${sorted[nextIdx].title}` });
+                    }
+                });
+
+                if (candidates.length === 0) return;
+
+                if (candidates.length === 1) {
+                    const c = candidates[0];
+                    await axios.post(`${API_URL}/transactions/${c.txnId}/upload-proof`, {
                         proof_url: attachment.url,
                         file_name: attachment.name || 'Discord Upload',
                         file_size: attachment.size || 0,
+                        ...(c.mId ? { milestone_id: c.mId } : {}),
                     });
-                    await message.reply(`✅ **Proof Uploaded** for transaction **${txn.txn_code}**!`);
+                    await message.reply(c.mId ? `✅ **Proof Uploaded** for **${c.label}**!` : `✅ **Proof Uploaded** for transaction **${c.label}**!`);
                     return;
                 }
+
+                // Multiple candidates — don't guess, ask which delivery this image belongs to
+                pendingProofCandidates.set(message.author.id, {
+                    proofUrl: attachment.url,
+                    fileName: attachment.name || 'Discord Upload',
+                    fileSize: attachment.size || 0,
+                    candidates,
+                });
+                await message.reply({
+                    content: `📦 **Which delivery is this for?**\n\nYou have more than one phase awaiting proof. Pick the right one:`,
+                    components: [{ type: 1, components: candidates.slice(0, 5).map((c, idx) => ({ type: 2, label: c.label.slice(0, 80), style: 2, custom_id: `proof_pick|${idx}` })) }]
+                });
+                return;
             }
         } catch (err: any) {
             console.error('Discord Attachment Error:', err.message);
@@ -676,23 +740,11 @@ client.on('interactionCreate', async (interaction) => {
                     const otherTag = t.buyer.safetag === myTag ? t.seller.safetag : t.buyer.safetag;
 
                     let milestoneInfo = '';
-                    const mButtons: any[] = [];
+                    let mButtons: any[] = [];
                     if (t.transaction_type === 'MILESTONE' && t.milestones?.length > 0) {
-                        milestoneInfo = '\n\n🪜 **Milestone Progress:**\n';
-                        let proofButtonAdded = false;
-                        t.milestones.sort((a: any, b: any) => a.index_num - b.index_num).forEach((m: any) => {
-                            const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
-                            milestoneInfo += `${statusEmoji} ${m.title}: **${m.amount} ${t.currency}** (${m.status})\n`;
-                            if (m.status === 'PENDING' && myTag === t.seller.safetag && t.status === 'PAID') {
-                                mButtons.push({ type: 2, label: `📦 Complete "${m.title.slice(0,20)}"`, style: 1, custom_id: `m_status|${t.id}|${m.id}|COMPLETED` });
-                            } else if (m.status === 'COMPLETED' && myTag === t.buyer.safetag) {
-                                if (!proofButtonAdded) {
-                                    mButtons.push({ type: 2, label: '🔍 View Delivery Proof', style: 5, url: `${REVIEWS_URL}/delivery/${t.id}` });
-                                    proofButtonAdded = true;
-                                }
-                                mButtons.push({ type: 2, label: `💸 Release "${m.title.slice(0,20)}"`, style: 3, custom_id: `m_status|${t.id}|${m.id}|RELEASED` });
-                            }
-                        });
+                        const built = buildMilestoneButtons(t, myTag);
+                        milestoneInfo = built.milestoneInfo;
+                        mButtons = built.mButtons;
                     }
 
                     const msg = `📋 **Transaction Details**\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 ID: **${t.txn_code}**\n📦 Type: **${t.transaction_type}**\n🛒 Product: **${t.product_name}**\n📝 Desc: ${t.description || 'N/A'}\n💰 Total: **${t.amount} ${t.currency}**\n💵 Fee: **${(t.fee_amount || 0).toFixed(2)} ${t.currency}** (${t.fee_allocation})\n💳 Escrow: **${(t.total_amount || 0).toFixed(2)} ${t.currency}**\n👤 Buyer: \`${t.buyer.safetag}\`\n👤 Seller: \`${t.seller.safetag}\`\n💠 Status: **${t.status.replace(/_/g, ' ')}**${milestoneInfo}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
@@ -705,11 +757,41 @@ client.on('interactionCreate', async (interaction) => {
                         { type: 2, label: '⭐ Reviews', style: 5, url: `${REVIEWS_URL}/reviews/${encodeURIComponent(otherTag)}` }
                     ];
                     const isOngoing = ['PENDING_SELLER_ACCEPTANCE', 'ACCEPTED', 'PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(t.status);
-                    if (isOngoing) navButtons.push({ type: 2, label: '🚀 Action', style: 1, custom_id: `txn_resume|${t.id}` });
+                    if (isOngoing && t.transaction_type === 'ONE_TIME') {
+                        navButtons.push({ type: 2, label: '🚀 Action', style: 1, custom_id: `txn_resume|${t.id}` });
+                    } else if (t.status === 'PENDING_SELLER_ACCEPTANCE' || t.status === 'ACCEPTED') {
+                        navButtons.push({ type: 2, label: '🚀 Action', style: 1, custom_id: `txn_resume|${t.id}` });
+                    }
                     if (['COMPLETED', 'FINALIZED'].includes(t.status)) navButtons.push({ type: 2, label: '✍️ Leave a Review', style: 2, custom_id: `leave_review_${t.id}` });
                     components.push({ type: 1, components: navButtons });
                     await interaction.editReply({ content: msg, components });
                 } catch (err: any) { await interaction.editReply({ content: `❌ Error: ${err.message}` }); }
+                return;
+            }
+
+            if (customId.startsWith('proof_pick|')) {
+                const idx = parseInt(customId.split('|')[1], 10);
+                if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
+                try {
+                    const pending = pendingProofCandidates.get(interaction.user.id);
+                    if (!pending || !pending.candidates[idx]) {
+                        await interaction.editReply({ content: '⚠️ Session expired. Please resend the image.', components: [] }).catch(() => {});
+                        return;
+                    }
+                    const c = pending.candidates[idx];
+                    pendingProofCandidates.delete(interaction.user.id);
+
+                    await axios.post(`${API_URL}/transactions/${c.txnId}/upload-proof`, {
+                        proof_url: pending.proofUrl,
+                        file_name: pending.fileName,
+                        file_size: pending.fileSize,
+                        ...(c.mId ? { milestone_id: c.mId } : {}),
+                    });
+                    await interaction.editReply({ content: `✅ Got it — proof attached to **${c.label}**.`, components: [] });
+                } catch (err: any) {
+                    console.error('Proof Pick Error:', err.message);
+                    await interaction.editReply({ content: '❌ Failed to attach proof. Please try again.', components: [] }).catch(() => {});
+                }
                 return;
             }
 
@@ -726,22 +808,25 @@ client.on('interactionCreate', async (interaction) => {
                     const res = await axios.get(`${API_URL}/transactions/${txnId}`);
                     const t = res.data;
 
-                    let milestoneInfo = '\n\n🪜 **Milestone Progress:**\n';
-                    const mButtons: any[] = [];
-                    t.milestones.sort((a: any, b: any) => a.index_num - b.index_num).forEach((m: any) => {
-                        const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
-                        milestoneInfo += `${statusEmoji} ${m.title}: **${m.amount} ${t.currency}** (${m.status})\n`;
-                        if (m.status === 'PENDING' && myTag === t.seller.safetag && t.status === 'PAID') {
-                            mButtons.push({ type: 2, label: `📦 Complete "${m.title.slice(0,20)}"`, style: 1, custom_id: `m_status|${t.id}|${m.id}|COMPLETED` });
-                        }
-                    });
-
+                    const { milestoneInfo, mButtons } = buildMilestoneButtons(t, myTag);
                     const msg = `📦 **Phase Marked Complete!**\n\nThe buyer has been notified to review your proof and release funds.\n\n📋 ID: **${t.txn_code}**\n💠 Status: **${t.status.replace(/_/g, ' ')}**${milestoneInfo}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
                     const components: any[] = [];
                     if (mButtons.length > 0) components.push({ type: 1, components: mButtons.slice(0, 5) });
                     components.push({ type: 1, components: [{ type: 2, label: '🔙 Back', style: 2, custom_id: 'my_txns' }] });
                     await interaction.editReply({ content: msg, components });
                 } catch (err: any) {
+                    const apiError = err.response?.data?.error;
+                    if (apiError === 'PROOF_REQUIRED') {
+                        await interaction.editReply({
+                            content: `⚠️ **Proof Required**\n\nYou need to upload delivery proof for this phase before marking it complete.\n\nClick below to upload, then try again:`,
+                            components: [{ type: 1, components: [{ type: 2, label: '📎 Upload Proof Now', style: 5, url: `${REVIEWS_URL}/upload/${txnId}?milestone_id=${mId}` }] }]
+                        }).catch(() => {});
+                        return;
+                    }
+                    if (apiError === 'OUT_OF_SEQUENCE') {
+                        await interaction.followUp({ content: `⏳ **Complete the Previous Phase First**\n\n${err.response?.data?.message || 'Please finish the earlier phase before starting this one.'}`, flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return;
+                    }
                     console.error('Milestone Confirm Error:', err.message);
                     await interaction.followUp({ content: '❌ Failed to mark phase as complete. Please try again.', flags: MessageFlags.Ephemeral }).catch(() => {});
                 }
@@ -759,7 +844,7 @@ client.on('interactionCreate', async (interaction) => {
                     await interaction.editReply({
                         content: `📎 **Upload Delivery Proof**\n\nPlease upload your proof of delivery so the buyer can verify before releasing funds.\n\nClick below to upload, then confirm when done:`,
                         components: [
-                            { type: 1, components: [{ type: 2, label: '📎 Upload Proof Now', style: 5, url: `${REVIEWS_URL}/upload/${txnId}` }] },
+                            { type: 1, components: [{ type: 2, label: '📎 Upload Proof Now', style: 5, url: `${REVIEWS_URL}/upload/${txnId}?milestone_id=${mId}` }] },
                             { type: 1, components: [
                                 { type: 2, label: '✅ Mark as Complete', style: 1, custom_id: `m_status_confirm|${txnId}|${mId}` },
                                 { type: 2, label: '🔙 Cancel',           style: 2, custom_id: `view_txn_details|${txnId}` }
@@ -769,27 +854,39 @@ client.on('interactionCreate', async (interaction) => {
                     return;
                 }
 
+                if (status === 'DISPUTE') {
+                    try {
+                        const res = await axios.get(`${API_URL}/transactions/${txnId}`);
+                        const t = res.data;
+                        const idx = (t.milestones || []).findIndex((m: any) => m.id === mId);
+                        const milestone = (t.milestones || [])[idx];
+                        await interaction.editReply({
+                            content: `⚠️ **Dispute Phase ${idx + 1}: ${milestone?.title} (${milestone?.amount} ${t.currency})?**\n\nYou're about to raise a dispute specifically about this phase. Continue?`,
+                            components: [{
+                                type: 1,
+                                components: [
+                                    { type: 2, label: '✅ Continue', style: 1, custom_id: `dispute_ms_continue|${txnId}|${mId}` },
+                                    { type: 2, label: '🔙 Cancel', style: 2, custom_id: `view_txn_details|${txnId}` }
+                                ]
+                            }]
+                        });
+                    } catch (err: any) {
+                        console.error('Dispute milestone confirm error:', err.message);
+                        await interaction.followUp({ content: '❌ Failed to load phase details.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                    }
+                    return;
+                }
+
                 try {
                     await axios.patch(`${API_URL}/transactions/${txnId}/milestones/${mId}/status`, { status, updater_safetag: (await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`)).data.safetag }, { headers: BOT_AUTH_HEADERS });
-                    
+
                     // Refresh view
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
                     const myTag = profileRes.data.safetag;
                     const res = await axios.get(`${API_URL}/transactions/${txnId}`);
                     const t = res.data;
 
-                    let milestoneInfo = '\n\n🪜 **Milestone Progress:**\n';
-                    const mButtons: any[] = [];
-                    t.milestones.sort((a: any, b: any) => a.index_num - b.index_num).forEach((m: any) => {
-                        const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
-                        milestoneInfo += `${statusEmoji} ${m.title}: **${m.amount} ${t.currency}** (${m.status})\n`;
-                        if (m.status === 'PENDING' && myTag === t.seller.safetag && t.status === 'PAID') {
-                            mButtons.push({ type: 2, label: `📦 Complete "${m.title.slice(0,20)}"`, style: 1, custom_id: `m_status|${t.id}|${m.id}|COMPLETED` });
-                        } else if (m.status === 'COMPLETED' && myTag === t.buyer.safetag) {
-                            mButtons.push({ type: 2, label: `💸 Release "${m.title.slice(0,20)}"`, style: 3, custom_id: `m_status|${t.id}|${m.id}|RELEASED` });
-                        }
-                    });
-
+                    const { milestoneInfo, mButtons } = buildMilestoneButtons(t, myTag);
                     const msg = `📋 **Transaction Details**\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 ID: **${t.txn_code}**\n📦 Type: **${t.transaction_type}**\n🛒 Product: **${t.product_name}**\n💠 Status: **${t.status.replace(/_/g, ' ')}**${milestoneInfo}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
                     const components: any[] = [];
                     if (mButtons.length > 0) components.push({ type: 1, components: mButtons.slice(0, 5) });
@@ -798,6 +895,11 @@ client.on('interactionCreate', async (interaction) => {
                     await interaction.editReply({ content: msg, components });
                     return;
                 } catch (err: any) {
+                    const apiError = err.response?.data?.error;
+                    if (apiError === 'NOT_YET_COMPLETED') {
+                        await interaction.followUp({ content: `❌ ${err.response?.data?.message || 'This phase must be marked complete by the seller before it can be released.'}`, flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return;
+                    }
                     console.error('Milestone Update Error:', err.message);
                     await interaction.followUp({ content: '❌ Failed to update milestone.', flags: MessageFlags.Ephemeral }).catch(() => {});
                     return;
@@ -1540,6 +1642,31 @@ client.on('interactionCreate', async (interaction) => {
                         }]
                     }]
                 });
+            } else if (customId.startsWith('dispute_ms_continue|')) {
+                // Continue from the phase-confirmation prompt — same category picker as
+                // the transaction-wide dispute flow, just carrying the milestone id along.
+                const parts = customId.split('|');
+                const tid = parts[1];
+                const mid = parts[2];
+                await interaction.update({
+                    content: '⚠️ **Raise Dispute — Step 1 of 2**\n\nSelect the category that best describes your issue:',
+                    components: [{
+                        type: 1,
+                        components: [{
+                            type: 3,
+                            custom_id: `dispute_cat_select|${tid}|${mid}`,
+                            placeholder: 'Choose a dispute category...',
+                            options: [
+                                { label: 'Not Delivered', value: 'NOT_DELIVERED', description: 'Item/service was never delivered', emoji: { name: '📦' } },
+                                { label: 'Not As Described', value: 'NOT_AS_DESCRIBED', description: 'Item differs from the listing', emoji: { name: '🔍' } },
+                                { label: 'Credentials / Access Issue', value: 'CREDENTIALS_ACCESS', description: 'Account or credentials don\'t work', emoji: { name: '🔑' } },
+                                { label: 'Service Incomplete', value: 'SERVICE_INCOMPLETE', description: 'Work was partial or stopped', emoji: { name: '🔧' } },
+                                { label: 'Payment Issue', value: 'PAYMENT_ISSUE', description: 'Funds not released or payment problem', emoji: { name: '💳' } },
+                                { label: 'Other', value: 'OTHER', description: 'Doesn\'t fit the categories above', emoji: { name: '❓' } }
+                            ]
+                        }]
+                    }]
+                });
             } else if (customId === 'balance') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 try {
@@ -1994,9 +2121,11 @@ client.on('interactionCreate', async (interaction) => {
 
         if (interaction.isStringSelectMenu()) {
             if (customId.startsWith('dispute_cat_select|')) {
-                const txnId = customId.split('|')[1];
+                const selParts = customId.split('|');
+                const txnId = selParts[1];
+                const milestoneId = selParts[2];
                 const category = interaction.values[0];
-                pendingDisputeData.set(interaction.user.id, { txnId, category });
+                pendingDisputeData.set(interaction.user.id, { txnId, category, ...(milestoneId ? { milestoneId } : {}) });
                 // @ts-ignore
                 await interaction.showModal({
                     title: '⚠️ Dispute — Describe the Issue',
@@ -2026,21 +2155,12 @@ client.on('interactionCreate', async (interaction) => {
                     const otherTag = t.buyer.safetag === myTag ? t.seller.safetag : t.buyer.safetag;
 
                     let milestoneInfo = '';
-                    const mButtons: any[] = [];
+                    let mButtons: any[] = [];
 
                     if (t.transaction_type === 'MILESTONE' && t.milestones && t.milestones.length > 0) {
-                        milestoneInfo = '\n\n🪜 **Milestone Progress:**\n';
-                        t.milestones.sort((a: any, b: any) => a.index_num - b.index_num).forEach((m: any, idx: number) => {
-                            const statusEmoji = m.status === 'RELEASED' ? '✅' : (m.status === 'COMPLETED' ? '📦' : '⏳');
-                            milestoneInfo += `${statusEmoji} ${m.title}: **${m.amount} ${t.currency}** (${m.status})\n`;
-                            
-                            // Milestone actions
-                            if (m.status === 'PENDING' && myTag === t.seller.safetag && t.status === 'PAID') {
-                                mButtons.push({ type: 2, label: `📦 Complete "${m.title.slice(0,20)}"`, style: 1, custom_id: `m_status|${t.id}|${m.id}|COMPLETED` });
-                            } else if (m.status === 'COMPLETED' && myTag === t.buyer.safetag) {
-                                mButtons.push({ type: 2, label: `💸 Release "${m.title.slice(0,20)}"`, style: 3, custom_id: `m_status|${t.id}|${m.id}|RELEASED` });
-                            }
-                        });
+                        const built = buildMilestoneButtons(t, myTag);
+                        milestoneInfo = built.milestoneInfo;
+                        mButtons = built.mButtons;
                     }
 
                     const msg = `📋 **Transaction Details**\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 ID: **${t.txn_code}**\n📦 Type: **${t.transaction_type}**\n🛒 Product: **${t.product_name}**\n📝 Desc: ${t.description || 'N/A'}\n💰 Total: **${t.amount} ${t.currency}**\n💵 Fee: **${t.fee_amount.toFixed(2)} ${t.currency}** (${t.fee_allocation})\n💳 Escrow: **${t.total_amount.toFixed(2)} ${t.currency}**\n👤 Buyer: \`${t.buyer.safetag}\`\n👤 Seller: \`${t.seller.safetag}\`\n💠 Status: **${t.status.replace(/_/g, ' ')}**${milestoneInfo}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
@@ -2172,7 +2292,7 @@ client.on('interactionCreate', async (interaction) => {
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
                     const profile = profileRes.data;
-                    await axios.post(`${API_URL}/disputes/raise`, { transaction_id: txnId, raised_by: profile.id, reason, category: pending?.category }, { headers: BOT_AUTH_HEADERS });
+                    await axios.post(`${API_URL}/disputes/raise`, { transaction_id: txnId, raised_by: profile.id, reason, category: pending?.category, ...(pending?.milestoneId ? { milestone_id: pending.milestoneId } : {}) }, { headers: BOT_AUTH_HEADERS });
                     const disputeUrl = await buildMagicLink({ platform_id: interaction.user.id, scope: 'dispute', txn_id: txnId, fallbackUrl: `${REVIEWS_URL}/withdraw/${encodeURIComponent(profile.safetag)}?view=dispute_details&txnId=${txnId}` });
                     await interaction.editReply({ content: `✅ **Dispute Raised!** The transaction is frozen.`, components: [{ type: 1, components: [{ type: 2, label: '👁️ View Dispute Details', style: 5, url: disputeUrl }, { type: 2, label: '🏠 Menu', style: 2, custom_id: 'main_menu' }] }] });
                 } catch (err: any) { await interaction.editReply(`❌ Failed: ${err.message}`); }
