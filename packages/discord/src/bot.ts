@@ -827,6 +827,10 @@ client.on('interactionCreate', async (interaction) => {
                         await interaction.followUp({ content: `⏳ **Complete the Previous Phase First**\n\n${err.response?.data?.message || 'Please finish the earlier phase before starting this one.'}`, flags: MessageFlags.Ephemeral }).catch(() => {});
                         return;
                     }
+                    if (apiError === 'TRANSACTION_DISPUTED') {
+                        await interaction.followUp({ content: `⚠️ **Transaction Disputed**\n\nThis transaction has an open dispute. Milestone actions are paused until it's resolved.`, flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return;
+                    }
                     console.error('Milestone Confirm Error:', err.message);
                     await interaction.followUp({ content: '❌ Failed to mark phase as complete. Please try again.', flags: MessageFlags.Ephemeral }).catch(() => {});
                 }
@@ -898,6 +902,10 @@ client.on('interactionCreate', async (interaction) => {
                     const apiError = err.response?.data?.error;
                     if (apiError === 'NOT_YET_COMPLETED') {
                         await interaction.followUp({ content: `❌ ${err.response?.data?.message || 'This phase must be marked complete by the seller before it can be released.'}`, flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return;
+                    }
+                    if (apiError === 'TRANSACTION_DISPUTED') {
+                        await interaction.followUp({ content: `⚠️ **Transaction Disputed**\n\nThis transaction has an open dispute. Milestone actions are paused until it's resolved.`, flags: MessageFlags.Ephemeral }).catch(() => {});
                         return;
                     }
                     console.error('Milestone Update Error:', err.message);

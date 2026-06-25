@@ -94,6 +94,17 @@ function genericTemplate(elements: any[]) {
     };
 }
 
+function disputeCategoryQR() {
+    return qr('⚠️ Raise Dispute — Step 1 of 2\n\nSelect the category that best describes your issue:', [
+        { title: '📦 Not Delivered',  payload: 'DISPUTE_CAT_NOT_DELIVERED' },
+        { title: '🔍 Not Described',  payload: 'DISPUTE_CAT_NOT_AS_DESCRIBED' },
+        { title: '🔑 Credentials',    payload: 'DISPUTE_CAT_CREDENTIALS_ACCESS' },
+        { title: '🔧 Incomplete',     payload: 'DISPUTE_CAT_SERVICE_INCOMPLETE' },
+        { title: '💳 Payment Issue',  payload: 'DISPUTE_CAT_PAYMENT_ISSUE' },
+        { title: '❓ Other',          payload: 'DISPUTE_CAT_OTHER' }
+    ]);
+}
+
 function formatAccountAge(createdAt: string): string {
     const days = Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000);
     if (days < 30) return `${days} day${days !== 1 ? 's' : ''}`;
@@ -842,7 +853,8 @@ async function handleDisputeText(psid: string, rawText: string) {
                 transaction_id: state.formData.txnId,
                 reason:         rawText.trim(),
                 raised_by:      state.formData.raisedBy,
-                category:       state.formData.category
+                category:       state.formData.category,
+                ...(state.formData.milestoneId ? { milestone_id: state.formData.milestoneId } : {})
             }, { headers: BOT_AUTH_HEADERS });
             const { txnId, safetag } = state.formData;
             delete userStates[psid];
@@ -1361,14 +1373,23 @@ async function handlePostback(psid: string, payload: string) {
             await sendMsg(psid, { text: '📦 Phase marked as complete! The buyer has been notified to review your proof and release the funds.' });
             await showTransactionDetail(psid, txnId);
         } catch (err: any) {
-            await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed to mark milestone complete.'}` });
+            const apiError = err.response?.data?.error;
+            if (apiError === 'PROOF_REQUIRED') {
+                await sendMsg(psid, btnTemplate('⚠️ You need to upload delivery proof for this phase before marking it complete. Tap below to upload, then try again:', [{ type: 'web_url', url: `${REVIEWS_URL}/upload/${txnId}?milestone_id=${mId}`, title: '📎 Upload Proof' }]));
+            } else if (apiError === 'OUT_OF_SEQUENCE') {
+                await sendMsg(psid, { text: `⏳ ${err.response?.data?.message || 'Please finish the earlier phase before starting this one.'}` });
+            } else if (apiError === 'TRANSACTION_DISPUTED') {
+                await sendMsg(psid, { text: `⚠️ This transaction has an open dispute. Milestone actions are paused until it's resolved.` });
+            } else {
+                await sendMsg(psid, { text: `❌ ${apiError || 'Failed to mark milestone complete.'}` });
+            }
         }
 
     } else if (payload.startsWith('COMPLETE_MILE|')) {
         const [, txnId, mId] = payload.split('|');
         await sendMsg(psid, btnTemplate(
             '📎 Upload your proof of delivery so the buyer can verify before releasing funds:',
-            [{ type: 'web_url', url: `${REVIEWS_URL}/upload/${txnId}`, title: '📎 Upload Proof' }]
+            [{ type: 'web_url', url: `${REVIEWS_URL}/upload/${txnId}?milestone_id=${mId}`, title: '📎 Upload Proof' }]
         ));
         await sendMsg(psid, qr('Once uploaded, confirm below:', [
             { title: '✅ Mark as Complete', payload: `MILE_CONFIRM|${txnId}|${mId}` }
@@ -1382,7 +1403,12 @@ async function handlePostback(psid: string, payload: string) {
             await sendMsg(psid, { text: '💸 Funds released for this milestone! The seller has been notified.' });
             await showTransactionDetail(psid, txnId);
         } catch (err: any) {
-            await sendMsg(psid, { text: `❌ ${err.response?.data?.error || 'Failed to release milestone.'}` });
+            const apiError = err.response?.data?.error;
+            if (apiError === 'TRANSACTION_DISPUTED') {
+                await sendMsg(psid, { text: `⚠️ This transaction has an open dispute. Milestone actions are paused until it's resolved.` });
+            } else {
+                await sendMsg(psid, { text: `❌ ${err.response?.data?.message || apiError || 'Failed to release milestone.'}` });
+            }
         }
 
     } else if (payload.startsWith('RECEIVED_TXN_')) {
@@ -1529,19 +1555,35 @@ async function handlePostback(psid: string, payload: string) {
         userStates[psid].step = 'ASK_REASON';
         await sendMsg(psid, { text: '✏️ Step 2 of 2: Describe the Issue\n\nPlease describe the issue with this transaction:' });
 
+    } else if (payload.startsWith('DISPUTE_PHASE|')) {
+        const choice = payload.replace('DISPUTE_PHASE|', '');
+        const state = userStates[psid];
+        if (!state || state.mode !== 'DISPUTE') {
+            await sendMsg(psid, { text: '❌ Dispute session expired. Please start again.' });
+        } else {
+            if (choice !== 'NONE') state.formData.milestoneId = choice;
+            state.step = 'ASK_CATEGORY';
+            await sendMsg(psid, disputeCategoryQR());
+        }
+
     } else if (payload.startsWith('txn_dispute_') || payload.startsWith('DISPUTE_TXN_')) {
         const txnId = payload.startsWith('txn_dispute_') ? payload.replace('txn_dispute_', '') : payload.replace('DISPUTE_TXN_', '');
         try {
             const p = await getProfile(psid);
             userStates[psid] = { mode: 'DISPUTE', step: 'ASK_CATEGORY', formData: { txnId, raisedBy: p.id, safetag: p.safetag } };
-            await sendMsg(psid, qr('⚠️ Raise Dispute — Step 1 of 2\n\nSelect the category that best describes your issue:', [
-                { title: '📦 Not Delivered',  payload: 'DISPUTE_CAT_NOT_DELIVERED' },
-                { title: '🔍 Not Described',  payload: 'DISPUTE_CAT_NOT_AS_DESCRIBED' },
-                { title: '🔑 Credentials',    payload: 'DISPUTE_CAT_CREDENTIALS_ACCESS' },
-                { title: '🔧 Incomplete',     payload: 'DISPUTE_CAT_SERVICE_INCOMPLETE' },
-                { title: '💳 Payment Issue',  payload: 'DISPUTE_CAT_PAYMENT_ISSUE' },
-                { title: '❓ Other',          payload: 'DISPUTE_CAT_OTHER' }
-            ]));
+
+            const txnRes = await axios.get(`${API_URL}/transactions/${txnId}`);
+            const t = txnRes.data;
+            const eligible = t.transaction_type === 'MILESTONE' ? (t.milestones || []).filter((m: any) => m.status !== 'RELEASED') : [];
+
+            if (eligible.length > 0 && eligible.length <= 12) {
+                const options = eligible.map((m: any) => ({ title: `${m.title}`.substring(0, 20), payload: `DISPUTE_PHASE|${m.id}` }));
+                options.push({ title: 'Not phase-specific', payload: 'DISPUTE_PHASE|NONE' });
+                await sendMsg(psid, qr('⚠️ Is this dispute about a specific phase?', options));
+                return;
+            }
+
+            await sendMsg(psid, disputeCategoryQR());
         } catch (_) {
             await sendMsg(psid, { text: '❌ Could not start dispute.' });
         }

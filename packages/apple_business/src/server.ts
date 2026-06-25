@@ -50,7 +50,7 @@ app.get('/health', (req, res) => {
 
 // --- SESSION MANAGEMENT ---
 interface UserState {
-    state: 'IDLE' | 'ROLE_SELECTION' | 'PRODUCT_NAME' | 'PRODUCT_DESCRIPTION' | 'ATTACHMENTS' | 'CURRENCY_SELECTION' | 'TRANSACTION_TYPE' | 'PRICE_INPUT' | 'MILESTONE_TITLE' | 'MILESTONE_AMOUNT' | 'MILESTONE_ADD_MORE' | 'FEE_ALLOCATION' | 'COUNTERPARTY_SAFETAG' | 'CONFIRMATION' | 'INVOICE_PROMPT' | 'DISPUTE_CATEGORY' | 'DISPUTE_REASON' | 'REVIEW_RATING' | 'REVIEW_COMMENT' | 'FEEDBACK_RATING' | 'FEEDBACK_COMMENT' | 'REPORT_SAFETAG' | 'REPORT_REASON' | 'REPORT_DESCRIPTION' | 'SELLER_MILESTONE_SELECT' | 'SELLER_MILESTONE_CONFIRM' | 'BUYER_MILESTONE_SELECT' | 'BUYER_MILESTONE_CONFIRM';
+    state: 'IDLE' | 'ROLE_SELECTION' | 'PRODUCT_NAME' | 'PRODUCT_DESCRIPTION' | 'ATTACHMENTS' | 'CURRENCY_SELECTION' | 'TRANSACTION_TYPE' | 'PRICE_INPUT' | 'MILESTONE_TITLE' | 'MILESTONE_AMOUNT' | 'MILESTONE_ADD_MORE' | 'FEE_ALLOCATION' | 'COUNTERPARTY_SAFETAG' | 'CONFIRMATION' | 'INVOICE_PROMPT' | 'DISPUTE_PHASE_SELECT' | 'DISPUTE_CATEGORY' | 'DISPUTE_REASON' | 'REVIEW_RATING' | 'REVIEW_COMMENT' | 'FEEDBACK_RATING' | 'FEEDBACK_COMMENT' | 'REPORT_SAFETAG' | 'REPORT_REASON' | 'REPORT_DESCRIPTION' | 'SELLER_MILESTONE_SELECT' | 'SELLER_MILESTONE_CONFIRM' | 'BUYER_MILESTONE_SELECT' | 'BUYER_MILESTONE_CONFIRM';
     formData: {
         role?: 'buyer' | 'seller';
         product_name?: string;
@@ -67,6 +67,8 @@ interface UserState {
         dispute_txn_id?: string;
         dispute_safetag?: string;
         dispute_category?: string;
+        dispute_milestone_id?: string;
+        dispute_eligible_milestones?: Array<{ id: string; title: string; amount: number }>;
         review_txn_id?: string;
         review_other?: string;
         review_rating?: number;
@@ -132,6 +134,23 @@ async function sendJivoChatMessage(clientId: string, chatId: string, messagePayl
         console.error(`- Status:`, err.response?.status);
         console.error(`- Payload:`, JSON.stringify(err.config?.data));
     }
+}
+
+function sendDisputeCategoryButtons(clientId: string, chatId: string) {
+    return sendJivoChatMessage(clientId, chatId, {
+        type: 'BUTTONS',
+        title: '⚠️ Raise Dispute',
+        text: 'Step 1 of 2: Select the category that best describes your issue:',
+        force_reply: true,
+        buttons: [
+            { text: '📦 Not Delivered',    id: 'dispute_cat_NOT_DELIVERED',    description: 'Item/service never delivered' },
+            { text: '🔍 Not As Described', id: 'dispute_cat_NOT_AS_DESCRIBED', description: 'Item differs from listing' },
+            { text: '🔑 Credentials',      id: 'dispute_cat_CREDENTIALS',      description: 'Account or credentials issue' },
+            { text: '🔧 Incomplete',       id: 'dispute_cat_INCOMPLETE',       description: 'Work was partial or stopped' },
+            { text: '💳 Payment Issue',    id: 'dispute_cat_PAYMENT',          description: 'Funds not released' },
+            { text: '❓ Other',            id: 'dispute_cat_OTHER',            description: 'Doesn\'t fit above' }
+        ]
+    });
 }
 
 // JivoChat Webhook Endpoint
@@ -706,7 +725,7 @@ app.post('/webhook/:token', (req, res) => {
                     await sendJivoChatMessage(clientId, chatId, {
                         type: 'BUTTONS',
                         title: '📦 Confirm Milestone Delivery',
-                        text: `You're marking this milestone as delivered:\n\n📍 ${chosen.title}\n💰 ${chosen.amount} ${session.formData.currency || ''}\n\n📎 Please upload your proof at:\n${FRONTEND_URL}/upload/${session.formData.settlement_txn_id}\n\nOnce uploaded, confirm below:`,
+                        text: `You're marking this milestone as delivered:\n\n📍 ${chosen.title}\n💰 ${chosen.amount} ${session.formData.currency || ''}\n\n📎 Please upload your proof at:\n${FRONTEND_URL}/upload/${session.formData.settlement_txn_id}?milestone_id=${chosen.id}\n\nOnce uploaded, confirm below:`,
                         force_reply: true,
                         buttons: [
                             { text: '✅ Confirm Delivery', title: 'Confirm Delivery', description: 'Mark this milestone complete', id: 'confirm_milestone' },
@@ -724,7 +743,16 @@ app.post('/webhook/:token', (req, res) => {
                             await axios.patch(`${API_URL}/transactions/${settlement_txn_id}/milestones/${settlement_milestone_id}/status`, { status: 'COMPLETED', updater_safetag: safetag }, { headers: BOT_AUTH_HEADERS });
                             await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `📦 Milestone "${session.formData.settlement_milestone_title}" marked as complete! The buyer has been notified to review and release funds.` });
                         } catch (err: any) {
-                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to mark milestone complete.'}` });
+                            const apiError = err.response?.data?.error;
+                            if (apiError === 'PROOF_REQUIRED') {
+                                await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `⚠️ You need to upload delivery proof for this phase before marking it complete.\n\n📎 ${FRONTEND_URL}/upload/${settlement_txn_id}?milestone_id=${settlement_milestone_id}\n\nThen try again.` });
+                            } else if (apiError === 'OUT_OF_SEQUENCE') {
+                                await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `⏳ ${err.response?.data?.message || 'Please finish the earlier phase before starting this one.'}` });
+                            } else if (apiError === 'TRANSACTION_DISPUTED') {
+                                await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `⚠️ This transaction has an open dispute. Milestone actions are paused until it's resolved.` });
+                            } else {
+                                await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${apiError || 'Failed to mark milestone complete.'}` });
+                            }
                         }
                         session.state = 'IDLE';
                         session.formData.settlement_txn_id = undefined;
@@ -771,7 +799,12 @@ app.post('/webhook/:token', (req, res) => {
                             await axios.patch(`${API_URL}/transactions/${settlement_txn_id}/milestones/${settlement_milestone_id}/status`, { status: 'RELEASED', updater_safetag: safetag }, { headers: BOT_AUTH_HEADERS });
                             await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `💸 Funds released for "${session.formData.settlement_milestone_title}"! The seller has been notified.` });
                         } catch (err: any) {
-                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Failed to release milestone.'}` });
+                            const apiError = err.response?.data?.error;
+                            if (apiError === 'TRANSACTION_DISPUTED') {
+                                await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `⚠️ This transaction has an open dispute. Milestone actions are paused until it's resolved.` });
+                            } else {
+                                await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.message || apiError || 'Failed to release milestone.'}` });
+                            }
                         }
                         session.state = 'IDLE';
                         session.formData.settlement_txn_id = undefined;
@@ -781,6 +814,23 @@ app.post('/webhook/:token', (req, res) => {
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '❌ Action cancelled.' });
                         session.state = 'IDLE';
                     }
+                    return;
+                }
+
+                // --- DISPUTE_PHASE_SELECT: buyer/seller types number to flag which phase, or 0 for not phase-specific ---
+                if (session.state === 'DISPUTE_PHASE_SELECT') {
+                    const eligible = session.formData.dispute_eligible_milestones || [];
+                    const idx = parseInt(messageText, 10) - 1;
+                    if (messageText.trim() !== '0') {
+                        if (isNaN(idx) || idx < 0 || idx >= eligible.length) {
+                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ Please type a number between 1 and ${eligible.length}, or 0 if it's not phase-specific.` });
+                            return;
+                        }
+                        session.formData.dispute_milestone_id = eligible[idx].id;
+                    }
+                    session.formData.dispute_eligible_milestones = undefined;
+                    session.state = 'DISPUTE_CATEGORY';
+                    await sendDisputeCategoryButtons(clientId, chatId);
                     return;
                 }
 
@@ -810,7 +860,7 @@ app.post('/webhook/:token', (req, res) => {
                     const txnId = session.formData.dispute_txn_id!;
                     const disputeSafetag = session.formData.dispute_safetag || '';
                     try {
-                        await axios.post(`${API_URL}/disputes/raise`, { transaction_id: txnId, reason: messageText, raised_by: profileId, category: session.formData.dispute_category }, { headers: BOT_AUTH_HEADERS });
+                        await axios.post(`${API_URL}/disputes/raise`, { transaction_id: txnId, reason: messageText, raised_by: profileId, category: session.formData.dispute_category, ...(session.formData.dispute_milestone_id ? { milestone_id: session.formData.dispute_milestone_id } : {}) }, { headers: BOT_AUTH_HEADERS });
                         const disputeUrl = await buildMagicLink({ platform_id: clientId, scope: 'dispute', txn_id: txnId, fallbackUrl: `${FRONTEND_URL}/withdraw/${encodeURIComponent(disputeSafetag)}?view=dispute_details&txnId=${txnId}` });
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '⚖️ Dispute raised. Transaction frozen. An AI mediator will review shortly and may ask for evidence.' });
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `👁️ View your dispute details:\n${disputeUrl}` });
@@ -1094,23 +1144,27 @@ app.post('/webhook/:token', (req, res) => {
 
                 if (messageText.startsWith('txn_dispute_')) {
                     const txnId = messageText.replace('txn_dispute_', '');
-                    session.state = 'DISPUTE_CATEGORY';
                     session.formData.dispute_txn_id = txnId;
                     session.formData.dispute_safetag = safetag;
-                    await sendJivoChatMessage(clientId, chatId, {
-                        type: 'BUTTONS',
-                        title: '⚠️ Raise Dispute',
-                        text: 'Step 1 of 2: Select the category that best describes your issue:',
-                        force_reply: true,
-                        buttons: [
-                            { text: '📦 Not Delivered',    id: 'dispute_cat_NOT_DELIVERED',    description: 'Item/service never delivered' },
-                            { text: '🔍 Not As Described', id: 'dispute_cat_NOT_AS_DESCRIBED', description: 'Item differs from listing' },
-                            { text: '🔑 Credentials',      id: 'dispute_cat_CREDENTIALS',      description: 'Account or credentials issue' },
-                            { text: '🔧 Incomplete',       id: 'dispute_cat_INCOMPLETE',       description: 'Work was partial or stopped' },
-                            { text: '💳 Payment Issue',    id: 'dispute_cat_PAYMENT',          description: 'Funds not released' },
-                            { text: '❓ Other',            id: 'dispute_cat_OTHER',            description: 'Doesn\'t fit above' }
-                        ]
-                    });
+
+                    try {
+                        const txnRes = await axios.get(`${API_URL}/transactions/${txnId}`);
+                        const t = txnRes.data;
+                        const eligible = t.transaction_type === 'MILESTONE' ? (t.milestones || []).filter((m: any) => m.status !== 'RELEASED') : [];
+                        if (eligible.length > 0) {
+                            session.formData.dispute_eligible_milestones = eligible;
+                            session.state = 'DISPUTE_PHASE_SELECT';
+                            const list = eligible.map((m: any, i: number) => `${i + 1}. ${m.title} — ${m.amount} ${t.currency}`).join('\n');
+                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `⚠️ Is this dispute about a specific phase?\n\n${list}\n\nType the number, or 0 if it's not phase-specific:` });
+                            return;
+                        }
+                    } catch (err: any) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${err.response?.data?.error || 'Could not load transaction.'}` });
+                        return;
+                    }
+
+                    session.state = 'DISPUTE_CATEGORY';
+                    await sendDisputeCategoryButtons(clientId, chatId);
                     return;
                 }
 

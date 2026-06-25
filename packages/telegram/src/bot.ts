@@ -947,6 +947,10 @@ bot.action(/^ms\|(\d+)$/, async (ctx) => {
             reply_markup: { inline_keyboard: buttons }
         });
     } catch (err: any) {
+        const apiError = err.response?.data?.error;
+        if (apiError === 'TRANSACTION_DISPUTED') {
+            return ctx.reply(`⚠️ <b>Transaction Disputed</b>\n\nThis transaction has an open dispute. Milestone actions are paused until it's resolved.`, { parse_mode: 'HTML' });
+        }
         console.error('Milestone Update Error:', err.message);
         ctx.reply('❌ Failed to update milestone.');
     }
@@ -978,6 +982,9 @@ bot.action(/^ms_confirm\|([^|]+)\|([^|]+)$/, async (ctx) => {
         }
         if (apiError === 'OUT_OF_SEQUENCE') {
             return ctx.reply(`⏳ <b>Complete the Previous Phase First</b>\n\n${err.response?.data?.message || 'Please finish the earlier phase before starting this one.'}`, { parse_mode: 'HTML' });
+        }
+        if (apiError === 'TRANSACTION_DISPUTED') {
+            return ctx.reply(`⚠️ <b>Transaction Disputed</b>\n\nThis transaction has an open dispute. Milestone actions are paused until it's resolved.`, { parse_mode: 'HTML' });
         }
         console.error('Milestone Confirm Error:', err.message);
         ctx.reply('❌ Failed to mark phase as complete. Please try again.');
