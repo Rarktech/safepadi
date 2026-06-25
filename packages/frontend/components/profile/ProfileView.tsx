@@ -69,8 +69,6 @@ export const ProfileView = ({
     const [uploadingAvatar, setUploadingAvatar] = useState(false);
     const [stats, setStats] = useState<{ completed_trades: number; member_since: string } | null>(null);
 
-    const [deactivateOpen, setDeactivateOpen] = useState(false);
-    const [deactivating, setDeactivating] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [deleteStage, setDeleteStage] = useState<'confirm' | 'awaiting'>('confirm');
     const [deleting, setDeleting] = useState(false);
@@ -147,19 +145,6 @@ export const ProfileView = ({
         } catch {
             setPrivacyPrefs(privacyPrefs);
             toast.error('Failed to update preference');
-        }
-    };
-
-    const handleDeactivate = async () => {
-        setDeactivating(true);
-        try {
-            await api.post(`/profiles/${safetag}/deactivate`, {});
-            toast.success('Account deactivated');
-            await api.post('/auth/magic-link/logout').catch(() => {});
-            router.push('/login');
-        } catch (err: any) {
-            toast.error(err.response?.data?.error || 'Failed to deactivate account');
-            setDeactivating(false);
         }
     };
 
@@ -364,7 +349,7 @@ export const ProfileView = ({
                     </div>
                 </div>
                 <div className="flex gap-2.5 flex-wrap">
-                    <button onClick={() => setDeactivateOpen(true)} className="flex items-center gap-1.5 h-10 px-4.5 rounded-[10px] border border-[#fecdd3] bg-[#fff1f2] text-[#e11d48] font-bold text-[13px]">
+                    <button onClick={() => router.push(`/account/block?mode=deactivate&safetag=${encodeURIComponent(safetag)}`)} className="flex items-center gap-1.5 h-10 px-4.5 rounded-[10px] border border-[#fecdd3] bg-[#fff1f2] text-[#e11d48] font-bold text-[13px]">
                         <PowerOff size={13} />
                         Deactivate account
                     </button>
@@ -374,24 +359,6 @@ export const ProfileView = ({
                     </button>
                 </div>
             </div>
-
-            {/* Deactivate dialog */}
-            <Dialog open={deactivateOpen} onOpenChange={setDeactivateOpen}>
-                <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-sm w-full rounded-[28px] border-none p-8 text-center">
-                    <DialogHeader>
-                        <DialogTitle className="font-['Inter_Tight',sans-serif] text-xl font-extrabold text-[#0f172a] tracking-[-.01em]">Deactivate account?</DialogTitle>
-                        <DialogDescription className="text-[13px] text-[#64748b] mt-1">
-                            Your profile will be hidden and your personal data anonymized. This can&apos;t be undone from the app — contact support to reactivate.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="grid grid-cols-2 gap-2.5 mt-5">
-                        <Button variant="outline" onClick={() => setDeactivateOpen(false)} className="h-11 rounded-xl border-[#e9eaec] font-bold text-[#64748b]">Cancel</Button>
-                        <Button onClick={handleDeactivate} disabled={deactivating} className="h-11 rounded-xl bg-[#e11d48] hover:bg-[#be123c] text-white font-bold">
-                            {deactivating ? <Loader2 size={15} className="animate-spin" /> : 'Deactivate'}
-                        </Button>
-                    </div>
-                </DialogContent>
-            </Dialog>
 
             {/* Delete dialog */}
             <Dialog open={deleteOpen} onOpenChange={(open) => { setDeleteOpen(open); if (!open) setDeleteStage('confirm'); }}>

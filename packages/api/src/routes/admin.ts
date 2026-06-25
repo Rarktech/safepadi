@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
-import { sendNotification, recordNotification } from '../services/notifications';
+import { sendNotification, routeNotification, recordNotification } from '../services/notifications';
 import { sendEmail } from '../services/email';
 import { disburseFunds } from '../services/payout';
 import { buildInternalMagicLink } from '../services/magicLinkInternal';
@@ -685,13 +685,7 @@ router.post('/customers/:id/block', async (req, res) => {
             </div>
         `;
 
-        // Find the primary linked account for DM
-        const linkedAccounts: any[] = user.linked_accounts || [];
-        const primaryLinked = linkedAccounts.find((l: any) => l.platform === user.primary_platform) || linkedAccounts[0];
-
-        if (primaryLinked?.platform_id) {
-            await sendNotification(primaryLinked.platform, primaryLinked.platform_id, dmMessage);
-        }
+        await routeNotification(user.id, dmMessage);
         recordNotification(user.id, 'system', '🚫 Account Suspended', 'Your Safeeely account has been suspended. Contact support to appeal.', { link_url: `/withdraw/${encodeURIComponent(safetag)}` }).catch(() => {});
 
         if (user.email) {
@@ -746,12 +740,7 @@ router.post('/customers/:id/unblock', async (req, res) => {
             </div>
         `;
 
-        const linkedAccounts: any[] = user.linked_accounts || [];
-        const primaryLinked = linkedAccounts.find((l: any) => l.platform === user.primary_platform) || linkedAccounts[0];
-
-        if (primaryLinked?.platform_id) {
-            await sendNotification(primaryLinked.platform, primaryLinked.platform_id, dmMessage);
-        }
+        await routeNotification(user.id, dmMessage);
         recordNotification(user.id, 'system', '✅ Account Reinstated', 'Your Safeeely account has been reinstated. Welcome back!', { link_url: `/withdraw/${encodeURIComponent(safetag)}` }).catch(() => {});
 
         if (user.email) {

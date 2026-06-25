@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
-import { sendNotification } from '../services/notifications';
+import { sendNotification, routeNotification } from '../services/notifications';
 import { sendEmail } from '../services/email';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
@@ -572,8 +572,6 @@ router.post('/account-otp/verify', async (req, res) => {
         await supabase.from('profiles').update({ is_blocked: newBlocked }).eq('id', profile.id);
 
         const safetag = profile.safetag;
-        const linkedAccounts: any[] = (profile as any).linked_accounts || [];
-        const primaryLinked = linkedAccounts.find((l: any) => l.platform === profile.primary_platform) || linkedAccounts[0];
 
         if (newBlocked) {
             const dmMessage = `🚫 <b>Your Safeeely Account Has Been Blocked</b>\n\nYou've blocked your own account <b>@${safetag}</b>. No one can sign in or transact on it until you reactivate it.\n\nChanged your mind? Visit the Account Block page and switch to "Unblock account" any time.`;
@@ -588,7 +586,7 @@ router.post('/account-otp/verify', async (req, res) => {
                     <p style="color:#374151;font-size:15px">You can reactivate it any time from the Account Block page using this same email.</p>
                 </div>
             `;
-            if (primaryLinked?.platform_id) await sendNotification(primaryLinked.platform, primaryLinked.platform_id, dmMessage);
+            await routeNotification(profile.id, dmMessage);
             sendEmail({ to: profile.email, subject: '🚫 Your Safeeely Account Has Been Blocked', html: emailHtml }).catch(() => {});
         } else {
             const dmMessage = `✅ <b>Your Safeeely Account Has Been Reactivated</b>\n\nWelcome back, @${safetag}! Your account is fully active again — all trades, messages and funds remain exactly as they were.`;
@@ -602,7 +600,7 @@ router.post('/account-otp/verify', async (req, res) => {
                     <p style="color:#374151;font-size:15px">Welcome back! Your Safeeely account is fully active again — all trades, messages and funds remain exactly as they were.</p>
                 </div>
             `;
-            if (primaryLinked?.platform_id) await sendNotification(primaryLinked.platform, primaryLinked.platform_id, dmMessage);
+            await routeNotification(profile.id, dmMessage);
             sendEmail({ to: profile.email, subject: '✅ Your Safeeely Account Has Been Reactivated', html: emailHtml }).catch(() => {});
         }
 
