@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { Shield, CreditCard, Lock, CheckCircle, ArrowRight, X, Zap, Layers, Globe, Package, ShieldCheck } from 'lucide-react';
+import { Shield, Lock, CheckCircle, ArrowRight, X, Globe, Package, ShieldCheck } from 'lucide-react';
 import axios from 'axios';
 import posthog from 'posthog-js';
 import { usePaymentSession, PaymentModal } from '@chainrails/react';
@@ -316,18 +316,18 @@ export default function PaymentPage() {
                                 <div className="flex flex-col gap-[11px]">
                                     {paymentGroup === 'ngn' && (
                                         <>
-                                            <MethodButton onClick={() => initPayment('opay')} iconBg="#ecfdf5" icon={<Zap size={23} className="text-[#059669] fill-[#059669]" />} title="OPay Express" subtitle="Instant · Mobile money · USSD" />
-                                            <MethodButton onClick={() => initPayment('flutterwave')} iconBg="#fff7ed" icon={<CreditCard size={22} strokeWidth={1.9} className="text-[#ea580c]" />} title="Card / Bank Transfer" subtitle="Debit card · Bank · USSD" />
+                                            <MethodButton onClick={() => initPayment('opay')} iconBg="#ffffff" icon={<img src="/assets/opay-logo.webp" alt="OPay" className="w-[30px] h-auto object-contain" />} title="OPay Express" subtitle="Instant · Mobile money · USSD" />
+                                            <MethodButton onClick={() => initPayment('flutterwave')} iconBg="#ffffff" icon={<img src="/assets/flutterwave-icon.png" alt="Flutterwave" className="w-[28px] h-auto object-contain" />} title="Card / Bank Transfer" subtitle="Debit card · Bank · USSD" />
                                         </>
                                     )}
                                     {paymentGroup === 'international' && (
                                         <>
                                             <MethodButton onClick={() => initPayment('airwallex')} iconBg="#eff6ff" icon={<Globe size={22} strokeWidth={1.9} className="text-[#2563eb]" />} title="International Card (Airwallex)" subtitle="Visa · Mastercard · Wire" />
-                                            <MethodButton onClick={() => initPayment('flutterwave')} iconBg="#fff7ed" icon={<CreditCard size={22} strokeWidth={1.9} className="text-[#ea580c]" />} title="International Card (Flutterwave)" subtitle="Visa · Mastercard · Amex" />
+                                            <MethodButton onClick={() => initPayment('flutterwave')} iconBg="#ffffff" icon={<img src="/assets/flutterwave-icon.png" alt="Flutterwave" className="w-[28px] h-auto object-contain" />} title="International Card (Flutterwave)" subtitle="Visa · Mastercard · Amex" />
                                         </>
                                     )}
                                     {paymentGroup === 'crypto' && (
-                                        <MethodButton onClick={() => { setShowMethods(false); cr.open(); }} iconBg="#f5f3ff" icon={<Layers size={22} strokeWidth={1.9} className="text-[#7c3aed]" />} title={`Pay with ${txn?.currency}`} subtitle="Multi-chain · ChainRails" />
+                                        <MethodButton onClick={() => { setShowMethods(false); cr.open(); }} iconBg="#f8f9fb" icon={<img src="/assets/chainrails-logo.svg" alt="ChainRails" className="w-[32px] h-auto object-contain" />} title={`Pay with ${txn?.currency}`} subtitle="Multi-chain · ChainRails" />
                                     )}
                                 </div>
 
