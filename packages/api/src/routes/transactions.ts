@@ -1007,7 +1007,7 @@ router.patch('/:id/milestones/:mId/status', requireUserOrBot, async (req, res) =
         try {
             const reviewsUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
             const milestoneLabels = (txn.milestones || []).map((m: any) => m.title);
-            const milestoneIndex = (txn.milestones || []).findIndex((m: any) => m.id === mId);
+            const milestoneIndex = milestone.index_num - 1; // 0-based; index_num is 1-based from creation
             const milestoneTotal = (txn.milestones || []).length;
             const remainingPending = allMilestones.filter((m: any) => m.status === 'PENDING').length;
 

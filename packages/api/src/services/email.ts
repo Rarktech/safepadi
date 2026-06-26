@@ -250,10 +250,11 @@ export function sendKycRejectedEmail(to: string, opts: { safetag: string; reason
 
 // 14. Milestone released
 export function sendMilestoneReleasedEmail(to: string, opts: { safetag: string; role: 'buyer' | 'seller'; milestoneTitle: string; milestoneIndex: number; milestoneTotal: number; amount: number; currency: string; txnCode: string; txnId: string }) {
-    const hasMorePhases = opts.milestoneIndex < opts.milestoneTotal;
+    const phaseNum = opts.milestoneIndex + 1; // milestoneIndex is 0-based
+    const hasMorePhases = phaseNum < opts.milestoneTotal;
     sendEmail({
-        to, subject: `Milestone ${opts.milestoneIndex} of ${opts.milestoneTotal} Released — ${opts.amount} ${opts.currency}`,
-        html: wrap('Milestone Released 💰', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(opts.role === 'seller' ? `Milestone funds have been released to your balance.` : `You have released the funds for milestone <b>${opts.milestoneTitle}</b>.`)}${kv('Milestone', `${opts.milestoneTitle} (${opts.milestoneIndex}/${opts.milestoneTotal})`)}${kv('Amount', `${opts.amount} ${opts.currency}`)}${kv('Transaction', opts.txnCode)}${hasMorePhases ? resumeBlock(opts.txnCode) : ''}`, `${reviewsUrl()}/dashboard/transactions/${opts.txnId}`, '👁️ View Project')
+        to, subject: `Milestone ${phaseNum} of ${opts.milestoneTotal} Released — ${opts.amount} ${opts.currency}`,
+        html: wrap('Milestone Released 💰', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(opts.role === 'seller' ? `Milestone funds have been released to your balance.` : `You have released the funds for milestone <b>${opts.milestoneTitle}</b>.`)}${kv('Milestone', `${opts.milestoneTitle} (${phaseNum}/${opts.milestoneTotal})`)}${kv('Amount', `${opts.amount} ${opts.currency}`)}${kv('Transaction', opts.txnCode)}${hasMorePhases ? resumeBlock(opts.txnCode) : ''}`, `${reviewsUrl()}/dashboard/transactions/${opts.txnId}`, '👁️ View Project')
     }).catch(() => {});
 }
 
