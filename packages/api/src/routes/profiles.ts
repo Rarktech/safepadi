@@ -400,10 +400,9 @@ router.patch('/platform-activity', async (req, res) => {
     const normalizedId = String(platform_id).replace(/^\+/, '');
     const { error, count } = await supabase
         .from('linked_accounts')
-        .update({ last_message_at: new Date().toISOString() })
+        .update({ last_message_at: new Date().toISOString() }, { count: 'exact' })
         .eq('platform', platform)
-        .eq('platform_id', normalizedId)
-        .select('id', { count: 'exact' });
+        .eq('platform_id', normalizedId);
     if (error) return res.status(500).json({ error: error.message });
     if (count === 0) {
         console.warn(`[platform-activity] No linked_account matched platform=${platform} platform_id=${normalizedId} (original: ${platform_id})`);
