@@ -23,7 +23,7 @@ export async function sendNotification(platform: string, platformId: string, mes
     const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
     if (platform === 'telegram') {
-        if (!TELEGRAM_BOT_TOKEN) { log(`⚠️ [Telegram] TELEGRAM_BOT_TOKEN not set in API service — notification skipped`); return; }
+        if (!TELEGRAM_BOT_TOKEN) { log(`⚠️ [Telegram] TELEGRAM_BOT_TOKEN not set in API service — notification skipped`); return false; }
         try {
             // Escape HTML entities, preserving all valid Telegram HTML tags (including <a href>)
             const tagRe = /(<\/?(b|i|em|strong|code|s|strike|del|u|a)(?:\s[^>]*)?>)/gi;
@@ -82,7 +82,7 @@ export async function sendNotification(platform: string, platformId: string, mes
         } catch (err: any) { log(`❌ Telegram Error: ${err.message}`); return false; }
 
     } else if (platform === 'discord') {
-        if (!DISCORD_BOT_TOKEN) { log(`⚠️ [Discord] DISCORD_BOT_TOKEN not set in API service — notification skipped`); return; }
+        if (!DISCORD_BOT_TOKEN) { log(`⚠️ [Discord] DISCORD_BOT_TOKEN not set in API service — notification skipped`); return false; }
         try {
             const dm = await axios.post('https://discord.com/api/v10/users/@me/channels', { recipient_id: platformId }, { headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` } });
             const channelId = dm.data.id;
@@ -142,7 +142,7 @@ export async function sendNotification(platform: string, platformId: string, mes
                         headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}`, ...form.getHeaders() }
                     });
                     log(`✅ [Discord Notification] Sent to ${platformId}`);
-                    return;
+                    return true;
                 } catch (imgErr: any) {
                     log(`⚠️ [Discord] Failed to attach receipt image, sending text-only: ${imgErr.message}`);
                 }
@@ -163,7 +163,7 @@ export async function sendNotification(platform: string, platformId: string, mes
 
         if (!JIVO_PROVIDER_ID || !JIVO_TOKEN) {
             log(`⚠️ [Apple] JIVO_PROVIDER_ID or JIVO_TOKEN not set in API service — notification skipped`);
-            return;
+            return false;
         }
 
         try {
@@ -234,7 +234,7 @@ export async function sendNotification(platform: string, platformId: string, mes
 
     } else if (platform === 'instagram') {
         const IG_TOKEN = process.env.INSTAGRAM_ACCESS_TOKEN;
-        if (!IG_TOKEN) { log(`⚠️ [Instagram] INSTAGRAM_ACCESS_TOKEN not set in API service — notification skipped`); return; }
+        if (!IG_TOKEN) { log(`⚠️ [Instagram] INSTAGRAM_ACCESS_TOKEN not set in API service — notification skipped`); return false; }
         const IG_BASE = 'https://graph.facebook.com/v18.0';
 
         const cleanMsg = message.replace(/<[^>]*>/g, '');
@@ -303,7 +303,7 @@ export async function sendNotification(platform: string, platformId: string, mes
     } else if (platform === 'whatsapp') {
         const WA_TOKEN = process.env.WHATSAPP_TOKEN;
         const WA_PHONE_ID = process.env.PHONE_NUMBER_ID;
-        if (!WA_TOKEN || !WA_PHONE_ID) { log(`⚠️ [WhatsApp] WHATSAPP_TOKEN or PHONE_NUMBER_ID not set in API service — notification skipped`); return; }
+        if (!WA_TOKEN || !WA_PHONE_ID) { log(`⚠️ [WhatsApp] WHATSAPP_TOKEN or PHONE_NUMBER_ID not set in API service — notification skipped`); return false; }
         const WA_BASE = `https://graph.facebook.com/v17.0/${WA_PHONE_ID}/messages`;
         const headers = { Authorization: `Bearer ${WA_TOKEN}`, 'Content-Type': 'application/json' };
         const cleanMsg = message.replace(/<[^>]*>/g, '');
@@ -420,7 +420,7 @@ export async function sendNotification(platform: string, platformId: string, mes
         }
     } else if (platform === 'messenger') {
         const MSG_TOKEN = process.env.MESSENGER_ACCESS_TOKEN;
-        if (!MSG_TOKEN) { log(`⚠️ [Messenger] MESSENGER_ACCESS_TOKEN not set in API service — notification skipped`); return; }
+        if (!MSG_TOKEN) { log(`⚠️ [Messenger] MESSENGER_ACCESS_TOKEN not set in API service — notification skipped`); return false; }
         const MSG_BASE = 'https://graph.facebook.com/v18.0';
         const cleanMsg = message.replace(/<[^>]*>/g, '');
 
