@@ -1941,10 +1941,11 @@ app.post('/flow', async (req, res) => {
                 const safetag = rawTag.startsWith('@') ? rawTag : `@${rawTag}`;
                 try {
                     const refCode = refSessions.get(phone_number);
+                    const normalizedPhoneId = (phone_number || '').replace(/^\+/, '');
                     await axios.post(`${API_URL}/profiles/register`, {
                         first_name: regData.first_name || data.first_name,
                         last_name:  regData.last_name  || data.last_name,
-                        email, safetag, primary_platform: 'whatsapp', platform_id: phone_number,
+                        email, safetag, primary_platform: 'whatsapp', platform_id: normalizedPhoneId,
                         ...(refCode ? { referral_code: refCode } : {})
                     });
                     refSessions.delete(phone_number);

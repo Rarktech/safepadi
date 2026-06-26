@@ -397,12 +397,17 @@ router.post('/:safetag/avatar', requireUser, requireSafetagOwner, uploadAvatar.s
 router.patch('/platform-activity', async (req, res) => {
     const { platform, platform_id } = req.body;
     if (!platform || !platform_id) return res.status(400).json({ error: 'platform and platform_id required' });
-    const { error } = await supabase
+    const normalizedId = String(platform_id).replace(/^\+/, '');
+    const { error, count } = await supabase
         .from('linked_accounts')
         .update({ last_message_at: new Date().toISOString() })
         .eq('platform', platform)
-        .eq('platform_id', String(platform_id));
+        .eq('platform_id', normalizedId)
+        .select('id', { count: 'exact' });
     if (error) return res.status(500).json({ error: error.message });
+    if (count === 0) {
+        console.warn(`[platform-activity] No linked_account matched platform=${platform} platform_id=${normalizedId} (original: ${platform_id})`);
+    }
     res.json({ ok: true });
 });
 
