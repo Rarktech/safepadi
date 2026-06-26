@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { Shield, Lock, CheckCircle, ArrowRight, X, Globe, Package, ShieldCheck } from 'lucide-react';
+import { Shield, CreditCard, Lock, CheckCircle, ArrowRight, X, Globe, Package, ShieldCheck } from 'lucide-react';
 import axios from 'axios';
 import posthog from 'posthog-js';
 import { usePaymentSession, PaymentModal } from '@chainrails/react';
