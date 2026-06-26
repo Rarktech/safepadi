@@ -1491,6 +1491,41 @@ bot.on('message', async (ctx) => {
         }
     } else if (m.text && !m.text.startsWith('/')) {
         textBody = m.text;
+
+        // ── Resume transaction by code ────────────────────────────────────────
+        const resumeMatch = textBody.match(/^resume\s+(TXN-[\w-]+)/i);
+        if (resumeMatch) {
+            const txnCode = resumeMatch[1].toUpperCase();
+            try {
+                const profileRes = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
+                const myTag = profileRes.data.safetag;
+                const txnRes = await axios.get(`${API_URL}/transactions/${txnCode}`);
+                const t = txnRes.data;
+                const isBuyer = myTag === t.buyer?.safetag;
+                const isSeller = myTag === t.seller?.safetag;
+                if (!isBuyer && !isSeller) {
+                    return ctx.reply('❌ You are not a participant in this transaction.');
+                }
+                const isMilestone = t.transaction_type === 'MILESTONE';
+                let nextAction = '';
+                if (t.status === 'PENDING_SELLER_ACCEPTANCE' && isSeller) nextAction = 'accept_prompt';
+                else if (t.status === 'ACCEPTED' && isBuyer) nextAction = 'pay_prompt';
+                else if (!isMilestone && t.status === 'PAID' && isSeller) nextAction = 'complete_prompt';
+                else if (!isMilestone && t.status === 'COMPLETED_BY_SELLER' && isBuyer) nextAction = 'confirm_receipt_prompt';
+                if (!nextAction && isMilestone && ['PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(t.status)) {
+                    return replyTxnDetails(ctx, t, myTag);
+                }
+                if (nextAction) {
+                    const statusRes = await axios.patch(`${API_URL}/transactions/${t.id}/status`, { status: nextAction, updater_safetag: myTag }, { headers: BOT_AUTH_HEADERS });
+                    const markup = { inline_keyboard: (statusRes.data.follow_up_options || []).map((opt: any) => ([{ text: opt.label, ...(opt.url ? { url: opt.url.replace('localhost', '127.0.0.1') } : { callback_data: opt.customId }) }])) };
+                    return ctx.reply(statusRes.data.follow_up_msg || '✅ Continuing transaction...', { parse_mode: 'HTML', reply_markup: markup });
+                }
+                return ctx.reply('⏳ No action needed right now — waiting for the other party.');
+            } catch (e: any) {
+                return ctx.reply(`❌ Could not resume transaction: ${e.response?.data?.error || e.message}`);
+            }
+        }
+
         // don't process short simple messages if there is no session
         if (!ctx.session?.smartTxnDraft && textBody.split(' ').length < 3) {
             return ctx.reply('👋 Type /start to access the main menu or continue where you left off.');

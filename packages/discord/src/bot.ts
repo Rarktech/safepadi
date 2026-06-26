@@ -470,6 +470,46 @@ client.on('messageCreate', async (message) => {
         }
     }
 
+    // ── Resume transaction by code ────────────────────────────────────────────
+    const resumeMatch = message.content.match(/^resume\s+(TXN-[\w-]+)/i);
+    if (resumeMatch) {
+        const txnCode = resumeMatch[1].toUpperCase();
+        try {
+            const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${message.author.id}`);
+            const myTag = profileRes.data.safetag;
+            const txnRes = await axios.get(`${API_URL}/transactions/${txnCode}`);
+            const t = txnRes.data;
+            const isBuyer = myTag === t.buyer?.safetag;
+            const isSeller = myTag === t.seller?.safetag;
+            if (!isBuyer && !isSeller) { await message.reply('❌ You are not a participant in this transaction.'); return; }
+            const isMilestone = t.transaction_type === 'MILESTONE';
+            let nextAction = '';
+            if (t.status === 'PENDING_SELLER_ACCEPTANCE' && isSeller) nextAction = 'accept_prompt';
+            else if (t.status === 'ACCEPTED' && isBuyer) nextAction = 'pay_prompt';
+            else if (!isMilestone && t.status === 'PAID' && isSeller) nextAction = 'complete_prompt';
+            else if (!isMilestone && t.status === 'COMPLETED_BY_SELLER' && isBuyer) nextAction = 'confirm_receipt_prompt';
+            if (!nextAction && isMilestone && ['PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(t.status)) {
+                await message.reply(`📦 **Milestone Project: ${t.product_name}**\n\nUse **My Transactions** to view per-phase progress and take action on each milestone.`);
+                return;
+            }
+            if (nextAction) {
+                const statusRes = await axios.patch(`${API_URL}/transactions/${t.id}/status`, { status: nextAction, updater_safetag: myTag }, { headers: BOT_AUTH_HEADERS });
+                const content = formatMessageForDiscord(statusRes.data.follow_up_msg || '✅ Continuing transaction...');
+                const components = statusRes.data.follow_up_options?.length
+                    ? [{ type: 1, components: statusRes.data.follow_up_options.map((opt: any) => ({ type: 2, label: opt.label, style: opt.url ? 5 : 2, url: opt.url, custom_id: opt.customId })) }]
+                    : undefined;
+                const payload: any = { content };
+                if (components) payload.components = components;
+                await message.reply(payload);
+            } else {
+                await message.reply('⏳ No action needed right now — waiting for the other party.');
+            }
+        } catch (e: any) {
+            await message.reply(`❌ Could not resume transaction: ${e.response?.data?.error || e.message}`);
+        }
+        return;
+    }
+
     // Handle Text AI Processing (if not a command)
     if (!message.content.startsWith('!') && !AWAITING_REVIEW_REMARK.has(message.author.id)) {
         const existingDraft = smartTxnSessions.get(message.author.id);

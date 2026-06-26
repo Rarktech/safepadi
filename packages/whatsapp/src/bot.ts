@@ -1067,6 +1067,51 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         }
     }
 
+    // ── Resume transaction by code ────────────────────────────────────────────
+    if (msgType === 'text') {
+        const resumeMatch = rawText.match(/^resume\s+(TXN-[\w-]+)/i);
+        if (resumeMatch) {
+            const txnCode = resumeMatch[1].toUpperCase();
+            try {
+                const p = await getProfile(from);
+                const myTag = p.safetag;
+                const txnRes = await axios.get(`${API_URL}/transactions/${txnCode}`);
+                const t = txnRes.data;
+                const isBuyer = myTag === t.buyer?.safetag;
+                const isSeller = myTag === t.seller?.safetag;
+                if (!isBuyer && !isSeller) { await sendText(from, '❌ You are not a participant in this transaction.'); return; }
+                const isMilestone = t.transaction_type === 'MILESTONE';
+                let nextAction = '';
+                if (t.status === 'PENDING_SELLER_ACCEPTANCE' && isSeller) nextAction = 'accept_prompt';
+                else if (t.status === 'ACCEPTED' && isBuyer) nextAction = 'pay_prompt';
+                else if (!isMilestone && t.status === 'PAID' && isSeller) nextAction = 'complete_prompt';
+                else if (!isMilestone && t.status === 'COMPLETED_BY_SELLER' && isBuyer) nextAction = 'confirm_receipt_prompt';
+                if (!nextAction && isMilestone && ['PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(t.status)) {
+                    await showTransactionDetail(from, t.id);
+                    return;
+                }
+                if (nextAction) {
+                    const res = await axios.patch(`${API_URL}/transactions/${t.id}/status`, { status: nextAction, updater_safetag: myTag }, { headers: BOT_AUTH_HEADERS });
+                    const msg = (res.data.follow_up_msg || '✅ Continuing...').replace(/<[^>]*>/g, '');
+                    const opts: any[] = res.data.follow_up_options || [];
+                    const replyOpts = opts.filter((o: any) => !o.url);
+                    const urlOpts = opts.filter((o: any) => o.url);
+                    if (replyOpts.length > 0) {
+                        await sendButtons(from, msg, replyOpts.slice(0, 3).map((o: any) => ({ id: o.customId, title: o.label.substring(0, 20) })));
+                    } else {
+                        await sendText(from, msg);
+                    }
+                    for (const u of urlOpts) await sendCTAUrl(from, u.label, u.label.substring(0, 20), u.url);
+                } else {
+                    await sendText(from, '⏳ No action needed right now — waiting for the other party.');
+                }
+            } catch (e: any) {
+                await sendText(from, `❌ ${e.response?.data?.error || 'Transaction not found. Please check the code and try again.'}`);
+            }
+            return;
+        }
+    }
+
     // ── Smart transaction (audio or free text) ────────────────────────────────
     const isBasicCommand = ['hello', 'hi', 'start'].includes(textBody) || !!interactiveId;
     if (msgType === 'audio' || (msgType === 'text' && !isBasicCommand && !txnSessions.has(from) && rawText)) {

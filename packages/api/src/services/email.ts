@@ -108,6 +108,16 @@ export async function sendTransactionInvoiceEmail(data: InvoiceData) {
     });
 }
 
+// ─── Resume command box ─────────────────────────────────────────────────────
+function resumeBlock(txnCode: string) {
+    return `<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:16px 20px;margin:20px 0">
+<p style="margin:0 0 6px;color:#166534;font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase">Continue in your bot</p>
+<p style="margin:0 0 10px;color:#374151;font-size:14px">Open your Safeeely bot (WhatsApp, Telegram, Discord, etc.) and type:</p>
+<div style="text-align:center;margin:10px 0"><code style="background:#dcfce7;color:#166534;padding:8px 20px;border-radius:6px;font-size:16px;font-weight:700;display:inline-block;letter-spacing:0.04em">resume ${txnCode}</code></div>
+<p style="margin:10px 0 0;color:#6b7280;font-size:12px">This picks up exactly where you left off — no need to start over.</p>
+</div>`;
+}
+
 // ─── Branded email wrapper ──────────────────────────────────────────────────
 function wrap(title: string, body: string, ctaUrl?: string, ctaLabel?: string) {
     const cta = ctaUrl ? `<div style="text-align:center;margin:28px 0"><a href="${ctaUrl}" style="background:#f59e0b;color:#fff;text-decoration:none;padding:14px 32px;border-radius:10px;font-weight:600;font-size:15px;display:inline-block">${ctaLabel || 'View on Safeeely'}</a></div>` : '';
@@ -136,7 +146,7 @@ const reviewsUrl = () => process.env.REVIEWS_URL || 'https://safeeely.com';
 export function sendTransactionAcceptedEmail(to: string, opts: { safetag: string; product: string; amount: number; currency: string; txnId: string; txnCode: string }) {
     sendEmail({
         to, subject: `Your trade was accepted — pay now to lock it in`,
-        html: wrap('Trade Accepted ✅', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(`<b>${opts.product}</b> has been accepted. Make your payment to lock the escrow.`)}${kv('Amount', `${opts.amount} ${opts.currency}`)}${kv('Transaction', opts.txnCode)}`, `${reviewsUrl()}/pay/${opts.txnId}`, '💳 Pay Now')
+        html: wrap('Trade Accepted ✅', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(`<b>${opts.product}</b> has been accepted. Make your payment to lock the escrow.`)}${kv('Amount', `${opts.amount} ${opts.currency}`)}${kv('Transaction', opts.txnCode)}${resumeBlock(opts.txnCode)}`, `${reviewsUrl()}/pay/${opts.txnId}`, '💳 Pay Now')
     }).catch(() => {});
 }
 
@@ -145,7 +155,7 @@ export function sendPaymentConfirmedEmail(to: string, opts: { safetag: string; r
     const isBuyer = opts.role === 'buyer';
     sendEmail({
         to, subject: `Funds secured in escrow — ${opts.amount} ${opts.currency}`,
-        html: wrap('Payment Confirmed 🔐', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(isBuyer ? 'Your payment is secured in escrow. You\'ll be notified when delivery is ready.' : 'Payment received in escrow — proceed to fulfill the order.')}${kv('Product', opts.product)}${kv('Amount', `${opts.amount} ${opts.currency}`)}${kv('Transaction', opts.txnCode)}`, `${reviewsUrl()}/dashboard/transactions/${opts.txnId}`, '👁️ View Transaction')
+        html: wrap('Payment Confirmed 🔐', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(isBuyer ? 'Your payment is secured in escrow. You\'ll be notified when delivery is ready.' : 'Payment received in escrow — proceed to fulfill the order.')}${kv('Product', opts.product)}${kv('Amount', `${opts.amount} ${opts.currency}`)}${kv('Transaction', opts.txnCode)}${!isBuyer ? resumeBlock(opts.txnCode) : ''}`, `${reviewsUrl()}/dashboard/transactions/${opts.txnId}`, '👁️ View Transaction')
     }).catch(() => {});
 }
 
@@ -153,7 +163,7 @@ export function sendPaymentConfirmedEmail(to: string, opts: { safetag: string; r
 export function sendDeliverySubmittedEmail(to: string, opts: { safetag: string; sellerTag: string; product: string; txnCode: string; txnId: string }) {
     sendEmail({
         to, subject: `Seller submitted delivery proof — confirm receipt`,
-        html: wrap('Delivery Update 📦', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(`<b>@${opts.sellerTag}</b> has submitted delivery proof for <b>${opts.product}</b>. Please review and confirm receipt.`)}${kv('Transaction', opts.txnCode)}`, `${reviewsUrl()}/dashboard/transactions/${opts.txnId}`, '✅ Confirm Receipt')
+        html: wrap('Delivery Update 📦', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(`<b>@${opts.sellerTag}</b> has submitted delivery proof for <b>${opts.product}</b>. Please review and confirm receipt.`)}${kv('Transaction', opts.txnCode)}${resumeBlock(opts.txnCode)}`, `${reviewsUrl()}/dashboard/transactions/${opts.txnId}`, '✅ Confirm Receipt')
     }).catch(() => {});
 }
 
@@ -240,9 +250,10 @@ export function sendKycRejectedEmail(to: string, opts: { safetag: string; reason
 
 // 14. Milestone released
 export function sendMilestoneReleasedEmail(to: string, opts: { safetag: string; role: 'buyer' | 'seller'; milestoneTitle: string; milestoneIndex: number; milestoneTotal: number; amount: number; currency: string; txnCode: string; txnId: string }) {
+    const hasMorePhases = opts.milestoneIndex < opts.milestoneTotal;
     sendEmail({
         to, subject: `Milestone ${opts.milestoneIndex} of ${opts.milestoneTotal} Released — ${opts.amount} ${opts.currency}`,
-        html: wrap('Milestone Released 💰', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(opts.role === 'seller' ? `Milestone funds have been released to your balance.` : `You have released the funds for milestone <b>${opts.milestoneTitle}</b>.`)}${kv('Milestone', `${opts.milestoneTitle} (${opts.milestoneIndex}/${opts.milestoneTotal})`)}${kv('Amount', `${opts.amount} ${opts.currency}`)}${kv('Transaction', opts.txnCode)}`, `${reviewsUrl()}/dashboard/transactions/${opts.txnId}`, '👁️ View Project')
+        html: wrap('Milestone Released 💰', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(opts.role === 'seller' ? `Milestone funds have been released to your balance.` : `You have released the funds for milestone <b>${opts.milestoneTitle}</b>.`)}${kv('Milestone', `${opts.milestoneTitle} (${opts.milestoneIndex}/${opts.milestoneTotal})`)}${kv('Amount', `${opts.amount} ${opts.currency}`)}${kv('Transaction', opts.txnCode)}${hasMorePhases ? resumeBlock(opts.txnCode) : ''}`, `${reviewsUrl()}/dashboard/transactions/${opts.txnId}`, '👁️ View Project')
     }).catch(() => {});
 }
 
@@ -250,7 +261,7 @@ export function sendMilestoneReleasedEmail(to: string, opts: { safetag: string; 
 export function sendNewTransactionRequestEmail(to: string, opts: { safetag: string; counterpartyTag: string; product: string; amount: number; currency: string; txnCode: string; txnId: string }) {
     sendEmail({
         to, subject: `New transaction request — ${opts.product} from ${opts.counterpartyTag}`,
-        html: wrap('New Transaction Request 🔔', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(`<b>${opts.counterpartyTag}</b> has sent you a secure transaction request on Safeeely.`)}${kv('Product / Service', opts.product)}${kv('Amount', `${opts.amount.toLocaleString()} ${opts.currency}`)}${kv('Transaction ID', opts.txnCode)}${p('Open Safeeely to accept or decline the request.')}`, `${reviewsUrl()}/withdraw/${encodeURIComponent(opts.safetag)}?continue=${opts.txnId}`, '✅ View & Respond')
+        html: wrap('New Transaction Request 🔔', `${p(`Hi <b>@${opts.safetag}</b>,`)}${p(`<b>${opts.counterpartyTag}</b> has sent you a secure transaction request on Safeeely.`)}${kv('Product / Service', opts.product)}${kv('Amount', `${opts.amount.toLocaleString()} ${opts.currency}`)}${kv('Transaction ID', opts.txnCode)}${resumeBlock(opts.txnCode)}`, `${reviewsUrl()}/withdraw/${encodeURIComponent(opts.safetag)}?continue=${opts.txnId}`, '✅ View & Respond')
     }).catch(() => {});
 }
 

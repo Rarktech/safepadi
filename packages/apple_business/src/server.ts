@@ -266,6 +266,46 @@ app.post('/webhook/:token', (req, res) => {
                     return;
                 }
 
+                // --- RESUME TRANSACTION BY CODE ---
+                const resumeMatch = messageText.match(/^resume\s+(TXN-[\w-]+)/i);
+                if (resumeMatch) {
+                    const txnCode = resumeMatch[1].toUpperCase();
+                    try {
+                        const txnRes = await axios.get(`${API_URL}/transactions/${txnCode}`);
+                        const t = txnRes.data;
+                        const isBuyer = safetag === t.buyer?.safetag;
+                        const isSeller = safetag === t.seller?.safetag;
+                        if (!isBuyer && !isSeller) {
+                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '❌ You are not a participant in this transaction.' });
+                            return;
+                        }
+                        const isMilestone = t.transaction_type === 'MILESTONE';
+                        let nextAction = '';
+                        if (t.status === 'PENDING_SELLER_ACCEPTANCE' && isSeller) nextAction = 'accept_prompt';
+                        else if (t.status === 'ACCEPTED' && isBuyer) nextAction = 'pay_prompt';
+                        else if (!isMilestone && t.status === 'PAID' && isSeller) nextAction = 'complete_prompt';
+                        else if (!isMilestone && t.status === 'COMPLETED_BY_SELLER' && isBuyer) nextAction = 'confirm_receipt_prompt';
+                        if (!nextAction && isMilestone && ['PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(t.status)) {
+                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `📦 Milestone project in progress.\n\nTransaction: ${txnCode}\nStatus: ${t.status}\n\nUse "My Transactions" to track each phase.` });
+                            return;
+                        }
+                        if (nextAction) {
+                            const res = await axios.patch(`${API_URL}/transactions/${t.id}/status`, { status: nextAction, updater_safetag: safetag }, { headers: BOT_AUTH_HEADERS });
+                            const msg = (res.data.follow_up_msg || '✅ Continuing...').replace(/<[^>]*>/g, '');
+                            const opts: any[] = res.data.follow_up_options || [];
+                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: msg });
+                            if (opts.filter((o: any) => !o.url).length > 0) {
+                                await sendJivoChatMessage(clientId, chatId, { type: 'BUTTONS', title: 'Choose an action', text: 'Please select:', buttons: opts.filter((o: any) => !o.url).slice(0, 5).map((o: any) => ({ text: o.label, id: o.customId, subtitle: 'Tap to proceed', description: 'Tap to proceed' })) });
+                            }
+                        } else {
+                            await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: '⏳ No action needed right now — waiting for the other party.' });
+                        }
+                    } catch (e: any) {
+                        await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: `❌ ${e.response?.data?.error || 'Transaction not found. Please check the code and try again.'}` });
+                    }
+                    return;
+                }
+
                 // --- REFERRALS ---
                 if (messageText.includes('referral')) {
                     try {

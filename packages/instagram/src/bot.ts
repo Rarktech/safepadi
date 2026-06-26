@@ -1091,6 +1091,50 @@ async function handleMessage(psid: string, message: any) {
 
     const text = rawText.toLowerCase();
 
+    // ── Resume transaction by code ────────────────────────────────────────────
+    const resumeMatch = rawText.match(/^resume\s+(TXN-[\w-]+)/i);
+    if (resumeMatch) {
+        const txnCode = resumeMatch[1].toUpperCase();
+        try {
+            const profile = await getProfile(psid);
+            const myTag = profile.safetag;
+            const txnRes = await axios.get(`${API_URL}/transactions/${txnCode}`);
+            const t = txnRes.data;
+            const isBuyer = myTag === t.buyer?.safetag;
+            const isSeller = myTag === t.seller?.safetag;
+            if (!isBuyer && !isSeller) { await sendMsg(psid, { text: '❌ You are not a participant in this transaction.' }); return; }
+            const isMilestone = t.transaction_type === 'MILESTONE';
+            let nextAction = '';
+            if (t.status === 'PENDING_SELLER_ACCEPTANCE' && isSeller) nextAction = 'accept_prompt';
+            else if (t.status === 'ACCEPTED' && isBuyer) nextAction = 'pay_prompt';
+            else if (!isMilestone && t.status === 'PAID' && isSeller) nextAction = 'complete_prompt';
+            else if (!isMilestone && t.status === 'COMPLETED_BY_SELLER' && isBuyer) nextAction = 'confirm_receipt_prompt';
+            if (!nextAction && isMilestone && ['PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'].includes(t.status)) {
+                await sendMsg(psid, qr(`📦 Milestone project in progress.\n\nTransaction: ${txnCode}\nStatus: ${t.status}\n\nUse My Transactions to track each phase.`, [{ title: '📋 My Txns', payload: 'MY_TXNS' }]));
+                return;
+            }
+            if (nextAction) {
+                const res = await axios.patch(`${API_URL}/transactions/${t.id}/status`, { status: nextAction, updater_safetag: myTag }, { headers: BOT_AUTH_HEADERS });
+                const msg = (res.data.follow_up_msg || '✅ Continuing...').replace(/<[^>]*>/g, '');
+                const opts: any[] = res.data.follow_up_options || [];
+                const replyOpts = opts.filter((o: any) => !o.url);
+                const urlOpts = opts.filter((o: any) => o.url);
+                if (replyOpts.length > 0) {
+                    await sendMsg(psid, qr(msg, replyOpts.slice(0, 13).map((o: any) => ({ title: o.label.substring(0, 20), payload: o.customId || o.label }))));
+                } else if (urlOpts.length > 0) {
+                    await sendMsg(psid, { attachment: { type: 'template', payload: { template_type: 'button', text: msg.substring(0, 640), buttons: urlOpts.slice(0, 3).map((o: any) => ({ type: 'web_url', url: o.url, title: o.label.substring(0, 20) })) } } });
+                } else {
+                    await sendMsg(psid, { text: msg });
+                }
+            } else {
+                await sendMsg(psid, { text: '⏳ No action needed right now — waiting for the other party.' });
+            }
+        } catch (e: any) {
+            await sendMsg(psid, { text: `❌ ${e.response?.data?.error || 'Transaction not found. Please check the code and try again.'}` });
+        }
+        return;
+    }
+
     // Capture referral code from text like "ref_johndoe"
     if (rawText.toLowerCase().startsWith('ref_')) {
         pendingReferrals[psid] = rawText.trim().substring(4);

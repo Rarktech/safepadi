@@ -18,7 +18,7 @@ function log(msg: string) {
     console.log(`[Notification Engine] ${msg}`);
 }
 
-export async function sendNotification(platform: string, platformId: string, message: string, options?: { label: string, customId?: string, url?: string }[], imageUrl?: string, imageBuffer?: Buffer) {
+export async function sendNotification(platform: string, platformId: string, message: string, options?: { label: string, customId?: string, url?: string }[], imageUrl?: string, imageBuffer?: Buffer): Promise<boolean> {
     const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
     const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
@@ -78,7 +78,8 @@ export async function sendNotification(platform: string, platformId: string, mes
                 await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, payload);
             }
             log(`✅ [Telegram Notification] Sent to ${platformId}`);
-        } catch (err: any) { log(`❌ Telegram Error: ${err.message}`); }
+            return true;
+        } catch (err: any) { log(`❌ Telegram Error: ${err.message}`); return false; }
 
     } else if (platform === 'discord') {
         if (!DISCORD_BOT_TOKEN) { log(`⚠️ [Discord] DISCORD_BOT_TOKEN not set in API service — notification skipped`); return; }
@@ -151,7 +152,8 @@ export async function sendNotification(platform: string, platformId: string, mes
             if (components) payload.components = components;
             await axios.post(`https://discord.com/api/v10/channels/${channelId}/messages`, payload, { headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` } });
             log(`✅ [Discord Notification] Sent to ${platformId}`);
-        } catch (err: any) { log(`❌ Discord Error: ${err.message}`); }
+            return true;
+        } catch (err: any) { log(`❌ Discord Error: ${err.message}`); return false; }
 
     } else if (platform === 'apple') {
         const JIVO_PROVIDER_ID = process.env.JIVO_PROVIDER_ID;
@@ -222,10 +224,12 @@ export async function sendNotification(platform: string, platformId: string, mes
                 const btnRes = await axios.post(url, buttonsPayload);
                 log(`✅ [Apple Notification] Buttons Handshake: ${btnRes.status} ${JSON.stringify(btnRes.data)}`);
             }
+            return true;
         } catch (err: any) {
             const errorMsg = `❌ Apple Notification Error for ${platformId}: ${err.response?.data ? JSON.stringify(err.response.data) : err.message}`;
             log(errorMsg);
             console.error(errorMsg);
+            return false;
         }
 
     } else if (platform === 'instagram') {
@@ -291,8 +295,10 @@ export async function sendNotification(platform: string, platformId: string, mes
                 tag: 'POST_PURCHASE_UPDATE'
             });
             log(`✅ [Instagram Notification] Sent to ${platformId}`);
+            return true;
         } catch (err: any) {
             log(`❌ Instagram Notification Error for ${platformId}: ${err.response?.data?.error?.message || err.message}`);
+            return false;
         }
     } else if (platform === 'whatsapp') {
         const WA_TOKEN = process.env.WHATSAPP_TOKEN;
@@ -402,6 +408,7 @@ export async function sendNotification(platform: string, platformId: string, mes
                 }, { headers });
             }
             log(`✅ [WhatsApp Notification] Sent to ${platformId}`);
+            return true;
         } catch (err: any) {
             const metaErr = err.response?.data?.error;
             if (metaErr) {
@@ -409,6 +416,7 @@ export async function sendNotification(platform: string, platformId: string, mes
             } else {
                 log(`❌ WhatsApp Notification Error for ${platformId}: ${err.message}`);
             }
+            return false;
         }
     } else if (platform === 'messenger') {
         const MSG_TOKEN = process.env.MESSENGER_ACCESS_TOKEN;
@@ -472,10 +480,13 @@ export async function sendNotification(platform: string, platformId: string, mes
                 tag: 'ACCOUNT_UPDATE'
             });
             log(`✅ [Messenger Notification] Sent to ${platformId}`);
+            return true;
         } catch (err: any) {
             log(`❌ Messenger Notification Error for ${platformId}: ${err.response?.data?.error?.message || err.message}`);
+            return false;
         }
     }
+    return false;
 }
 
 const META_PLATFORMS = ['whatsapp', 'instagram', 'messenger'];
@@ -571,8 +582,8 @@ export async function routeNotification(
             const resolvedOptions = typeof options === 'function'
                 ? await options(acct.platform, acct.platform_id)
                 : options ?? [];
-            await sendNotification(acct.platform, acct.platform_id, message, resolvedOptions, imageUrl ?? undefined, imageBuffer);
-            notified = true;
+            const delivered = await sendNotification(acct.platform, acct.platform_id, message, resolvedOptions, imageUrl ?? undefined, imageBuffer);
+            if (delivered) notified = true;
         }
         if (!notified && emailFallback) {
             emailFallback();
