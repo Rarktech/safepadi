@@ -122,11 +122,11 @@ router.post('/opay/webhook', async (req, res) => {
                     { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` },
                     { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
                     { label: '🔙 Main Menu', customId: 'main_menu' }
-                ], receiptUrl, txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Buyer Notif Error:', e));
+                ], receiptUrl, txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined, true).catch(e => console.error('Buyer Notif Error:', e));
                 recordNotification(txn.buyer_id, 'payment', '✅ Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow via OPay`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
 
                 // Notify Seller
-                routeNotification(txn.seller_id, buildSellerPaidMsg(txn), buildSellerPaidButtons(txn), receiptUrl, txn.seller?.email ? () => sendPaymentConfirmedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Seller Notif Error:', e));
+                routeNotification(txn.seller_id, buildSellerPaidMsg(txn), buildSellerPaidButtons(txn), receiptUrl, txn.seller?.email ? () => sendPaymentConfirmedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined, true).catch(e => console.error('Seller Notif Error:', e));
                 recordNotification(txn.seller_id, 'payment', '🔐 Payment Received in Escrow', `${txn.amount} ${txn.currency} secured for ${txn.product_name} via OPay`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
             }
         }
@@ -210,11 +210,11 @@ router.post('/airwallex/webhook', async (req, res) => {
                     { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` },
                     { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
                     { label: '🔙 Main Menu', customId: 'main_menu' }
-                ], receiptUrl, txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Buyer Notif Error:', e));
+                ], receiptUrl, txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined, true).catch(e => console.error('Buyer Notif Error:', e));
                 recordNotification(txn.buyer_id, 'payment', '✅ Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow via Airwallex`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
 
                 // Notify Seller
-                routeNotification(txn.seller_id, buildSellerPaidMsg(txn), buildSellerPaidButtons(txn), receiptUrl, txn.seller?.email ? () => sendPaymentConfirmedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Seller Notif Error:', e));
+                routeNotification(txn.seller_id, buildSellerPaidMsg(txn), buildSellerPaidButtons(txn), receiptUrl, txn.seller?.email ? () => sendPaymentConfirmedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined, true).catch(e => console.error('Seller Notif Error:', e));
                 recordNotification(txn.seller_id, 'payment', '🔐 Payment Received in Escrow', `${txn.amount} ${txn.currency} secured for ${txn.product_name} via Airwallex`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
             }
         }
@@ -312,11 +312,11 @@ router.post('/chainrails/webhook', async (req, res) => {
                     { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` },
                     { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
                     { label: '🔙 Main Menu', customId: 'main_menu' }
-                ], receiptUrl, txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Buyer Notif Error:', e));
+                ], receiptUrl, txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined, true).catch(e => console.error('Buyer Notif Error:', e));
                 recordNotification(txn.buyer_id, 'payment', '✅ Crypto Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow via ChainRails`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
 
                 // Notify seller
-                routeNotification(txn.seller_id, buildSellerPaidMsg(txn), buildSellerPaidButtons(txn), receiptUrl, txn.seller?.email ? () => sendPaymentConfirmedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Seller Notif Error:', e));
+                routeNotification(txn.seller_id, buildSellerPaidMsg(txn), buildSellerPaidButtons(txn), receiptUrl, txn.seller?.email ? () => sendPaymentConfirmedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined, true).catch(e => console.error('Seller Notif Error:', e));
                 recordNotification(txn.seller_id, 'payment', '🔐 Crypto Payment Received', `${txn.amount} ${txn.currency} secured for ${txn.product_name} via ChainRails`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
             } else {
                 console.log(`ℹ️ [ChainRails] ${txn.txn_code} already ${txn.status}, skipping.`);
@@ -536,11 +536,11 @@ router.post('/flutterwave/webhook', async (req, res) => {
                     { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` },
                     { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
                     { label: '🔙 Main Menu', customId: 'main_menu' }
-                ], receiptUrl, txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Buyer Notif Error:', e));
+                ], receiptUrl, txn.buyer?.email ? () => sendPaymentConfirmedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined, true).catch(e => console.error('Buyer Notif Error:', e));
                 recordNotification(txn.buyer_id, 'payment', '✅ Payment Confirmed', `${txn.total_amount} ${txn.currency} secured in escrow via Flutterwave`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.total_amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
 
                 // Notify Seller
-                routeNotification(txn.seller_id, buildSellerPaidMsg(txn), buildSellerPaidButtons(txn), receiptUrl, txn.seller?.email ? () => sendPaymentConfirmedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined).catch(e => console.error('Seller Notif Error:', e));
+                routeNotification(txn.seller_id, buildSellerPaidMsg(txn), buildSellerPaidButtons(txn), receiptUrl, txn.seller?.email ? () => sendPaymentConfirmedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined, true).catch(e => console.error('Seller Notif Error:', e));
                 recordNotification(txn.seller_id, 'payment', '🔐 Payment Received in Escrow', `${txn.amount} ${txn.currency} secured for ${txn.product_name} via Flutterwave`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, link_url: `/receipt/${txn.id}` }).catch(() => {});
             } else {
                 console.log(`ℹ️ Transaction ${txnCode} is already marked as ${txn.status}. Skipping notification.`);

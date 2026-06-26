@@ -533,7 +533,8 @@ export async function routeNotification(
     message: string,
     options?: NotifOptions,
     imageUrl?: string | null,
-    emailFallback?: () => void | Promise<void>
+    emailFallback?: () => void | Promise<void>,
+    isTransactional: boolean = false
 ): Promise<void> {
     try {
         const { data: accounts } = await supabase
@@ -559,7 +560,9 @@ export async function routeNotification(
 
         let notified = false;
         for (const acct of accounts) {
-            if (META_PLATFORMS.includes(acct.platform)) {
+            // Transactional notifications bypass the 24h window check for Meta platforms
+            // since they are direct responses to user-initiated actions, not unsolicited messages
+            if (!isTransactional && META_PLATFORMS.includes(acct.platform)) {
                 const windowOpen = acct.last_message_at
                     ? (Date.now() - new Date(acct.last_message_at).getTime()) < WINDOW_24H_MS
                     : false;

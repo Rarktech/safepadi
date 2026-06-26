@@ -271,7 +271,8 @@ router.post('/create', async (req, res) => {
                     currency: data.currency,
                     txnCode,
                     txnId: txn.id
-                }) : undefined
+                }) : undefined,
+                true
             ).catch(e => console.error('Background Notification Error:', e));
             recordNotification(recipientId, 'transaction', '🔔 New Transaction Request', `${otherTag} sent you a ${data.transaction_type === 'MILESTONE' ? 'milestone project' : 'trade'} request for ${data.product_name}`, { transaction_id: txn.id, transaction_code: txnCode, amount: data.amount, currency: data.currency, counterparty_name: otherTag, link_url: `/withdraw/${encodeURIComponent(isBuyerInitiated ? seller.safetag : buyer.safetag)}?continue=${txn.id}&txnCode=${txnCode}&txnTitle=${encodeURIComponent(data.product_name || '')}` }).catch(() => {});
             console.log(`[Notification Engine] Dispatched routeNotification to recipient ${recipientId}`);
@@ -633,13 +634,19 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
             routeNotification(
                 txn.buyer_id,
                 `💸 <b>Refund Issued</b>\n\n<code>${txn.seller?.safetag}</code> has cancelled the transaction for <b>"${txn.product_name}"</b> and issued a full refund.\n\n💰 Refund Amount: <b>${txn.amount} ${txn.currency}</b>\n📋 Transaction: <b>${txn.txn_code}</b>\n\nYour funds will be returned to your balance shortly.`,
-                [{ label: '🏠 Main Menu', customId: 'main_menu' }]
+                [{ label: '🏠 Main Menu', customId: 'main_menu' }],
+                undefined,
+                undefined,
+                true
             ).catch(() => {});
 
             routeNotification(
                 txn.seller_id,
                 `✅ <b>Cancellation Confirmed</b>\n\nYou have cancelled the transaction for <b>"${txn.product_name}"</b>.\n\n💰 A full refund of <b>${txn.amount} ${txn.currency}</b> has been issued to <code>${txn.buyer?.safetag}</code>.\n📋 Transaction: <b>${txn.txn_code}</b>`,
-                [{ label: '🏠 Main Menu', customId: 'main_menu' }]
+                [{ label: '🏠 Main Menu', customId: 'main_menu' }],
+                undefined,
+                undefined,
+                true
             ).catch(() => {});
 
             if (txn.seller?.safetag) {
@@ -793,7 +800,7 @@ router.patch('/:id/status', requireUserOrBot, async (req, res) => {
                     }
                 }
 
-                routeNotification(recipient.id, msg, options, receiptUrl, emailFn).catch(e => console.error('Background Notification Error:', e));
+                routeNotification(recipient.id, msg, options, receiptUrl, emailFn, true).catch(e => console.error('Background Notification Error:', e));
 
                 const notifTitles: Record<string, string> = {
                     accept: '✅ Transaction Accepted',
@@ -1019,11 +1026,11 @@ router.patch('/:id/milestones/:mId/status', requireUserOrBot, async (req, res) =
                 routeNotification(txn.buyer_id, buyerMsg, [
                     { label: '🔍 View Proof', url: `${reviewsUrl}/delivery/${txn.id}` },
                     { label: '💸 View & Release', customId: `view_txn_details|${txn.id}` }
-                ]).catch(() => {});
+                ], undefined, undefined, true).catch(() => {});
 
                 // Seller: acknowledgement — no button needed, they wait for buyer
                 const sellerMsg = `✅ <b>Phase ${milestoneIndex + 1} Submitted!</b>\n\nYou've marked "<b>${milestone.title}</b>" as complete and the buyer has been notified to review your proof.\n\n⏳ Awaiting buyer's release of <b>${milestone.amount} ${txn.currency}</b>.${remainingPending > 0 ? `\n\n📍 ${remainingPending} more phase(s) remaining after this one.` : ''}`;
-                routeNotification(txn.seller_id, sellerMsg, []).catch(() => {});
+                routeNotification(txn.seller_id, sellerMsg, [], undefined, undefined, true).catch(() => {});
 
                 const completedTitle = `📦 Milestone Submitted — ${milestone.title}`;
                 const completedMsg = `Stage ${milestoneIndex + 1} of ${milestoneTotal} awaiting release`;
@@ -1035,7 +1042,8 @@ router.patch('/:id/milestones/:mId/status', requireUserOrBot, async (req, res) =
                 // Buyer: simple confirmation
                 const buyerMsg = `💸 <b>Funds Released!</b>\n\nYou've released <b>${milestone.amount} ${txn.currency}</b> for "<b>${milestone.title}</b>" (Phase ${milestoneIndex + 1} of ${milestoneTotal}).${!allReleased && remainingPending > 0 ? `\n\n📍 ${remainingPending} phase(s) still pending delivery.` : ''}`;
                 routeNotification(txn.buyer_id, buyerMsg, [], undefined,
-                    (!allReleased && txn.buyer?.email) ? () => sendMilestoneReleasedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', milestoneTitle: milestone.title, milestoneIndex, milestoneTotal, amount: milestone.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined
+                    (!allReleased && txn.buyer?.email) ? () => sendMilestoneReleasedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, role: 'buyer', milestoneTitle: milestone.title, milestoneIndex, milestoneTotal, amount: milestone.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined,
+                    true
                 ).catch(() => {});
 
                 if (!allReleased) {
@@ -1049,7 +1057,8 @@ router.patch('/:id/milestones/:mId/status', requireUserOrBot, async (req, res) =
                             ? [{ label: '📦 Mark Next Phase', customId: `view_txn_details|${txn.id}` }]
                             : [{ label: '✅ View Transaction', customId: `view_txn_details|${txn.id}` }],
                         undefined,
-                        txn.seller?.email ? () => sendMilestoneReleasedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', milestoneTitle: milestone.title, milestoneIndex, milestoneTotal, amount: milestone.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined
+                        txn.seller?.email ? () => sendMilestoneReleasedEmail(txn.seller.email, { safetag: txn.seller.safetag, role: 'seller', milestoneTitle: milestone.title, milestoneIndex, milestoneTotal, amount: milestone.amount, currency: txn.currency, txnCode: txn.txn_code, txnId: txn.id }) : undefined,
+                        true
                     ).catch(() => {});
                 }
 
@@ -1070,7 +1079,8 @@ router.patch('/:id/milestones/:mId/status', requireUserOrBot, async (req, res) =
                         { label: '✍️ Leave a Review', customId: `leave_review_${txn.id}` }
                     ],
                     undefined,
-                    txn.seller?.email ? () => sendTransactionCompletedEmail(txn.seller.email, { safetag: txn.seller.safetag, product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code }) : undefined
+                    txn.seller?.email ? () => sendTransactionCompletedEmail(txn.seller.email, { safetag: txn.seller.safetag, product: txn.product_name, amount: txn.amount, currency: txn.currency, txnCode: txn.txn_code }) : undefined,
+                    true
                 ).catch(() => {});
 
                 // Buyer: leave review + main menu
@@ -1080,7 +1090,8 @@ router.patch('/:id/milestones/:mId/status', requireUserOrBot, async (req, res) =
                         { label: '🏠 Main Menu', customId: 'main_menu' }
                     ],
                     undefined,
-                    txn.buyer?.email ? () => sendTransactionCompletedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code }) : undefined
+                    txn.buyer?.email ? () => sendTransactionCompletedEmail(txn.buyer.email, { safetag: txn.buyer.safetag, product: txn.product_name, amount: txn.total_amount, currency: txn.currency, txnCode: txn.txn_code }) : undefined,
+                    true
                 ).catch(() => {});
 
                 const finalTitle = '🎉 Project Finalized!';
@@ -1164,12 +1175,12 @@ router.post('/:id/upload-proof-files', upload.array('files', 10), async (req, re
             { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
             { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
             { label: '🔗 View Proofs', url: `${reviewsUrl}/delivery/${txn.id}` },
-        ]).catch(e => console.error('Background Notification Error:', e));
+        ], undefined, undefined, true).catch(e => console.error('Background Notification Error:', e));
         recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted ${files.length} proof file(s) for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/delivery/${txn.id}` }).catch(() => {});
 
         // Notify seller
         const sellerProofMsg = `✅ <b>Proof Uploaded!</b>\n\nBuyer notified for <b>${txn.product_name}</b> — awaiting confirmation.\n📋 ID: <b>${txn.txn_code}</b>`;
-        routeNotification(txn.seller_id, sellerProofMsg, []).catch(e => console.error('Background Notification Error:', e));
+        routeNotification(txn.seller_id, sellerProofMsg, [], undefined, undefined, true).catch(e => console.error('Background Notification Error:', e));
         recordNotification(txn.seller_id, 'transaction', '✅ Proof Upload Confirmed', `Buyer notified for ${txn.product_name} — awaiting confirmation`, { transaction_id: txn.id, transaction_code: txn.txn_code, link_url: `/delivery/${txn.id}` }).catch(() => {});
 
         res.json({ success: true, count: proofRecords.length });
@@ -1266,14 +1277,14 @@ router.post('/:id/upload-proofs', async (req, res) => {
             { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
             { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
             { label: '🔗 View Proofs', url: `${reviewsUrlUp}/delivery/${txn.id}` },
-        ]).catch(e => console.error('Background Notification Error:', e));
+        ], undefined, undefined, true).catch(e => console.error('Background Notification Error:', e));
         recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted ${proofs?.length || 0} proof file(s) for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/delivery/${txn.id}` }).catch(() => {});
 
         // Notify Seller (External Upload Case)
         const sellerUploadMsg = `✅ <b>Proof Uploaded Successfully!</b>\n\nThe buyer has been notified and can now review the delivery.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
         routeNotification(txn.seller_id, sellerUploadMsg, [
             { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` }
-        ]).catch(e => console.error('Background Notification Error:', e));
+        ], undefined, undefined, true).catch(e => console.error('Background Notification Error:', e));
         recordNotification(txn.seller_id, 'transaction', '✅ Proof Upload Confirmed', `Buyer notified for ${txn.product_name} — awaiting confirmation`, { transaction_id: txn.id, transaction_code: txn.txn_code, link_url: `/delivery/${txn.id}` }).catch(() => {});
 
         res.json({ success: true });
@@ -1363,14 +1374,14 @@ router.post('/:id/upload-proof', async (req, res) => {
             { label: '✅ Confirm Receipt', customId: `txn_action_confirm_receipt|${txn.id}` },
             { label: '❌ Raise Dispute', customId: `txn_dispute_${txn.id}` },
             { label: '🔗 View Proofs', url: `${reviewsUrlSingle}/delivery/${txn.id}` },
-        ]).catch(e => console.error('Background Notification Error:', e));
+        ], undefined, undefined, true).catch(e => console.error('Background Notification Error:', e));
         recordNotification(txn.buyer_id, 'transaction', '📦 Delivery Proof Uploaded', `${txn.seller.safetag} submitted proof for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, amount: txn.amount, currency: txn.currency, counterparty_name: txn.seller.safetag, link_url: `/delivery/${txn.id}` }).catch(() => {});
 
         // Notify Seller
         const sellerSingleMsg = `✅ <b>Proof Uploaded Successfully!</b>\n\nThe buyer has been notified and can now review the delivery.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 Transaction ID: <b>${txn.txn_code}</b>\n🛒 Product: <b>${txn.product_name}</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
         routeNotification(txn.seller_id, sellerSingleMsg, [
             { label: '👁️ View Transaction', customId: `view_txn_details|${txn.id}` }
-        ]).catch(e => console.error('Background Notification Error:', e));
+        ], undefined, undefined, true).catch(e => console.error('Background Notification Error:', e));
         recordNotification(txn.seller_id, 'transaction', '✅ Proof Upload Confirmed', `Buyer notified for ${txn.product_name}`, { transaction_id: txn.id, transaction_code: txn.txn_code, link_url: `/delivery/${txn.id}` }).catch(() => {});
         res.json({ success: true });
     } catch (err: any) {
