@@ -358,8 +358,8 @@ async function showTransactions(from: string, filter: string) {
 
         // Show as list message (up to 10 rows)
         const rows = txns.slice(0, 10).map((t: any) => {
-            const isBuyer = t.buyer_safetag === p.safetag;
-            const other   = isBuyer ? t.seller_safetag : t.buyer_safetag;
+            const isBuyer = t.buyer?.safetag === p.safetag;
+            const other   = isBuyer ? t.seller?.safetag : t.buyer?.safetag;
             return {
                 id:          `VIEW_TXN_${t.id}`,
                 title:       (t.product_name || 'Transaction').substring(0, 24),
@@ -378,9 +378,9 @@ async function showTransactionDetail(from: string, txnId: string) {
         const p = await getProfile(from);
         const res = await axios.get(`${API_URL}/transactions/${txnId}`);
         const t   = res.data;
-        const isBuyer = t.buyer_safetag === p.safetag;
+        const isBuyer = t.buyer?.safetag === p.safetag;
         const role    = isBuyer ? 'buyer' : 'seller';
-        const other   = isBuyer ? t.seller_safetag : t.buyer_safetag;
+        const other   = isBuyer ? t.seller?.safetag : t.buyer?.safetag;
 
         let milestoneText = '';
         if (t.milestones?.length) {

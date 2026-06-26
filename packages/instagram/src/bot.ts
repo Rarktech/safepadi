@@ -369,8 +369,8 @@ async function showTransactions(psid: string, filter: string) {
         }
 
         const elements = txns.slice(0, 10).map((t: any) => {
-            const isBuyer = t.buyer_safetag === p.safetag;
-            const other   = isBuyer ? t.seller_safetag : t.buyer_safetag;
+            const isBuyer = t.buyer?.safetag === p.safetag;
+            const other   = isBuyer ? t.seller?.safetag : t.buyer?.safetag;
             const amount  = t.amount ? `${t.amount} ${t.currency}` : '';
             return {
                 title:    (t.product_name || 'Transaction').substring(0, 80),
@@ -390,9 +390,9 @@ async function showTransactionDetail(psid: string, txnId: string) {
         const p = await getProfile(psid);
         const res = await axios.get(`${API_URL}/transactions/${txnId}`);
         const t = res.data;
-        const isBuyer = t.buyer_safetag === p.safetag;
+        const isBuyer = t.buyer?.safetag === p.safetag;
         const role    = isBuyer ? 'buyer' : 'seller';
-        const other   = isBuyer ? t.seller_safetag : t.buyer_safetag;
+        const other   = isBuyer ? t.seller?.safetag : t.buyer?.safetag;
 
         let milestoneText = '';
         if (t.milestones?.length) {
