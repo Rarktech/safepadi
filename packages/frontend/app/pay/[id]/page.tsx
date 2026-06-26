@@ -316,7 +316,7 @@ export default function PaymentPage() {
                                 <div className="flex flex-col gap-[11px]">
                                     {paymentGroup === 'ngn' && (
                                         <>
-                                            <MethodButton onClick={() => initPayment('opay')} iconBg="#ffffff" icon={<img src="/assets/opay-logo.webp" alt="OPay" className="w-[30px] h-auto object-contain" />} title="OPay Express" subtitle="Instant · Mobile money · USSD" />
+                                            <MethodButton onClick={() => initPayment('opay')} iconBg="#ffffff" icon={<img src="/assets/opay-logo.webp" alt="OPay" className="w-[42px] h-auto object-contain" />} title="OPay Express" subtitle="Instant · Mobile money · USSD" />
                                             <MethodButton onClick={() => initPayment('flutterwave')} iconBg="#ffffff" icon={<img src="/assets/flutterwave-icon.png" alt="Flutterwave" className="w-[28px] h-auto object-contain" />} title="Card / Bank Transfer" subtitle="Debit card · Bank · USSD" />
                                         </>
                                     )}
