@@ -1450,7 +1450,7 @@ router.patch('/disputes/:id/assign', async (req: any, res) => {
             .update({ unassigned_at: new Date().toISOString() })
             .eq('dispute_id', id)
             .is('unassigned_at', null)
-            .then().catch(() => {});
+            .then(undefined, () => {});
 
         const snapshot = {
             id: (targetAdmin as any).id,
@@ -1473,7 +1473,7 @@ router.patch('/disputes/:id/assign', async (req: any, res) => {
             assigned_to: admin_id,
             assigned_by: assignedBy || null,
             reason: reason || 'MANUAL_REASSIGN',
-        }).then().catch(() => {});
+        }).then(undefined, () => {});
 
         // Insert system message in dispute thread
         await supabase.from('dispute_messages').insert({
@@ -1782,7 +1782,7 @@ router.post('/system/crons/:name/trigger', async (req, res) => {
                 case 'fraud_enforcement':     mod = await import('../cron/fraudEnforcement'); await mod.runFraudEnforcement(); break;
                 case 'payout_reconciliation': mod = await import('../cron/transactionReminders'); await mod.runPayoutReconciliation(); break;
             }
-            supabase.from('cron_run_history').insert({ job_name: name, started_at: startedAt, completed_at: new Date().toISOString(), status: 'SUCCESS' }).then().catch(() => {});
+            supabase.from('cron_run_history').insert({ job_name: name, started_at: startedAt, completed_at: new Date().toISOString(), status: 'SUCCESS' }).then(undefined, () => {});
         } catch (err: any) {
             console.error(`[manual-trigger:${name}] failed:`, err.message);
         }

@@ -76,7 +76,7 @@ async function logCronRun(jobName: string, fn: () => Promise<void>): Promise<voi
         status,
         records_processed: 0,
         error_message: errorMessage,
-    }).then().catch(() => {});
+    }).then(undefined, () => {});
 }
 
 const app = express();

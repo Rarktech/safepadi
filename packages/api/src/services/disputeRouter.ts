@@ -123,7 +123,7 @@ export async function routeDispute(
         assigned_to: chosen.id,
         assigned_by: null,
         reason: 'AUTO_ROUTE',
-    }).then().catch(() => {});
+    }).then(undefined, () => {});
 
     // Notify assigned admin by email
     const { data: disputeForEmail } = await supabase
