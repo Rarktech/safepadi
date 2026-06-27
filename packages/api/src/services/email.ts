@@ -383,3 +383,28 @@ export function sendBalanceNudgeEmail(to: string, opts: { safetag: string; first
         html: wrap('Withdraw Your Earnings 💰', `${p(`Hi <b>${opts.firstName}</b>,`)}${p(`You have funds sitting in your Safeeely balance — ready to withdraw to your bank or wallet.`)}${kv('Available Balance', opts.balanceSummary)}${p('Withdrawals are processed within 24 hours.')}`, `${reviewsUrl()}/dashboard`, '💸 Withdraw Now')
     }).catch(() => {});
 }
+
+// 31. Admin SLA reminder — case stalling warning sent to assigned specialist / super-admins
+export function sendAdminSlaReminderEmail(to: string, opts: { adminName: string; disputeId: string; hoursElapsed: number; adminPanelUrl: string; isSuperAdminAlert?: boolean }) {
+    const subject = opts.isSuperAdminAlert
+        ? `⚠️ Stalled Case Alert — Dispute #${opts.disputeId.slice(0, 8).toUpperCase()} (${opts.hoursElapsed}h)`
+        : `⏰ Reminder: Respond to Dispute #${opts.disputeId.slice(0, 8).toUpperCase()}`;
+    const body = opts.isSuperAdminAlert
+        ? `${p(`Hi <b>${opts.adminName}</b>,`)}${p(`Dispute case <b>#${opts.disputeId.slice(0, 8).toUpperCase()}</b> has been assigned to a specialist for <b>${opts.hoursElapsed} hours</b> without any response in the dispute thread.`)}${p(`Please check in on this case — the parties may be waiting for guidance.`)}`
+        : `${p(`Hi <b>${opts.adminName}</b>,`)}${p(`You have an assigned dispute case that is waiting for your first response.`)}${kv('Case ID', `#${opts.disputeId.slice(0, 8).toUpperCase()}`)}${kv('Time Since Assignment', `${opts.hoursElapsed} hours`)}${p('Please log in and post your first message to both parties as soon as possible.')}`;
+    sendEmail({
+        to,
+        subject,
+        html: wrap(opts.isSuperAdminAlert ? 'Stalled Case Alert 🚨' : 'Case Awaiting Your Response ⏰', body, opts.adminPanelUrl, '🔍 Open Case')
+    }).catch(() => {});
+}
+
+// 30. Admin case assignment — notify specialist admin of new case
+export function sendAdminCaseAssignmentEmail(to: string, opts: { adminName: string; disputeId: string; disputeType: string; amount: number; currency: string; pipelineTier: string; adminPanelUrl: string }) {
+    const tierBadge = opts.pipelineTier === 'CONSTITUTIONAL' ? '🔴 Constitutional' : opts.pipelineTier === 'LITE' ? '🟢 Lite' : '🟡 Standard';
+    sendEmail({
+        to,
+        subject: `New Dispute Case Assigned — #${opts.disputeId.slice(0, 8).toUpperCase()}`,
+        html: wrap('Case Assigned to You 🛡️', `${p(`Hi <b>${opts.adminName}</b>,`)}${p(`A dispute case has been assigned to you for review. Please review the case details and respond within 24 hours.`)}${kv('Case ID', `#${opts.disputeId.slice(0, 8).toUpperCase()}`)}${kv('Dispute Type', opts.disputeType.replace(/_/g, ' '))}${kv('Amount in Escrow', `${opts.amount} ${opts.currency}`)}${kv('Case Tier', tierBadge)}${p('Please log in to the admin panel to review the full case, read the dispute thread, and send your first response to both parties.')}`, opts.adminPanelUrl, '🔍 View Case')
+    }).catch(() => {});
+}

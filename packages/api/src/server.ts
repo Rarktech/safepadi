@@ -39,6 +39,7 @@ import disputeRoutes from './routes/disputes';
 import waitlistRoutes from './routes/waitlist';
 import receiptRoutes from './routes/receipts';
 import adminRoutes from './routes/admin';
+import adminAnalyticsRoutes from './routes/adminAnalytics';
 import authRoutes from './routes/auth';
 import magicLinkRoutes from './routes/magicLink';
 import marketplaceRoutes from './routes/marketplace';
@@ -56,6 +57,27 @@ import { runReEngagement } from './cron/reEngagement';
 import { runMonthlyReferralSummary } from './cron/referralSummary';
 import { runDisputeEnforcement } from './cron/disputeEnforcement';
 import { runFraudEnforcement } from './cron/fraudEnforcement';
+import { supabase } from '@safepal/shared';
+
+async function logCronRun(jobName: string, fn: () => Promise<void>): Promise<void> {
+    const startedAt = new Date().toISOString();
+    let status = 'SUCCESS';
+    let errorMessage: string | undefined;
+    try {
+        await fn();
+    } catch (err: any) {
+        status = 'ERROR';
+        errorMessage = (err as Error).message;
+    }
+    supabase.from('cron_run_history').insert({
+        job_name: jobName,
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        status,
+        records_processed: 0,
+        error_message: errorMessage,
+    }).then().catch(() => {});
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -121,6 +143,7 @@ app.use('/api/disputes', disputeRoutes);
 app.use('/api/waitlist', waitlistRoutes);
 app.use('/api/receipts', receiptRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin/analytics', adminAnalyticsRoutes);
 app.use('/api/marketplace', marketplaceRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/communities', communityRoutes);
@@ -162,47 +185,47 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 // Weekly group earnings digest — every Monday at 9:00 AM UTC
 cron.schedule('0 9 * * 1', () => {
-    runWeeklyDigest().catch((err) => console.error('Weekly digest cron failed:', err));
+    logCronRun('weekly_digest', () => runWeeklyDigest());
 });
 
 // Daily license expiry check — 8:00 AM UTC
 cron.schedule('0 8 * * *', () => {
-    runLicenseExpiryCheck().catch((err) => console.error('License expiry cron failed:', err));
+    logCronRun('license_expiry', () => runLicenseExpiryCheck());
 });
 
 // Transaction lifecycle reminders — every 2 hours
 cron.schedule('0 */2 * * *', () => {
-    runTransactionReminders().catch((err) => console.error('Transaction reminders cron failed:', err));
+    logCronRun('transaction_reminders', () => runTransactionReminders());
 });
 
 // Onboarding drip — daily at 10:00 AM UTC
 cron.schedule('0 10 * * *', () => {
-    runOnboardingDrip().catch((err) => console.error('Onboarding drip cron failed:', err));
+    logCronRun('onboarding_drip', () => runOnboardingDrip());
 });
 
 // Re-engagement + balance nudge — daily at 11:00 AM UTC
 cron.schedule('0 11 * * *', () => {
-    runReEngagement().catch((err) => console.error('Re-engagement cron failed:', err));
+    logCronRun('re_engagement', () => runReEngagement());
 });
 
 // Monthly referral summary — 1st of month at 9:00 AM UTC
 cron.schedule('0 9 1 * *', () => {
-    runMonthlyReferralSummary().catch((err) => console.error('Monthly referral summary cron failed:', err));
+    logCronRun('referral_summary', () => runMonthlyReferralSummary());
 });
 
 // Dispute evidence deadline enforcement — every 10 minutes
 cron.schedule('*/10 * * * *', () => {
-    runDisputeEnforcement().catch((err) => console.error('Dispute enforcement cron failed:', err));
+    logCronRun('dispute_enforcement', () => runDisputeEnforcement());
 });
 
 // Fraud enforcement — flag/block bad actors every 6 hours
 cron.schedule('0 */6 * * *', () => {
-    runFraudEnforcement().catch(console.error);
+    logCronRun('fraud_enforcement', () => runFraudEnforcement());
 });
 
 // Payout reconciliation — re-query stale PROCESSING withdrawals every 4 hours
 cron.schedule('0 */4 * * *', () => {
-    runPayoutReconciliation().catch((err) => console.error('Payout reconciliation cron failed:', err));
+    logCronRun('payout_reconciliation', () => runPayoutReconciliation());
 });
 
 app.listen(PORT, () => {

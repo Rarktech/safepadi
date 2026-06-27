@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { sendNotification, routeNotification, recordNotification } from '../services/notifications';
-import { sendEmail } from '../services/email';
+import { sendEmail, sendAdminCaseAssignmentEmail } from '../services/email';
 import { disburseFunds } from '../services/payout';
 import { buildInternalMagicLink } from '../services/magicLinkInternal';
+import { routeDispute } from '../services/disputeRouter';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
@@ -74,7 +75,7 @@ router.post('/auth/logout', (req: any, res: any) => {
     res.json({ success: true });
 });
 
-const adminAuthMiddleware = (req: any, res: any, next: any) => {
+export const adminAuthMiddleware = (req: any, res: any, next: any) => {
     try {
         const token = req.headers.authorization?.split(' ')[1] || req.cookies?.sf_admin;
         if (!token) return res.status(401).json({ error: 'Unauthorized: No token provided' });
@@ -172,6 +173,24 @@ router.get('/stats', async (req, res) => {
             .order('created_at', { ascending: false })
             .limit(10);
 
+        // 5. Pending action counts + 7-day stats
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        const [
+            { count: pendingKycCount },
+            { count: openDisputesCount },
+            { count: pendingPayoutsCount },
+            { count: last7dNewUsers },
+            { count: last7dTransactions },
+            { count: last7dDisputes },
+        ] = await Promise.all([
+            supabase.from('kyc_submissions').select('*', { count: 'exact', head: true }).eq('status', 'PENDING'),
+            supabase.from('disputes').select('*', { count: 'exact', head: true }).eq('status', 'OPEN').eq('is_ai_paused', true),
+            supabase.from('withdrawals').select('*', { count: 'exact', head: true }).eq('status', 'PENDING_APPROVAL'),
+            supabase.from('profiles').select('*', { count: 'exact', head: true }).gte('created_at', sevenDaysAgo),
+            supabase.from('transactions').select('*', { count: 'exact', head: true }).gte('created_at', sevenDaysAgo),
+            supabase.from('disputes').select('*', { count: 'exact', head: true }).gte('created_at', sevenDaysAgo),
+        ]);
+
         res.json({
             volume_by_currency: volumeByCurrency,
             profit_by_currency: profitByCurrency,
@@ -180,7 +199,13 @@ router.get('/stats', async (req, res) => {
             total_customers: totalCustomers,
             platform_stats: platformStats,
             chart_data: formattedChartData,
-            recent_transactions: recentTransactions || []
+            recent_transactions: recentTransactions || [],
+            pending_kyc_count: pendingKycCount || 0,
+            open_disputes_count: openDisputesCount || 0,
+            pending_payouts_count: pendingPayoutsCount || 0,
+            last_7d_new_users: last7dNewUsers || 0,
+            last_7d_transactions: last7dTransactions || 0,
+            last_7d_disputes: last7dDisputes || 0,
         });
     } catch (err: any) {
         console.error('❌ Admin Stats Error:', err);
@@ -1326,6 +1351,1174 @@ router.post('/payouts/:id/reject', async (req, res) => {
         }
 
         res.json({ success: true });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// DISPUTE MANAGEMENT — SPECIALIST ROUTING & ASSIGNMENT
+// ============================================================
+
+/**
+ * Unassigned escalated disputes — is_ai_paused = true AND no admin assigned
+ */
+router.get('/disputes/unassigned', async (req: any, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('disputes')
+            .select(`
+                id, dispute_type, pipeline_tier, created_at, status,
+                transaction:transaction_id(amount, currency, product_name,
+                    buyer:buyer_id(safetag), seller:seller_id(safetag))
+            `)
+            .eq('is_ai_paused', true)
+            .eq('status', 'OPEN')
+            .is('assigned_admin_id', null)
+            .order('created_at', { ascending: true });
+
+        if (error) throw error;
+
+        const now = Date.now();
+        const enriched = (data || []).map((d: any) => ({
+            ...d,
+            age_hours: Math.floor((now - new Date(d.created_at).getTime()) / 3600000),
+        }));
+
+        res.json({ disputes: enriched, count: enriched.length });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * My open cases — disputes assigned to the current admin
+ */
+router.get('/disputes/my-cases', async (req: any, res) => {
+    try {
+        const adminId = req.admin?.id;
+        if (!adminId) return res.status(401).json({ error: 'Unauthorized' });
+
+        const { data, error } = await supabase
+            .from('disputes')
+            .select(`
+                id, dispute_type, pipeline_tier, created_at, status,
+                transaction:transaction_id(amount, currency, product_name,
+                    buyer:buyer_id(safetag), seller:seller_id(safetag))
+            `)
+            .eq('assigned_admin_id', adminId)
+            .eq('status', 'OPEN')
+            .order('created_at', { ascending: true });
+
+        if (error) throw error;
+        res.json({ disputes: data || [] });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Assign or reassign a dispute to a specific admin
+ */
+router.patch('/disputes/:id/assign', async (req: any, res) => {
+    try {
+        const { id } = req.params;
+        const { admin_id, reason } = req.body;
+        const assignedBy = req.admin?.id;
+
+        if (!admin_id) return res.status(400).json({ error: 'admin_id is required' });
+
+        const { data: targetAdmin, error: adminErr } = await supabase
+            .from('admin_users')
+            .select('id, name, email, specialist_title, specialist_bio, specialties, cases_resolved, years_on_platform')
+            .eq('id', admin_id)
+            .eq('status', 'ACTIVE')
+            .single();
+
+        if (adminErr || !targetAdmin) return res.status(404).json({ error: 'Admin not found or inactive' });
+
+        const { data: dispute } = await supabase
+            .from('disputes')
+            .select('metadata, dispute_type, transaction:transaction_id(amount, currency, pipeline_tier)')
+            .eq('id', id)
+            .single();
+
+        if (!dispute) return res.status(404).json({ error: 'Dispute not found' });
+
+        // Close any current open assignment
+        await supabase.from('dispute_assignments')
+            .update({ unassigned_at: new Date().toISOString() })
+            .eq('dispute_id', id)
+            .is('unassigned_at', null)
+            .then().catch(() => {});
+
+        const snapshot = {
+            id: (targetAdmin as any).id,
+            name: (targetAdmin as any).name,
+            specialist_title: (targetAdmin as any).specialist_title,
+            specialist_bio: (targetAdmin as any).specialist_bio,
+            specialties: (targetAdmin as any).specialties || [],
+            cases_resolved: (targetAdmin as any).cases_resolved || 0,
+            years_on_platform: (targetAdmin as any).years_on_platform || 0,
+        };
+
+        const merged = { ...((dispute as any).metadata || {}), assigned_specialist: snapshot };
+
+        await supabase.from('disputes')
+            .update({ assigned_admin_id: admin_id, metadata: merged })
+            .eq('id', id);
+
+        await supabase.from('dispute_assignments').insert({
+            dispute_id: id,
+            assigned_to: admin_id,
+            assigned_by: assignedBy || null,
+            reason: reason || 'MANUAL_REASSIGN',
+        }).then().catch(() => {});
+
+        // Insert system message in dispute thread
+        await supabase.from('dispute_messages').insert({
+            dispute_id: id,
+            sender_type: 'AI',
+            content: `**[SYSTEM]** This case has been reassigned to **${(targetAdmin as any).name}** (${(targetAdmin as any).specialist_title || 'Dispute Specialist'}).`,
+        });
+
+        // Notify assigned admin by email
+        const txn = (dispute as any).transaction;
+        const adminPanelUrl = `${process.env.REVIEWS_URL || 'https://safeeely.com'}/admin/disputes/${id}`;
+        if ((targetAdmin as any).email) {
+            sendAdminCaseAssignmentEmail((targetAdmin as any).email, {
+                adminName: (targetAdmin as any).name,
+                disputeId: id,
+                disputeType: (dispute as any).dispute_type || 'GENERIC',
+                amount: txn?.amount || 0,
+                currency: txn?.currency || '',
+                pipelineTier: txn?.pipeline_tier || 'STANDARD',
+                adminPanelUrl,
+            });
+        }
+
+        res.json({ success: true, specialist: snapshot });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Assignment history for a single dispute
+ */
+router.get('/disputes/:id/assignments', async (req: any, res) => {
+    try {
+        const { id } = req.params;
+        const { data, error } = await supabase
+            .from('dispute_assignments')
+            .select(`
+                id, reason, assigned_at, unassigned_at,
+                assigned_to:admin_users!dispute_assignments_assigned_to_fkey(id, name, specialist_title),
+                assigned_by:admin_users!dispute_assignments_assigned_by_fkey(id, name)
+            `)
+            .eq('dispute_id', id)
+            .order('assigned_at', { ascending: true });
+
+        if (error) throw error;
+        res.json({ assignments: data || [] });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Admin workload — open/resolved dispute counts per admin
+ */
+router.get('/management/workload', async (req: any, res) => {
+    try {
+        const { data: admins, error: adminErr } = await supabase
+            .from('admin_users')
+            .select('id, name, specialist_title, specialties, cases_resolved, status')
+            .eq('status', 'ACTIVE');
+
+        if (adminErr) throw adminErr;
+
+        const { data: openDisputes } = await supabase
+            .from('disputes')
+            .select('assigned_admin_id')
+            .eq('status', 'OPEN')
+            .not('assigned_admin_id', 'is', null);
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const { data: resolvedToday } = await supabase
+            .from('disputes')
+            .select('assigned_admin_id')
+            .eq('status', 'RESOLVED')
+            .gte('resolved_at', today.toISOString())
+            .not('assigned_admin_id', 'is', null);
+
+        const openMap: Record<string, number> = {};
+        for (const d of (openDisputes || [])) {
+            if (d.assigned_admin_id) openMap[d.assigned_admin_id] = (openMap[d.assigned_admin_id] || 0) + 1;
+        }
+        const resolvedTodayMap: Record<string, number> = {};
+        for (const d of (resolvedToday || [])) {
+            if (d.assigned_admin_id) resolvedTodayMap[d.assigned_admin_id] = (resolvedTodayMap[d.assigned_admin_id] || 0) + 1;
+        }
+
+        const workload = (admins || []).map((a: any) => ({
+            ...a,
+            open_cases: openMap[a.id] || 0,
+            resolved_today: resolvedTodayMap[a.id] || 0,
+        }));
+
+        res.json({ workload });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// DISPUTE SOP MANAGEMENT
+// ============================================================
+
+router.get('/disputes/sops', async (req: any, res) => {
+    try {
+        let query = supabase.from('dispute_sops').select('*');
+        if (req.query.status) query = query.eq('status', req.query.status);
+        if (req.query.dispute_type) query = query.eq('dispute_type', req.query.dispute_type);
+        if (req.query.severity) query = query.eq('severity', req.query.severity);
+        if (req.query.search) query = query.ilike('title', `%${req.query.search}%`);
+        query = query.order('priority', { ascending: false });
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        const stats = {
+            total: data?.length || 0,
+            active: data?.filter((s: any) => s.status === 'ACTIVE').length || 0,
+            pending_approval: data?.filter((s: any) => s.status === 'PENDING_REVIEW' && !s.human_approved).length || 0,
+            most_triggered: data?.sort((a: any, b: any) => b.hit_count - a.hit_count)[0]?.title || null,
+        };
+
+        res.json({ sops: data || [], stats });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/disputes/sops', async (req: any, res) => {
+    try {
+        const { sop_code, title, rule_body, dispute_type, applies_to_agent, severity, priority } = req.body;
+        if (!sop_code || !title || !rule_body) return res.status(400).json({ error: 'sop_code, title, rule_body required' });
+
+        const { data, error } = await supabase.from('dispute_sops').insert({
+            sop_code, title, rule_body,
+            dispute_type: dispute_type || null,
+            applies_to_agent: applies_to_agent || 'all',
+            severity: severity || 'ADVISORY',
+            priority: priority ?? 50,
+            status: 'PENDING_REVIEW',
+            human_approved: false,
+            hit_count: 0,
+        }).select().single();
+
+        if (error) throw error;
+        res.status(201).json({ sop: data });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.put('/disputes/sops/:id', async (req: any, res) => {
+    try {
+        const { title, rule_body, dispute_type, applies_to_agent, severity, priority } = req.body;
+        const { data, error } = await supabase.from('dispute_sops')
+            .update({ title, rule_body, dispute_type, applies_to_agent, severity, priority, updated_at: new Date().toISOString() })
+            .eq('id', req.params.id)
+            .select().single();
+        if (error) throw error;
+        res.json({ sop: data });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.patch('/disputes/sops/:id/status', async (req: any, res) => {
+    try {
+        const { status } = req.body;
+        if (!['ACTIVE', 'ARCHIVED', 'PENDING_REVIEW'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+        const { data, error } = await supabase.from('dispute_sops').update({ status, updated_at: new Date().toISOString() }).eq('id', req.params.id).select().single();
+        if (error) throw error;
+        res.json({ sop: data });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.patch('/disputes/sops/:id/approve', async (req: any, res) => {
+    try {
+        const { data, error } = await supabase.from('dispute_sops')
+            .update({ human_approved: true, status: 'ACTIVE', updated_at: new Date().toISOString() })
+            .eq('id', req.params.id).select().single();
+        if (error) throw error;
+        res.json({ sop: data });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/disputes/sops/analytics', async (req: any, res) => {
+    try {
+        const { data: adjudications } = await supabase
+            .from('dispute_adjudications')
+            .select('resolution_source, human_overrode_ai, low_confidence');
+
+        const total = adjudications?.length || 0;
+        const aiResolved = adjudications?.filter((a: any) => a.resolution_source === 'AI').length || 0;
+        const adminOverrides = adjudications?.filter((a: any) => a.human_overrode_ai).length || 0;
+        const slaEnforced = adjudications?.filter((a: any) => a.resolution_source === 'SLA').length || 0;
+        const lowConfidence = adjudications?.filter((a: any) => a.low_confidence).length || 0;
+
+        const { data: sops } = await supabase.from('dispute_sops').select('title, sop_code, hit_count').order('hit_count', { ascending: false }).limit(10);
+
+        res.json({
+            total_adjudications: total,
+            ai_resolved: aiResolved,
+            admin_overrides: adminOverrides,
+            sla_enforced: slaEnforced,
+            low_confidence_rate: total ? +(lowConfidence / total * 100).toFixed(1) : 0,
+            top_sops: sops || [],
+        });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ── System Health & Cron Endpoints ───────────────────────────────────────────
+
+const CRON_DEFINITIONS = [
+    { name: 'weekly_digest',        schedule: '0 9 * * 1',   label: 'Weekly Group Digest',         humanSchedule: 'Mon 09:00 UTC' },
+    { name: 'license_expiry',       schedule: '0 8 * * *',   label: 'License Expiry Check',        humanSchedule: 'Daily 08:00 UTC' },
+    { name: 'transaction_reminders',schedule: '0 */2 * * *', label: 'Transaction Reminders',       humanSchedule: 'Every 2h' },
+    { name: 'onboarding_drip',      schedule: '0 10 * * *',  label: 'Onboarding Drip',             humanSchedule: 'Daily 10:00 UTC' },
+    { name: 're_engagement',        schedule: '0 11 * * *',  label: 'Re-Engagement + Balance Nudge', humanSchedule: 'Daily 11:00 UTC' },
+    { name: 'referral_summary',     schedule: '0 9 1 * *',   label: 'Monthly Referral Summary',    humanSchedule: '1st of month 09:00 UTC' },
+    { name: 'dispute_enforcement',  schedule: '*/10 * * * *',label: 'Dispute SLA Enforcement',     humanSchedule: 'Every 10 min' },
+    { name: 'fraud_enforcement',    schedule: '0 */6 * * *', label: 'Fraud Enforcement',           humanSchedule: 'Every 6h' },
+    { name: 'payout_reconciliation',schedule: '0 */4 * * *', label: 'Payout Reconciliation',       humanSchedule: 'Every 4h' },
+];
+
+router.get('/system/health', async (req, res) => {
+    try {
+        const [
+            { count: pendingKyc },
+            { count: openDisputes },
+            { count: pendingPayouts },
+        ] = await Promise.all([
+            supabase.from('kyc_submissions').select('*', { count: 'exact', head: true }).eq('status', 'PENDING'),
+            supabase.from('disputes').select('*', { count: 'exact', head: true }).eq('status', 'OPEN').eq('is_ai_paused', true),
+            supabase.from('withdrawals').select('*', { count: 'exact', head: true }).eq('status', 'PENDING_APPROVAL'),
+        ]);
+
+        const apiStart = Date.now();
+        const apiLatencyMs = Date.now() - apiStart;
+
+        res.json({
+            pending_kyc_count: pendingKyc || 0,
+            open_disputes_count: openDisputes || 0,
+            pending_payouts_count: pendingPayouts || 0,
+            api_latency_ms: apiLatencyMs,
+            node_version: process.version,
+            uptime_seconds: Math.floor(process.uptime()),
+        });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/system/crons', async (req, res) => {
+    try {
+        const { data: runs } = await supabase
+            .from('cron_run_history')
+            .select('job_name, started_at, completed_at, status, records_processed, error_message')
+            .order('started_at', { ascending: false })
+            .limit(200);
+
+        const lastRunMap: Record<string, any> = {};
+        for (const run of (runs || [])) {
+            if (!lastRunMap[run.job_name]) {
+                lastRunMap[run.job_name] = run;
+            }
+        }
+
+        const cronStatus = CRON_DEFINITIONS.map(def => ({
+            ...def,
+            last_run: lastRunMap[def.name] || null,
+        }));
+
+        res.json(cronStatus);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/system/crons/:name/trigger', async (req, res) => {
+    const { name } = req.params;
+    const validJobs = CRON_DEFINITIONS.map(d => d.name);
+    if (!validJobs.includes(name)) {
+        return res.status(404).json({ error: 'Unknown job name' });
+    }
+
+    // Dynamically import and fire the cron function
+    (async () => {
+        try {
+            const startedAt = new Date().toISOString();
+            let mod: any;
+            switch (name) {
+                case 'weekly_digest':         mod = await import('../cron/weeklyDigest'); await mod.runWeeklyDigest(); break;
+                case 'license_expiry':        mod = await import('../cron/licenseExpiry'); await mod.runLicenseExpiryCheck(); break;
+                case 'transaction_reminders': mod = await import('../cron/transactionReminders'); await mod.runTransactionReminders(); break;
+                case 'onboarding_drip':       mod = await import('../cron/onboardingDrip'); await mod.runOnboardingDrip(); break;
+                case 're_engagement':         mod = await import('../cron/reEngagement'); await mod.runReEngagement(); break;
+                case 'referral_summary':      mod = await import('../cron/referralSummary'); await mod.runMonthlyReferralSummary(); break;
+                case 'dispute_enforcement':   mod = await import('../cron/disputeEnforcement'); await mod.runDisputeEnforcement(); break;
+                case 'fraud_enforcement':     mod = await import('../cron/fraudEnforcement'); await mod.runFraudEnforcement(); break;
+                case 'payout_reconciliation': mod = await import('../cron/transactionReminders'); await mod.runPayoutReconciliation(); break;
+            }
+            supabase.from('cron_run_history').insert({ job_name: name, started_at: startedAt, completed_at: new Date().toISOString(), status: 'SUCCESS' }).then().catch(() => {});
+        } catch (err: any) {
+            console.error(`[manual-trigger:${name}] failed:`, err.message);
+        }
+    })();
+
+    res.json({ triggered: name, message: 'Job started asynchronously' });
+});
+
+// ─── FINANCE DEEP-DIVE ────────────────────────────────────────────────────────
+
+router.get('/finance/waterfall', async (req, res) => {
+    try {
+        const { period = 'month', currency = 'NGN' } = req.query;
+
+        const now = new Date();
+        let fromDate: Date;
+        if (period === 'year') {
+            fromDate = new Date(now.getFullYear(), 0, 1);
+        } else if (period === 'quarter') {
+            fromDate = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+        } else {
+            fromDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        }
+
+        const { data: txns } = await supabase
+            .from('transactions')
+            .select('total_amount, fee_amount, currency, status')
+            .eq('currency', currency as string)
+            .gte('created_at', fromDate.toISOString())
+            .neq('status', 'CANCELLED');
+
+        const gross = (txns || []).reduce((s, t) => s + Number(t.total_amount), 0);
+        const fees = (txns || []).filter(t => t.status === 'FINALIZED').reduce((s, t) => s + Number(t.fee_amount), 0);
+
+        const { data: refCommissions } = await supabase
+            .from('referral_commissions')
+            .select('amount, currency, status')
+            .eq('currency', currency as string)
+            .eq('status', 'COMPLETED')
+            .gte('created_at', fromDate.toISOString());
+
+        const refPayout = (refCommissions || []).reduce((s, r) => s + Number(r.amount), 0);
+        const net = fees - refPayout;
+
+        res.json([
+            { name: 'Gross Volume', value: Math.round(gross), type: 'total' },
+            { name: 'Platform Fees', value: Math.round(fees), type: 'positive' },
+            { name: 'Referral Payouts', value: -Math.round(refPayout), type: 'negative' },
+            { name: 'Net Revenue', value: Math.round(net), type: 'net' },
+        ]);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/finance/commission-liability', async (req, res) => {
+    try {
+        const { currency, page = '1' } = req.query;
+        const pageNum = parseInt(page as string, 10);
+        const PAGE_SIZE = 50;
+
+        let q = supabase
+            .from('referral_commissions')
+            .select(`
+                id, amount, currency, tier, created_at,
+                referrer:referrer_id(safetag),
+                referred:referred_id(safetag),
+                transaction:transaction_id(code)
+            `)
+            .eq('status', 'PENDING')
+            .order('created_at', { ascending: false })
+            .range((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE - 1);
+
+        if (currency) q = q.eq('currency', currency as string);
+
+        const { data, error } = await q;
+        if (error) throw error;
+
+        const { data: totals } = await supabase
+            .from('referral_commissions')
+            .select('amount, currency')
+            .eq('status', 'PENDING');
+
+        const byCurrency: Record<string, number> = {};
+        for (const r of (totals || [])) {
+            byCurrency[r.currency] = (byCurrency[r.currency] || 0) + Number(r.amount);
+        }
+
+        res.json({ commissions: data || [], totals_by_currency: byCurrency });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/finance/escrow-exposure', async (req, res) => {
+    try {
+        const ACTIVE_STATUSES = ['ACCEPTED', 'PAID', 'AWAITING_PROOF', 'COMPLETED_BY_SELLER'];
+
+        const { data: txns } = await supabase
+            .from('transactions')
+            .select('total_amount, currency, status')
+            .in('status', ACTIVE_STATUSES);
+
+        const exposure: Record<string, { amount: number; count: number }> = {};
+        for (const t of (txns || [])) {
+            if (!exposure[t.currency]) exposure[t.currency] = { amount: 0, count: 0 };
+            exposure[t.currency].amount += Number(t.total_amount);
+            exposure[t.currency].count += 1;
+        }
+
+        const byStatus: Record<string, number> = {};
+        for (const t of (txns || [])) {
+            byStatus[t.status] = (byStatus[t.status] || 0) + 1;
+        }
+
+        res.json({
+            by_currency: Object.entries(exposure).map(([currency, data]) => ({ currency, ...data, amount: Math.round(data.amount) })),
+            by_status: byStatus,
+            total_active_count: (txns || []).length,
+        });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/finance/refund-credits', async (req, res) => {
+    try {
+        const { page = '1' } = req.query;
+        const pageNum = parseInt(page as string, 10);
+        const PAGE_SIZE = 50;
+
+        const { data, error } = await supabase
+            .from('buyer_refund_credits')
+            .select(`
+                id, amount, currency, refund_type, status, created_at,
+                profile:profile_id(safetag, email),
+                dispute:dispute_id(id)
+            `)
+            .order('created_at', { ascending: false })
+            .range((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE - 1);
+
+        if (error) throw error;
+
+        const { data: totals } = await supabase
+            .from('buyer_refund_credits')
+            .select('amount, currency, status');
+
+        const pending: Record<string, number> = {};
+        const paid: Record<string, number> = {};
+        for (const r of (totals || [])) {
+            if (r.status === 'PENDING') {
+                pending[r.currency] = (pending[r.currency] || 0) + Number(r.amount);
+            } else if (r.status === 'APPLIED') {
+                paid[r.currency] = (paid[r.currency] || 0) + Number(r.amount);
+            }
+        }
+
+        res.json({ credits: data || [], pending_by_currency: pending, paid_by_currency: paid });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/finance/withdrawal-trends', async (req, res) => {
+    try {
+        const { period = 'month' } = req.query;
+
+        const { data: withdrawals } = await supabase
+            .from('withdrawals')
+            .select('amount, currency, status, created_at')
+            .order('created_at', { ascending: true });
+
+        const buckets: Record<string, { total: number; paid: number; rejected: number; count: number }> = {};
+        for (const w of (withdrawals || [])) {
+            const d = new Date(w.created_at);
+            const key = period === 'day' ? d.toISOString().slice(0, 10) : d.toISOString().slice(0, 7);
+            if (!buckets[key]) buckets[key] = { total: 0, paid: 0, rejected: 0, count: 0 };
+            buckets[key].total += Number(w.amount);
+            buckets[key].count += 1;
+            if (w.status === 'PAID') buckets[key].paid += Number(w.amount);
+            if (w.status === 'REJECTED') buckets[key].rejected += Number(w.amount);
+        }
+
+        const limit = period === 'day' ? 30 : 12;
+        const trend = Object.entries(buckets)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .slice(-limit)
+            .map(([name, vals]) => ({ name, ...vals }));
+
+        const statusDist: Record<string, number> = {};
+        for (const w of (withdrawals || [])) {
+            statusDist[w.status] = (statusDist[w.status] || 0) + 1;
+        }
+
+        res.json({ trend, status_distribution: statusDist });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── TRUST & REPUTATION ───────────────────────────────────────────────────────
+
+router.get('/trust/overview', async (req, res) => {
+    try {
+        const [flagged, blocked, avgScore] = await Promise.all([
+            supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('is_flagged', true).eq('is_blocked', false),
+            supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('is_blocked', true),
+            supabase.from('profile_reputation').select('trust_score').then(r => {
+                const scores = (r.data || []).map((p: any) => Number(p.trust_score));
+                return scores.length ? scores.reduce((a: number, b: number) => a + b, 0) / scores.length : 0;
+            }),
+        ]);
+
+        res.json({
+            flagged_count: flagged.count || 0,
+            blocked_count: blocked.count || 0,
+            avg_trust_score: Math.round(avgScore * 100) / 100,
+        });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/trust/flagged', async (req, res) => {
+    try {
+        const { page = '1' } = req.query;
+        const pageNum = parseInt(page as string, 10);
+        const PAGE_SIZE = 25;
+
+        const { data, error } = await supabase
+            .from('profiles')
+            .select(`id, safetag, email, created_at, reputation:profile_reputation(trust_score, disputes_lost, fraud_flags)`)
+            .eq('is_flagged', true)
+            .eq('is_blocked', false)
+            .order('created_at', { ascending: false })
+            .range((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE - 1);
+
+        if (error) throw error;
+        res.json(data || []);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/trust/leaderboard', async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('profile_reputation')
+            .select(`trust_score, disputes_won, disputes_lost, profile:profile_id(safetag, email)`)
+            .order('trust_score', { ascending: false })
+            .limit(50);
+
+        if (error) throw error;
+        res.json(data || []);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.patch('/trust/:profileId/clear-flag', async (req, res) => {
+    try {
+        const { profileId } = req.params;
+        const { reason } = req.body;
+        const { error } = await supabase
+            .from('profiles')
+            .update({ is_flagged: false })
+            .eq('id', profileId);
+        if (error) throw error;
+        res.json({ success: true, reason });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.patch('/trust/:profileId/score', async (req, res) => {
+    try {
+        const { profileId } = req.params;
+        const { new_score, reason } = req.body;
+
+        const { data: existing } = await supabase
+            .from('profile_reputation')
+            .select('trust_score_overrides')
+            .eq('profile_id', profileId)
+            .single();
+
+        const overrides = existing?.trust_score_overrides || [];
+        overrides.push({ score: new_score, reason, by: (req as any).admin?.id, at: new Date().toISOString() });
+
+        const { error } = await supabase
+            .from('profile_reputation')
+            .update({ trust_score: new_score, trust_score_overrides: overrides })
+            .eq('profile_id', profileId);
+
+        if (error) throw error;
+        res.json({ success: true });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── REFERRALS MANAGEMENT ─────────────────────────────────────────────────────
+
+router.get('/referrals/overview', async (req, res) => {
+    try {
+        const [referrers, pending, referred, paid] = await Promise.all([
+            supabase.from('referral_commissions').select('referrer_id', { count: 'exact', head: false }).eq('status', 'COMPLETED').then(r => {
+                return { count: new Set((r.data || []).map((x: any) => x.referrer_id)).size };
+            }),
+            supabase.from('referral_commissions').select('amount, currency').eq('status', 'PENDING').then(r => {
+                const out: Record<string, number> = {};
+                for (const rc of (r.data || [])) out[rc.currency] = (out[rc.currency] || 0) + Number(rc.amount);
+                return out;
+            }),
+            supabase.from('profiles').select('*', { count: 'exact', head: true }).not('referred_by_id', 'is', null),
+            supabase.from('referral_commissions').select('amount, currency').eq('status', 'COMPLETED').then(r => {
+                const out: Record<string, number> = {};
+                for (const rc of (r.data || [])) out[rc.currency] = (out[rc.currency] || 0) + Number(rc.amount);
+                return out;
+            }),
+        ]);
+
+        res.json({
+            active_referrers: (referrers as any).count,
+            pending_liability: pending,
+            total_referred: referred.count || 0,
+            total_paid: paid,
+        });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/referrals/leaderboard', async (req, res) => {
+    try {
+        const { period = 'all', page = '1' } = req.query;
+        const pageNum = parseInt(page as string, 10);
+        const PAGE_SIZE = 25;
+
+        let q = supabase
+            .from('referral_commissions')
+            .select('referrer_id, amount, currency, tier, profiles!referrer_id(safetag)')
+            .eq('status', 'COMPLETED');
+
+        if (period === 'monthly') {
+            const start = new Date();
+            start.setDate(1);
+            start.setHours(0, 0, 0, 0);
+            q = q.gte('created_at', start.toISOString());
+        }
+
+        const { data } = await q;
+        const byReferrer: Record<string, any> = {};
+        for (const rc of (data || [])) {
+            if (!byReferrer[rc.referrer_id]) {
+                byReferrer[rc.referrer_id] = {
+                    referrer_id: rc.referrer_id,
+                    safetag: (rc as any).profiles?.safetag,
+                    tier1: 0, tier2: 0, total: 0,
+                };
+            }
+            if (rc.tier === 1) byReferrer[rc.referrer_id].tier1++;
+            if (rc.tier === 2) byReferrer[rc.referrer_id].tier2++;
+            byReferrer[rc.referrer_id].total += Number(rc.amount);
+        }
+        const sorted = Object.values(byReferrer)
+            .sort((a, b) => b.total - a.total)
+            .slice((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE);
+
+        res.json(sorted);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/referrals/commissions', async (req, res) => {
+    try {
+        const { status, tier, currency, page = '1' } = req.query;
+        const pageNum = parseInt(page as string, 10);
+        const PAGE_SIZE = 50;
+
+        let q = supabase
+            .from('referral_commissions')
+            .select(`id, amount, currency, tier, status, created_at, referrer:referrer_id(safetag), referred:referred_id(safetag)`)
+            .order('created_at', { ascending: false })
+            .range((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE - 1);
+
+        if (status) q = q.eq('status', status as string);
+        if (tier) q = q.eq('tier', parseInt(tier as string, 10));
+        if (currency) q = q.eq('currency', currency as string);
+
+        const { data, error } = await q;
+        if (error) throw error;
+        res.json(data || []);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/referrals/commissions/:id/award', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { error } = await supabase
+            .from('referral_commissions')
+            .update({ status: 'COMPLETED', completed_at: new Date().toISOString() })
+            .eq('id', id)
+            .eq('status', 'PENDING');
+        if (error) throw error;
+        res.json({ success: true });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── MARKETPLACE MODERATION ───────────────────────────────────────────────────
+
+router.get('/marketplace/listings', async (req, res) => {
+    try {
+        const { status, category, page = '1', search } = req.query;
+        const pageNum = parseInt(page as string, 10);
+        const PAGE_SIZE = 25;
+
+        let q = supabase
+            .from('marketplace_listings')
+            .select(`id, title, description, price, currency, category_type, intent, status, featured, created_at, view_count, seller:profile_id(safetag)`)
+            .order('created_at', { ascending: false })
+            .range((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE - 1);
+
+        if (status) q = q.eq('status', status as string);
+        if (category) q = q.eq('category_type', category as string);
+        if (search) q = q.ilike('title', `%${search}%`);
+
+        const { data, error } = await q;
+        if (error) throw error;
+        res.json(data || []);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/marketplace/stats', async (req, res) => {
+    try {
+        const [total, active, removed] = await Promise.all([
+            supabase.from('marketplace_listings').select('*', { count: 'exact', head: true }),
+            supabase.from('marketplace_listings').select('*', { count: 'exact', head: true }).eq('status', 'ACTIVE'),
+            supabase.from('marketplace_listings').select('*', { count: 'exact', head: true }).eq('status', 'REMOVED'),
+        ]);
+        res.json({
+            total: total.count || 0,
+            active: active.count || 0,
+            removed: removed.count || 0,
+        });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.patch('/marketplace/listings/:id/status', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, reason } = req.body;
+        const { error } = await supabase
+            .from('marketplace_listings')
+            .update({ status, moderation_reason: reason })
+            .eq('id', id);
+        if (error) throw error;
+        res.json({ success: true });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.patch('/marketplace/listings/:id/featured', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { featured } = req.body;
+        const { error } = await supabase
+            .from('marketplace_listings')
+            .update({ featured: Boolean(featured) })
+            .eq('id', id);
+        if (error) throw error;
+        res.json({ success: true });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.delete('/marketplace/listings/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { error } = await supabase.from('marketplace_listings').delete().eq('id', id);
+        if (error) throw error;
+        res.json({ success: true });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── REVIEW MODERATION ────────────────────────────────────────────────────────
+
+router.get('/reviews', async (req, res) => {
+    try {
+        const { rating, flagged, search, page = '1' } = req.query;
+        const pageNum = parseInt(page as string, 10);
+        const PAGE_SIZE = 25;
+
+        let q = supabase
+            .from('reviews')
+            .select(`id, rating, comment, flagged, flagged_reason, created_at,
+                reviewer:reviewer_id(safetag), reviewee:reviewee_id(safetag),
+                transaction:transaction_id(code)`)
+            .order('created_at', { ascending: false })
+            .range((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE - 1);
+
+        if (rating) q = q.eq('rating', parseInt(rating as string, 10));
+        if (flagged === 'true') q = q.eq('flagged', true);
+        if (search) q = q.or(`reviewer_id.in.(select id from profiles where safetag ilike %${search}%)`);
+
+        const { data, error } = await q;
+        if (error) throw error;
+        res.json(data || []);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/reviews/stats', async (req, res) => {
+    try {
+        const [total, flaggedCount, thisWeek, ratingDist] = await Promise.all([
+            supabase.from('reviews').select('*', { count: 'exact', head: true }),
+            supabase.from('reviews').select('*', { count: 'exact', head: true }).eq('flagged', true),
+            supabase.from('reviews').select('*', { count: 'exact', head: true })
+                .gte('created_at', new Date(Date.now() - 7 * 86400000).toISOString()),
+            supabase.from('reviews').select('rating').then(r => {
+                const dist: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+                let sum = 0; let count = 0;
+                for (const rev of (r.data || [])) {
+                    dist[rev.rating] = (dist[rev.rating] || 0) + 1;
+                    sum += rev.rating; count++;
+                }
+                return { dist, avg: count ? Math.round((sum / count) * 10) / 10 : 0 };
+            }),
+        ]);
+        res.json({
+            total: total.count || 0,
+            flagged: flaggedCount.count || 0,
+            this_week: thisWeek.count || 0,
+            avg_rating: ratingDist.avg,
+            distribution: ratingDist.dist,
+        });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.delete('/reviews/:id', async (req, res) => {
+    try {
+        const { error } = await supabase.from('reviews').delete().eq('id', req.params.id);
+        if (error) throw error;
+        res.json({ success: true });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.patch('/reviews/:id/flag', async (req, res) => {
+    try {
+        const { flagged, reason } = req.body;
+        const { error } = await supabase
+            .from('reviews')
+            .update({ flagged: Boolean(flagged), flagged_reason: reason || null })
+            .eq('id', req.params.id);
+        if (error) throw error;
+        res.json({ success: true });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── COMMUNICATIONS CENTER ────────────────────────────────────────────────────
+
+router.get('/communications/notifications', async (req, res) => {
+    try {
+        const { type, page = '1', profile_id } = req.query;
+        const pageNum = parseInt(page as string, 10);
+        const PAGE_SIZE = 50;
+
+        let q = supabase
+            .from('system_notifications')
+            .select(`id, type, title, content, is_read, created_at, profile:profile_id(safetag)`)
+            .order('created_at', { ascending: false })
+            .range((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE - 1);
+
+        if (type) q = q.eq('type', type as string);
+        if (profile_id) q = q.eq('profile_id', profile_id as string);
+
+        const { data, error } = await q;
+        if (error) throw error;
+        res.json(data || []);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/communications/delivery-stats', async (req, res) => {
+    try {
+        const days = parseInt((req.query.days as string) || '30', 10);
+        const from = new Date(Date.now() - days * 86400000).toISOString();
+
+        const { data } = await supabase
+            .from('system_notifications')
+            .select('type, is_read, created_at')
+            .gte('created_at', from);
+
+        const byDay: Record<string, { sent: number; read: number }> = {};
+        const byType: Record<string, number> = {};
+        for (const n of (data || [])) {
+            const day = n.created_at.slice(0, 10);
+            if (!byDay[day]) byDay[day] = { sent: 0, read: 0 };
+            byDay[day].sent++;
+            if (n.is_read) byDay[day].read++;
+            byType[n.type] = (byType[n.type] || 0) + 1;
+        }
+
+        const trend = Object.entries(byDay).sort(([a], [b]) => a.localeCompare(b))
+            .map(([date, vals]) => ({ date, ...vals }));
+
+        res.json({ trend, by_type: byType });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── MARKETING TEMPLATES ──────────────────────────────────────────────────────
+
+router.get('/marketing/templates', async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('message_templates')
+            .select('*')
+            .order('created_at', { ascending: false });
+        if (error) throw error;
+        res.json(data || []);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/marketing/templates', async (req, res) => {
+    try {
+        const { name, content, platforms } = req.body;
+        const { data, error } = await supabase.from('message_templates').insert({
+            name, content, platforms: platforms || [],
+            created_by: (req as any).admin?.id,
+        }).select().single();
+        if (error) throw error;
+        res.json(data);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.put('/marketing/templates/:id', async (req, res) => {
+    try {
+        const { name, content, platforms } = req.body;
+        const { data, error } = await supabase.from('message_templates')
+            .update({ name, content, platforms, updated_at: new Date().toISOString() })
+            .eq('id', req.params.id).select().single();
+        if (error) throw error;
+        res.json(data);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.delete('/marketing/templates/:id', async (req, res) => {
+    try {
+        const { error } = await supabase.from('message_templates').delete().eq('id', req.params.id);
+        if (error) throw error;
+        res.json({ success: true });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/marketing/campaigns', async (req, res) => {
+    try {
+        const { page = '1' } = req.query;
+        const pageNum = parseInt(page as string, 10);
+        const PAGE_SIZE = 20;
+        const { data, error } = await supabase
+            .from('broadcast_campaigns')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .range((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE - 1);
+        if (error) throw error;
+        res.json(data || []);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── USER SEGMENTATION ────────────────────────────────────────────────────────
+
+router.get('/segments/users', async (req, res) => {
+    try {
+        const { platform, kyc_status, page = '1' } = req.query;
+        const pageNum = parseInt(page as string, 10);
+        const PAGE_SIZE = 50;
+
+        let q = supabase
+            .from('profiles')
+            .select('id, safetag, email, primary_platform, kyc_status, created_at')
+            .order('created_at', { ascending: false })
+            .range((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE - 1);
+
+        if (platform) q = q.eq('primary_platform', platform as string);
+        if (kyc_status) q = q.eq('kyc_status', kyc_status as string);
+
+        const { data, error } = await q;
+        if (error) throw error;
+        res.json(data || []);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/segments/counts', async (req, res) => {
+    try {
+        const { platform, kyc_status } = req.query;
+
+        let q = supabase.from('profiles').select('*', { count: 'exact', head: true });
+        if (platform) q = q.eq('primary_platform', platform as string);
+        if (kyc_status) q = q.eq('kyc_status', kyc_status as string);
+
+        const { count } = await q;
+        res.json({ count: count || 0 });
     } catch (err: any) {
         res.status(500).json({ error: err.message });
     }

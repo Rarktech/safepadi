@@ -2,21 +2,21 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { 
-    Shield, 
-    Clock, 
-    User, 
-    Zap, 
-    MessageSquare, 
-    History, 
-    Activity, 
-    AlertCircle, 
-    FileText, 
-    Download, 
-    ChevronDown, 
-    Paperclip, 
-    Mic, 
-    Send, 
+import {
+    Shield,
+    Clock,
+    User,
+    Zap,
+    MessageSquare,
+    History,
+    Activity,
+    AlertCircle,
+    FileText,
+    Download,
+    ChevronDown,
+    Paperclip,
+    Mic,
+    Send,
     Settings,
     BadgePercent,
     Wallet,
@@ -27,7 +27,13 @@ import {
     Smile,
     Play,
     Pause,
-    Users
+    Users,
+    UserCheck,
+    BookOpen,
+    RefreshCw,
+    Lock,
+    ChevronRight,
+    X
 } from 'lucide-react';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -104,6 +110,15 @@ export default function AdminDisputePage() {
     const [hasAdminJoined, setHasAdminJoined] = useState(false);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
+
+    const [sops, setSops] = useState<any[]>([]);
+    const [assignments, setAssignments] = useState<any[]>([]);
+    const [availableAdmins, setAvailableAdmins] = useState<any[]>([]);
+    const [showReassign, setShowReassign] = useState(false);
+    const [reassignAdminId, setReassignAdminId] = useState('');
+    const [reassignReason, setReassignReason] = useState('');
+    const [reassignLoading, setReassignLoading] = useState(false);
+    const [sopExpanded, setSopExpanded] = useState<string | null>(null);
 
     const identities = ['Administrator', 'System Support', 'Escrow Agent'];
 
@@ -331,6 +346,78 @@ export default function AdminDisputePage() {
             mediaRecorderRef.current.stop();
             setIsRecording(false);
             mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+        }
+    };
+
+    useEffect(() => {
+        if (dispute?.dispute_type) {
+            fetchSopsAndAssignments(dispute.dispute_type);
+        }
+    }, [dispute?.dispute_type]);
+
+    useEffect(() => {
+        if (showReassign && availableAdmins.length === 0) {
+            api.get('/admin/management/workload').then(r => setAvailableAdmins(r.data || [])).catch(() => {});
+        }
+    }, [showReassign]);
+
+    const fetchSopsAndAssignments = async (disputeType: string) => {
+        try {
+            const [sopsRes, assignRes] = await Promise.all([
+                api.get(`/admin/disputes/sops?dispute_type=${disputeType}&status=ACTIVE`),
+                api.get(`/admin/disputes/${id}/assignments`),
+            ]);
+            setSops(sopsRes.data || []);
+            setAssignments(assignRes.data || []);
+        } catch {}
+    };
+
+    const applySopToChat = async (sop: any) => {
+        if (sop.severity === 'HARD_GATE' && !sop.human_approved) {
+            toast.error('This SOP requires human approval before applying');
+            return;
+        }
+        if (!hasAdminJoined) {
+            toast.error('Join the chat first to apply an SOP');
+            return;
+        }
+        try {
+            const content = `**[SOP: ${sop.sop_code}] ${sop.title}**\n\n${sop.rule_body}`;
+            const res = await api.post(`/disputes/${id}/messages`, {
+                sender_id: 'SYSTEM_ADMIN',
+                sender_type: 'ADMIN',
+                content,
+                attachments: [],
+                metadata: { identity: 'System Support', type: 'sop_applied', sop_id: sop.id }
+            });
+            setMessages(prev => {
+                if (prev.some(m => m.id === res.data.id)) return prev;
+                return [...prev, res.data];
+            });
+            toast.success(`SOP ${sop.sop_code} applied to chat`);
+        } catch {
+            toast.error('Failed to apply SOP');
+        }
+    };
+
+    const reassignSpecialist = async () => {
+        if (!reassignAdminId) { toast.error('Select a specialist'); return; }
+        setReassignLoading(true);
+        try {
+            await api.patch(`/admin/disputes/${id}/assign`, {
+                admin_id: reassignAdminId,
+                reason: reassignReason || 'MANUAL_REASSIGN',
+            });
+            toast.success('Specialist reassigned');
+            setShowReassign(false);
+            setReassignAdminId('');
+            setReassignReason('');
+            fetchDisputeData();
+            if (dispute?.dispute_type) fetchSopsAndAssignments(dispute.dispute_type);
+        } catch {
+            toast.error('Reassignment failed');
+        } finally {
+            setReassignLoading(false);
         }
     };
 
@@ -838,6 +925,34 @@ export default function AdminDisputePage() {
                                     </div>
                                 ))}
                             </div>
+
+                            {/* Assignment History */}
+                            {assignments.length > 0 && (
+                                <div>
+                                    <h3 className="text-lg font-black text-slate-900 tracking-tight mb-6">Assignment History</h3>
+                                    <div className="space-y-3">
+                                        {assignments.map((a: any, idx: number) => (
+                                            <div key={a.id || idx} className="bg-white p-5 rounded-[28px] border border-slate-100 shadow-sm flex items-start gap-4">
+                                                <div className={cn(
+                                                    "w-8 h-8 rounded-xl flex items-center justify-center shrink-0",
+                                                    a.assigned_to ? "bg-indigo-100" : "bg-slate-100"
+                                                )}>
+                                                    <UserCheck className={cn("w-4 h-4", a.assigned_to ? "text-indigo-600" : "text-slate-400")} />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-[11px] font-black text-slate-900">
+                                                        {a.assigned_to_name || a.assigned_to || 'Unassigned'}
+                                                    </p>
+                                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">
+                                                        {a.reason?.replace(/_/g, ' ')}{a.assigned_by_name ? ` · by ${a.assigned_by_name}` : ' · System Auto-Route'}
+                                                    </p>
+                                                </div>
+                                                <p className="text-[9px] font-bold text-slate-300 shrink-0 whitespace-nowrap">{new Date(a.assigned_at).toLocaleString()}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -846,6 +961,123 @@ export default function AdminDisputePage() {
             {/* Right Area: Transaction Story */}
             <div className="w-[400px] bg-slate-50 flex flex-col h-full overflow-y-auto shrink-0 hidden xl:flex border-l border-slate-100">
                 <div className="p-8 space-y-8">
+
+                    {/* Specialist Assignment Panel */}
+                    {dispute.is_ai_paused && (
+                        <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm">
+                            <div className="flex items-center gap-2 mb-4">
+                                <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white">
+                                    <UserCheck className="w-4 h-4" />
+                                </div>
+                                <span className="text-sm font-black text-slate-900">Assigned Specialist</span>
+                            </div>
+                            {dispute.metadata?.assigned_specialist ? (
+                                <>
+                                    <div className="space-y-3">
+                                        <div>
+                                            <p className="text-sm font-black text-slate-900">{dispute.metadata.assigned_specialist.name}</p>
+                                            {dispute.metadata.assigned_specialist.specialist_title && (
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">
+                                                    {dispute.metadata.assigned_specialist.specialist_title}
+                                                </p>
+                                            )}
+                                        </div>
+                                        {dispute.metadata.assigned_specialist.specialties?.length > 0 && (
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {dispute.metadata.assigned_specialist.specialties.map((s: string) => (
+                                                    <span key={s} className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full text-[9px] font-black uppercase tracking-wider">
+                                                        {s.replace(/_/g, ' ')}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+                                        <div className="flex items-center gap-6 pt-1">
+                                            <div>
+                                                <p className="text-[9px] font-black text-slate-400 uppercase">Resolved</p>
+                                                <p className="text-base font-black text-slate-900">{dispute.metadata.assigned_specialist.cases_resolved}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-[9px] font-black text-slate-400 uppercase">Years</p>
+                                                <p className="text-base font-black text-slate-900">{dispute.metadata.assigned_specialist.years_on_platform}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowReassign(true)}
+                                        className="mt-4 w-full h-9 rounded-xl border border-indigo-200 text-indigo-600 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <RefreshCw className="w-3 h-3" /> Reassign
+                                    </button>
+                                </>
+                            ) : (
+                                <div className="text-center py-4">
+                                    <div className="w-10 h-10 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                                        <AlertCircle className="w-5 h-5 text-amber-500" />
+                                    </div>
+                                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-3">No specialist assigned</p>
+                                    <button
+                                        onClick={() => setShowReassign(true)}
+                                        className="h-9 px-6 rounded-xl bg-indigo-500 text-white text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 transition-colors"
+                                    >
+                                        Assign Specialist
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* SOP Guidance Panel */}
+                    {sops.length > 0 && (
+                        <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm">
+                            <div className="flex items-center gap-2 mb-4">
+                                <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
+                                    <BookOpen className="w-4 h-4 text-emerald-600" />
+                                </div>
+                                <span className="text-sm font-black text-slate-900">SOP Guidance</span>
+                                <span className="ml-auto text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{sops.length}</span>
+                            </div>
+                            <div className="space-y-3">
+                                {sops.map((sop: any) => {
+                                    const isHardGate = sop.severity === 'HARD_GATE';
+                                    const isBinding = sop.severity === 'BINDING';
+                                    const containerStyle = isHardGate ? 'bg-rose-50 border-rose-200' : isBinding ? 'bg-amber-50 border-amber-200' : 'bg-blue-50 border-blue-200';
+                                    const codeStyle = isHardGate ? 'text-rose-700' : isBinding ? 'text-amber-700' : 'text-blue-700';
+                                    const isExpanded = sopExpanded === sop.id;
+                                    return (
+                                        <div key={sop.id} className={cn('rounded-2xl border p-4', containerStyle)}>
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-1.5 mb-1">
+                                                        <span className={cn('text-[9px] font-black uppercase tracking-wider', codeStyle)}>{sop.sop_code}</span>
+                                                        {isHardGate && <Lock className="w-3 h-3 text-rose-500" />}
+                                                    </div>
+                                                    <p className="text-[11px] font-black text-slate-800 leading-tight">{sop.title}</p>
+                                                </div>
+                                                <button
+                                                    onClick={() => setSopExpanded(isExpanded ? null : sop.id)}
+                                                    className="shrink-0 text-slate-400 hover:text-slate-600 transition-colors mt-0.5"
+                                                >
+                                                    <ChevronRight className={cn('w-4 h-4 transition-transform', isExpanded && 'rotate-90')} />
+                                                </button>
+                                            </div>
+                                            {isExpanded && (
+                                                <>
+                                                    <p className="mt-3 text-[10px] text-slate-600 leading-relaxed font-medium border-t border-black/5 pt-3">{sop.rule_body}</p>
+                                                    <button
+                                                        onClick={() => applySopToChat(sop)}
+                                                        className="mt-3 w-full h-8 rounded-xl bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-colors"
+                                                    >
+                                                        Apply to Chat
+                                                    </button>
+                                                </>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
                     <div className="bg-white p-7 rounded-[32px] border border-slate-100 shadow-sm relative overflow-hidden group">
                         <div className="relative z-10">
                             <div className="flex items-center gap-2 mb-4">
@@ -949,6 +1181,66 @@ export default function AdminDisputePage() {
                     </div>
                 </div>
             </div>
+
+            {/* Reassign Specialist Modal */}
+            {showReassign && (
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+                    <div className="bg-white rounded-[32px] p-8 w-full max-w-md shadow-2xl">
+                        <div className="flex items-center justify-between mb-6">
+                            <h3 className="text-lg font-black text-slate-900">Reassign Specialist</h3>
+                            <button
+                                onClick={() => setShowReassign(false)}
+                                className="w-8 h-8 rounded-xl border border-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-900 transition-colors"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Select Specialist</label>
+                                <select
+                                    value={reassignAdminId}
+                                    onChange={(e) => setReassignAdminId(e.target.value)}
+                                    className="w-full h-12 px-4 rounded-2xl border border-slate-200 text-sm font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+                                >
+                                    <option value="">Choose a specialist...</option>
+                                    {availableAdmins.map((admin: any) => (
+                                        <option key={admin.id} value={admin.id}>
+                                            {admin.name} ({admin.open_cases || 0} open cases)
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Reason (optional)</label>
+                                <input
+                                    type="text"
+                                    value={reassignReason}
+                                    onChange={(e) => setReassignReason(e.target.value)}
+                                    placeholder="e.g. Original specialist unavailable"
+                                    className="w-full h-12 px-4 rounded-2xl border border-slate-200 text-sm font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+                                />
+                            </div>
+                        </div>
+                        <div className="flex gap-3 mt-6">
+                            <Button
+                                onClick={() => setShowReassign(false)}
+                                variant="outline"
+                                className="flex-1 h-12 rounded-2xl font-black text-[10px] uppercase"
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                onClick={reassignSpecialist}
+                                disabled={!reassignAdminId || reassignLoading}
+                                className="flex-1 h-12 rounded-2xl bg-indigo-500 hover:bg-indigo-600 text-white font-black text-[10px] uppercase shadow-lg shadow-indigo-100"
+                            >
+                                {reassignLoading ? 'Assigning...' : 'Confirm Reassign'}
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

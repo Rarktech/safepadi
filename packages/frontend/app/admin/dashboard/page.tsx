@@ -3,10 +3,10 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { useRouter } from "next/navigation";
-import { 
-    TrendingUp, 
-    ArrowUpRight, 
-    ArrowDownRight, 
+import {
+    TrendingUp,
+    ArrowUpRight,
+    ArrowDownRight,
     Bell,
     Search,
     Filter,
@@ -21,7 +21,11 @@ import {
     Coins,
     ChevronDown,
     Activity,
-    ShieldAlert
+    ShieldAlert,
+    Shield,
+    CreditCard,
+    AlertTriangle,
+    FileCheck
 } from "lucide-react";
 import { 
     AreaChart, 
@@ -342,6 +346,83 @@ export default function AdminDashboard() {
                         </div>
                     </div>
                 </div>
+
+                {/* Pending Actions Panel */}
+                {stats && (stats.pending_kyc_count > 0 || stats.open_disputes_count > 0 || stats.pending_payouts_count > 0) && (
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                        {[
+                            {
+                                label: 'Pending KYC',
+                                count: stats.pending_kyc_count,
+                                icon: FileCheck,
+                                color: 'text-amber-600',
+                                bg: 'bg-amber-50',
+                                border: 'border-amber-200',
+                                href: '/admin/kyc',
+                            },
+                            {
+                                label: 'Escalated Disputes',
+                                count: stats.open_disputes_count,
+                                icon: Shield,
+                                color: 'text-rose-600',
+                                bg: 'bg-rose-50',
+                                border: 'border-rose-200',
+                                href: '/admin/disputes?filter=escalated',
+                            },
+                            {
+                                label: 'Pending Payouts',
+                                count: stats.pending_payouts_count,
+                                icon: CreditCard,
+                                color: 'text-indigo-600',
+                                bg: 'bg-indigo-50',
+                                border: 'border-indigo-200',
+                                href: '/admin/payouts',
+                            },
+                            {
+                                label: '7-Day Disputes',
+                                count: stats.last_7d_disputes,
+                                icon: AlertTriangle,
+                                color: 'text-orange-600',
+                                bg: 'bg-orange-50',
+                                border: 'border-orange-200',
+                                href: '/admin/disputes',
+                            },
+                        ].map(item => (
+                            <button
+                                key={item.label}
+                                onClick={() => router.push(item.href)}
+                                className={cn(
+                                    "p-5 bg-white rounded-2xl border flex items-center gap-4 hover:shadow-md transition-all text-left",
+                                    item.border
+                                )}
+                            >
+                                <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0", item.bg, item.color)}>
+                                    <item.icon className="w-5 h-5" />
+                                </div>
+                                <div>
+                                    <p className="text-xl font-black text-slate-900">{item.count}</p>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{item.label}</p>
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+                )}
+
+                {/* 7-Day Stats Row */}
+                {stats && (
+                    <div className="grid grid-cols-3 gap-4 mb-8">
+                        {[
+                            { label: 'New Users (7d)', value: stats.last_7d_new_users, color: 'text-purple-600' },
+                            { label: 'Transactions (7d)', value: stats.last_7d_transactions, color: 'text-blue-600' },
+                            { label: 'Disputes (7d)', value: stats.last_7d_disputes, color: 'text-rose-600' },
+                        ].map(item => (
+                            <div key={item.label} className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm">
+                                <p className={cn("text-2xl font-black", item.color)}>{(item.value || 0).toLocaleString()}</p>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mt-1">{item.label}</p>
+                            </div>
+                        ))}
+                    </div>
+                )}
 
                 {/* Performance Header Stats */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-8 md:mb-12">

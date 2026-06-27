@@ -1,7 +1,7 @@
 import { supabase } from '@safepal/shared';
 import { routeNotification, recordNotification } from '../services/notifications';
 import { buildInternalMagicLink } from '../services/magicLinkInternal';
-import { sendDisputeResolvedEmail } from '../services/email';
+import { sendDisputeResolvedEmail, sendAdminSlaReminderEmail } from '../services/email';
 import { issueReferralCommissions } from '../services/commissions';
 import { insertBuyerRefundCredit } from '../routes/disputes';
 import { releaseRemainingMilestones } from '../services/milestoneEscrow';
@@ -36,8 +36,92 @@ export async function runDisputeEnforcement(): Promise<void> {
 
     await Promise.allSettled([
         releaseStaleLocks(now),
-        processEvidenceDeadlines(now)
+        processEvidenceDeadlines(now),
+        checkAssignedCaseSLA(now),
     ]);
+}
+
+// ── Assigned-case SLA reminders ───────────────────────────────────────────────
+
+const SLA_24H_MS  = 24 * 60 * 60 * 1000;
+const SLA_72H_MS  = 72 * 60 * 60 * 1000;
+const ADMIN_PANEL = process.env.REVIEWS_URL || 'https://safeeely.com';
+
+async function checkAssignedCaseSLA(now: Date): Promise<void> {
+    // Escalated disputes with an assigned specialist but still open
+    const { data: cases, error } = await supabase
+        .from('disputes')
+        .select(`
+            id, assigned_admin_id, assigned_at,
+            admin:assigned_admin_id(id, name, email)
+        `)
+        .eq('status', 'OPEN')
+        .eq('is_ai_paused', true)
+        .not('assigned_admin_id', 'is', null);
+
+    if (error || !cases?.length) return;
+
+    // Batch fetch last admin message per dispute for freshness check
+    const disputeIds = cases.map((c: any) => c.id);
+    const { data: lastMsgs } = await supabase
+        .from('dispute_messages')
+        .select('dispute_id, created_at')
+        .in('dispute_id', disputeIds)
+        .eq('sender_type', 'ADMIN')
+        .order('created_at', { ascending: false });
+
+    const lastAdminMsgMap: Record<string, Date> = {};
+    for (const msg of (lastMsgs || [])) {
+        if (!lastAdminMsgMap[msg.dispute_id]) {
+            lastAdminMsgMap[msg.dispute_id] = new Date(msg.created_at);
+        }
+    }
+
+    // Fetch super-admins for 72h escalation alerts
+    const { data: superAdmins } = await supabase
+        .from('admin_users')
+        .select('id, name, email')
+        .eq('role', 'SUPER_ADMIN')
+        .eq('status', 'ACTIVE');
+
+    for (const c of cases) {
+        try {
+            const assignedAt = c.assigned_at ? new Date(c.assigned_at) : null;
+            if (!assignedAt) continue;
+
+            // Use last admin message time if more recent than assignment
+            const lastActivityAt = lastAdminMsgMap[c.id] ?? assignedAt;
+            const elapsedMs = now.getTime() - lastActivityAt.getTime();
+            const hoursElapsed = Math.floor(elapsedMs / (60 * 60 * 1000));
+            const admin = (c as any).admin;
+            const panelUrl = `${ADMIN_PANEL}/admin/disputes/${c.id}`;
+
+            if (elapsedMs >= SLA_72H_MS) {
+                // Notify all super-admins that case is stalled
+                for (const sa of (superAdmins || [])) {
+                    if (sa.email) {
+                        sendAdminSlaReminderEmail(sa.email, {
+                            adminName: sa.name,
+                            disputeId: c.id,
+                            hoursElapsed,
+                            adminPanelUrl: panelUrl,
+                            isSuperAdminAlert: true,
+                        });
+                    }
+                }
+                console.log(`🚨 [enforcement] 72h SLA breach — dispute ${c.id}, notified ${(superAdmins || []).length} super-admins`);
+            } else if (elapsedMs >= SLA_24H_MS && admin?.email) {
+                // Remind the assigned specialist
+                sendAdminSlaReminderEmail(admin.email, {
+                    adminName: admin.name,
+                    disputeId: c.id,
+                    hoursElapsed,
+                    adminPanelUrl: panelUrl,
+                });
+                console.log(`⏰ [enforcement] 24h SLA reminder sent to ${admin.name} for dispute ${c.id}`);
+            }
+        } catch {}
+    }
 }
 
 // ── Stale lock cleanup ────────────────────────────────────────────────────────

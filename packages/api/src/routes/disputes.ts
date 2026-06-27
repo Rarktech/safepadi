@@ -274,8 +274,9 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
                 }
 
             } else if (aiResult.type === 'ESCALATE') {
-                // Reviewer rejected the verdict — flag for human admin
+                // Reviewer rejected the verdict — flag for human admin and auto-assign specialist
                 await supabase.from('disputes').update({ is_ai_paused: true }).eq('id', disputeId);
+                routeDispute(disputeId, null).catch(() => {});
                 await supabase.from('dispute_messages').insert({
                     dispute_id: disputeId,
                     sender_type: 'AI',
@@ -339,6 +340,7 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
 
                 if (newRounds >= 5) {
                     await supabase.from('disputes').update({ is_ai_paused: true }).eq('id', disputeId);
+                    routeDispute(disputeId, null).catch(() => {});
                     await supabase.from('dispute_messages').insert({
                         dispute_id: disputeId,
                         sender_type: 'AI',
