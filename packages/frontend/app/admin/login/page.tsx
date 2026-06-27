@@ -24,11 +24,16 @@ export default function AdminLogin() {
                 headers: { 'ngrok-skip-browser-warning': 'true' },
                 withCredentials: true,
             });
-            
+
+            // Store token for cross-origin API calls (cookie domain mismatch in prod)
+            if (res.data.token) {
+                localStorage.setItem('sf_admin_token', res.data.token);
+            }
+
             toast.success("Authentication Validated", {
                 description: `Welcome back, ${res.data.user.name}`
             });
-            
+
             router.push("/admin/dashboard");
         } catch (err: any) {
             toast.error("Access Denied", {

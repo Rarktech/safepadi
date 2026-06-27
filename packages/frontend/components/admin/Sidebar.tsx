@@ -112,6 +112,8 @@ export default function AdminSidebar() {
 
     const handleLogout = async () => {
         await axios.post(`${API_URL}/admin/auth/logout`, {}, { withCredentials: true }).catch(() => {});
+        localStorage.removeItem('sf_admin_token');
+        delete axios.defaults.headers.common['Authorization'];
         router.push("/admin/login");
     };
 

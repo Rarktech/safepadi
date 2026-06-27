@@ -17,6 +17,14 @@ export default function AdminAuthProvider({ children }: { children: React.ReactN
         axios.defaults.withCredentials = true;
         const isLoginPage = pathname === "/admin/login";
 
+        // Inject stored JWT as Bearer header so auth works across Railway domain split
+        const storedToken = typeof window !== 'undefined' ? localStorage.getItem('sf_admin_token') : null;
+        if (storedToken) {
+            axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+        } else {
+            delete axios.defaults.headers.common['Authorization'];
+        }
+
         axios.get(`${API_URL}/admin/auth/me`, { headers: { 'ngrok-skip-browser-warning': 'true' } })
             .then((res) => {
                 if (res.data?.id) posthog.identify(res.data.id, { role: 'admin' });
@@ -24,6 +32,8 @@ export default function AdminAuthProvider({ children }: { children: React.ReactN
                 setIsAuthorized(true);
             })
             .catch(() => {
+                localStorage.removeItem('sf_admin_token');
+                delete axios.defaults.headers.common['Authorization'];
                 if (!isLoginPage) router.replace("/admin/login");
                 else setIsAuthorized(true);
             });
