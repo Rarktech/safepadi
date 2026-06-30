@@ -1,300 +1,177 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { cn } from "@/lib/utils";
 import axios from "axios";
-import { 
-    Users, 
-    ShieldCheck, 
-    ShieldAlert, 
-    Clock, 
-    Search, 
-    Filter, 
-    ChevronRight,
-    MoreHorizontal,
-    Eye,
-    CheckCircle2,
-    XCircle
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { 
-    DropdownMenu, 
-    DropdownMenuContent, 
-    DropdownMenuItem, 
-    DropdownMenuTrigger 
-} from "@/components/ui/dropdown-menu";
-import { Badge } from "@/components/ui/badge";
+import { Users, ShieldCheck, ShieldAlert, Clock, Search, Eye, CheckCircle2, XCircle } from "lucide-react";
 import Link from "next/link";
-
-import AdminSidebar from "@/components/admin/Sidebar";
+import AdminShell from "@/components/admin/AdminShell";
 
 const API_URL = "/api";
 
 export default function AdminKYCList() {
-    const [data, setData] = useState<any>(null);
-    const [loading, setLoading] = useState(true);
-    const [searchTerm, setSearchTerm] = useState("");
-    const [statusFilter, setStatusFilter] = useState("all");
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
-    useEffect(() => {
-        const fetchKyc = async () => {
-            try {
-                const res = await axios.get(`${API_URL}/admin/kyc`, {
-                    withCredentials: true,
-                });
-                setData(res.data);
-            } catch (err) {
-                console.error("Fetch KYC failed:", err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchKyc();
-    }, []);
+  useEffect(() => {
+    axios.get(`${API_URL}/admin/kyc`, { withCredentials: true })
+      .then(res => setData(res.data))
+      .catch(err => console.error("Fetch KYC failed:", err))
+      .finally(() => setLoading(false));
+  }, []);
 
-    const filteredSubmissions = data?.submissions?.filter((s: any) => {
-        const matchesSearch = 
-            s.profile?.safetag?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            s.first_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            s.last_name?.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesStatus = statusFilter === "all" || s.status === statusFilter;
-        return matchesSearch && matchesStatus;
-    });
+  const filteredSubmissions = data?.submissions?.filter((s: any) => {
+    const matchesSearch =
+      s.profile?.safetag?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.first_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.last_name?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === "all" || s.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
-    if (loading) {
-        return (
-            <div className="flex bg-slate-50 min-h-screen">
-                <AdminSidebar />
-                <div className="flex-1 p-8 flex items-center justify-center">
-                    <div className="text-center space-y-4">
-                        <div className="w-12 h-12 border-4 border-slate-200 border-t-emerald-500 rounded-full animate-spin mx-auto" />
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Loading Verification Hub</p>
-                    </div>
+  const stats = data?.stats || {};
+
+  const kpiCards = [
+    { label: "Total Submissions", value: stats.total, icon: Users, chip: "chip-blue" },
+    { label: "Pending Review", value: stats.pending, icon: Clock, chip: "chip-amber", pulse: (stats.pending ?? 0) > 0 },
+    { label: "Verified Users", value: stats.verified_users, icon: ShieldCheck, chip: "chip-green" },
+    { label: "Unverified Users", value: stats.unverified_users, icon: ShieldAlert, chip: "chip-red" },
+  ];
+
+  const statusChip = (status: string) => {
+    if (status === "PENDING") return <span className="adm-chip chip-amber flex items-center gap-1"><Clock className="w-3 h-3" /> Pending</span>;
+    if (status === "APPROVED") return <span className="adm-chip chip-green flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Approved</span>;
+    if (status === "REJECTED") return <span className="adm-chip chip-red flex items-center gap-1"><XCircle className="w-3 h-3" /> Rejected</span>;
+    return <span className="adm-chip chip-slate">{status}</span>;
+  };
+
+  return (
+    <AdminShell title="KYC Verification" subtitle="Identity & compliance hub">
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {kpiCards.map(card => {
+          const Icon = card.icon;
+          return (
+            <div key={card.label} className="bg-white rounded-2xl border border-[#e9eaec] p-5 relative overflow-hidden">
+              <div className="flex items-center justify-between mb-3">
+                <p className="adm-section-label">{card.label}</p>
+                <div className="w-8 h-8 rounded-lg bg-[#f1f5f9] flex items-center justify-center">
+                  <Icon className="w-4 h-4 text-[#64748b]" />
                 </div>
+              </div>
+              <p className="font-tight text-2xl font-bold text-[#0f172a]">{card.value ?? 0}</p>
+              {card.pulse && (
+                <span className="absolute top-3 right-3 w-2 h-2 rounded-full bg-[#d97706] animate-ping" />
+              )}
             </div>
-        );
-    }
+          );
+        })}
+      </div>
 
-    const stats = data?.stats || {};
+      {/* Table card */}
+      <div className="bg-white rounded-2xl border border-[#e9eaec] overflow-hidden">
+        {/* Filters header */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-5 border-b border-[#f3f4f6]">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#94a3b8]" />
+            <input
+              placeholder="Search by name or safetag…"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className="pl-9 pr-4 h-9 rounded-xl text-[12px] font-medium outline-none"
+              style={{ width: 240, background: '#f7f8f9', border: '1px solid #e9eaec', color: '#0f172a' }}
+            />
+          </div>
 
-    return (
-        <div className="flex bg-slate-50 min-h-screen">
-            <AdminSidebar />
-
-            <main className="flex-1 p-6 lg:p-12 overflow-y-auto">
-                <div className="max-w-7xl mx-auto space-y-10 animate-in fade-in duration-700">
-                    
-                    {/* Header */}
-                    <div className="flex items-center justify-between">
-                        <div className="space-y-1">
-                            <h1 className="text-4xl font-black text-[#020617] tracking-tighter uppercase">KYC Verification</h1>
-                            <p className="text-slate-400 text-[11px] font-black uppercase tracking-[0.2em] opacity-60">Identity & Compliance Hub</p>
-                        </div>
-                        <div className="flex items-center gap-3 pl-6 border-l border-slate-200">
-                             <div className="text-right hidden sm:block">
-                                <p className="text-[11px] font-black text-slate-900 leading-none mb-1">Admin</p>
-                                <p className="text-[9px] font-bold text-slate-400 leading-none">Safeeely Platform</p>
-                            </div>
-                            <div className="w-10 h-10 rounded-xl overflow-hidden border-2 border-white shadow-sm ring-1 ring-slate-100">
-                                <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Admin&backgroundColor=f1f5f9" alt="Admin" className="w-full h-full object-cover" />
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Stats Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                        <StatCard 
-                            title="Total Submissions" 
-                            value={stats.total} 
-                            icon={Users} 
-                            color="text-blue-500" 
-                            bg="bg-blue-50" 
-                        />
-                        <StatCard 
-                            title="Pending Review" 
-                            value={stats.pending} 
-                            icon={Clock} 
-                            color="text-amber-500" 
-                            bg="bg-amber-50" 
-                            isPulse={stats.pending > 0}
-                        />
-                        <StatCard 
-                            title="Verified Users" 
-                            value={stats.verified_users} 
-                            icon={ShieldCheck} 
-                            color="text-emerald-500" 
-                            bg="bg-emerald-50" 
-                        />
-                        <StatCard 
-                            title="Unverified Users" 
-                            value={stats.unverified_users} 
-                            icon={ShieldAlert} 
-                            color="text-rose-500" 
-                            bg="bg-rose-50" 
-                        />
-                    </div>
-
-                    {/* Table Container */}
-                    <div className="bg-white border border-slate-100 rounded-[40px] overflow-hidden shadow-sm ring-1 ring-slate-100">
-                        
-                        {/* Filters Header */}
-                        <div className="p-8 border-b border-slate-50 flex flex-col sm:flex-row gap-6 justify-between items-center bg-white">
-                            <div className="relative w-full sm:w-80 group">
-                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
-                                <Input 
-                                    placeholder="Search by name or Safetag..." 
-                                    className="bg-slate-50 border-none pl-11 h-12 rounded-2xl text-[11px] font-bold text-[#020617] placeholder:text-slate-300 focus-visible:ring-emerald-500/20"
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                />
-                            </div>
-                            
-                            <div className="flex bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
-                                {["all", "PENDING", "APPROVED", "REJECTED"].map((s) => (
-                                    <button
-                                        key={s}
-                                        onClick={() => setStatusFilter(s)}
-                                        className={cn(
-                                            "px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300",
-                                            statusFilter === s 
-                                                ? 'bg-emerald-600 text-white shadow-xl shadow-emerald-500/20' 
-                                                : 'text-slate-400 hover:text-slate-600'
-                                        )}
-                                    >
-                                        {s}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Submissions Table */}
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
-                                <thead>
-                                    <tr className="bg-slate-50/50">
-                                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">User / Safetag</th>
-                                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Document Info</th>
-                                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Submission Date</th>
-                                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Status</th>
-                                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50">
-                                    {filteredSubmissions?.map((sub: any) => (
-                                        <tr key={sub.id} className="hover:bg-slate-50/70 transition-colors group">
-                                            <td className="px-8 py-6">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-900 border border-slate-200">
-                                                        <img 
-                                                            src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${sub.profile?.safetag}&backgroundColor=f1f5f9`} 
-                                                            className="w-full h-full object-cover rounded-xl"
-                                                            alt=""
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <div className="text-xs font-black text-[#020617] group-hover:text-emerald-600 transition-colors">
-                                                            {sub.first_name} {sub.last_name}
-                                                        </div>
-                                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">
-                                                            {sub.profile?.safetag}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="px-8 py-6">
-                                                <div className="text-[11px] font-black text-[#020617]">
-                                                    {sub.document_country} - {sub.nin ? 'National ID (NIN)' : 'International Passport'}
-                                                </div>
-                                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">
-                                                    {sub.city}, {sub.state}
-                                                </div>
-                                            </td>
-                                            <td className="px-8 py-6">
-                                                <div className="text-[11px] font-black text-[#020617]">
-                                                    {new Date(sub.created_at).toLocaleDateString()}
-                                                </div>
-                                                <div className="text-[10px] font-bold text-slate-400">
-                                                    {new Date(sub.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                </div>
-                                            </td>
-                                            <td className="px-8 py-6">
-                                                <StatusBadge status={sub.status} />
-                                            </td>
-                                            <td className="px-8 py-6 text-right">
-                                                <Link href={`/admin/kyc/${sub.id}`}>
-                                                    <Button variant="ghost" className="h-10 w-10 p-0 rounded-xl hover:bg-emerald-50 text-emerald-600 border border-transparent hover:border-emerald-100">
-                                                        <Eye className="w-5 h-5" />
-                                                    </Button>
-                                                </Link>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-
-                            {(filteredSubmissions?.length === 0 || !filteredSubmissions) && (
-                                <div className="py-24 text-center">
-                                    <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6 border border-slate-100 shadow-sm">
-                                        <ShieldAlert className="w-8 h-8 text-slate-300" />
-                                    </div>
-                                    <h3 className="text-[#020617] font-black uppercase tracking-widest text-xs mb-2">No verification requests</h3>
-                                    <p className="text-slate-400 text-[10px] font-bold">Try adjusting your filters or wait for new submissions.</p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            </main>
+          {/* Status filter tabs */}
+          <div className="flex items-center gap-1 bg-[#f7f8f9] rounded-xl border border-[#e9eaec] p-1">
+            {["all", "PENDING", "APPROVED", "REJECTED"].map(s => (
+              <button
+                key={s}
+                onClick={() => setStatusFilter(s)}
+                className="px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all"
+                style={statusFilter === s
+                  ? { background: '#0f172a', color: '#fff' }
+                  : { color: '#64748b' }
+                }
+              >
+                {s === "all" ? "All" : s.charAt(0) + s.slice(1).toLowerCase()}
+              </button>
+            ))}
+          </div>
         </div>
-    );
-}
 
-function StatCard({ title, value, icon: Icon, color, bg, isPulse }: any) {
-    return (
-        <div className={cn(
-            "bg-white border border-slate-100 p-8 rounded-[40px] relative overflow-hidden group hover:border-emerald-500/50 transition-all shadow-sm ring-1 ring-slate-50",
-            isPulse && "ring-emerald-500/20 shadow-emerald-500/5"
-        )}>
-            <div className="flex justify-between items-start relative z-10">
-                <div className="space-y-4">
-                    <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">{title}</p>
-                    <h3 className="text-4xl font-black text-[#020617] tracking-tighter">{value}</h3>
-                </div>
-                <div className={cn("p-4 rounded-2xl group-hover:scale-110 transition-transform shadow-sm", bg, color)}>
-                    <Icon className="w-6 h-6" />
-                </div>
-            </div>
-            {isPulse && (
-                <div className="absolute top-0 right-0 p-3">
-                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                </div>
+        {/* Table */}
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="w-8 h-8 border-[3px] border-[#e9eaec] border-t-[#10b981] rounded-full animate-spin mb-3" />
+            <p className="adm-section-label">Loading verification hub…</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr style={{ background: '#fafafa', borderBottom: '1px solid #f3f4f6' }}>
+                  {["User / Safetag", "Document Info", "Submission Date", "Status", ""].map(h => (
+                    <th key={h} className={`px-5 py-3.5 adm-section-label ${h === "" ? "text-right" : ""}`}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(filteredSubmissions ?? []).map((sub: any) => (
+                  <tr key={sub.id} className="border-b border-[#f3f4f6] hover:bg-[#fafafa] transition-colors">
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-[#f1f5f9] border border-[#e9eaec] overflow-hidden shrink-0">
+                          <img
+                            src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${sub.profile?.safetag}&backgroundColor=f1f5f9`}
+                            className="w-full h-full object-cover"
+                            alt=""
+                          />
+                        </div>
+                        <div>
+                          <p className="text-[13px] font-semibold text-[#0f172a]">{sub.first_name} {sub.last_name}</p>
+                          <p className="text-[11px] text-[#10b981] font-semibold">{sub.profile?.safetag}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-5 py-4">
+                      <p className="text-[12px] font-semibold text-[#0f172a]">
+                        {sub.document_country} — {sub.nin ? 'National ID (NIN)' : 'International Passport'}
+                      </p>
+                      <p className="text-[11px] text-[#94a3b8]">{sub.city}, {sub.state}</p>
+                    </td>
+                    <td className="px-5 py-4">
+                      <p className="text-[12px] font-semibold text-[#0f172a]">{new Date(sub.created_at).toLocaleDateString()}</p>
+                      <p className="text-[11px] text-[#94a3b8]">
+                        {new Date(sub.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </td>
+                    <td className="px-5 py-4">{statusChip(sub.status)}</td>
+                    <td className="px-5 py-4 text-right">
+                      <Link href={`/admin/kyc/${sub.id}`}>
+                        <button className="w-9 h-9 rounded-xl flex items-center justify-center transition-colors hover:bg-[#f0fdf4]"
+                          style={{ border: '1px solid #e9eaec', color: '#10b981' }}>
+                          <Eye className="w-4 h-4" />
+                        </button>
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {(filteredSubmissions?.length === 0 || !filteredSubmissions) && (
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <ShieldAlert className="w-10 h-10 mb-3 opacity-20 text-[#94a3b8]" />
+                <p className="font-tight text-[14px] font-bold text-[#0f172a] mb-1">No verification requests</p>
+                <p className="text-[12px] text-[#94a3b8]">Try adjusting your filters or wait for new submissions.</p>
+              </div>
             )}
-        </div>
-    );
-}
-
-function StatusBadge({ status }: { status: string }) {
-    switch (status) {
-        case "PENDING":
-            return (
-                <Badge className="bg-amber-50 text-amber-600 border-amber-100 px-3 py-1.5 rounded-xl font-black text-[9px] uppercase tracking-widest shadow-none">
-                    <Clock className="w-3 h-3 mr-1.5" /> Pending
-                </Badge>
-            );
-        case "APPROVED":
-            return (
-                <Badge className="bg-emerald-50 text-emerald-600 border-emerald-100 px-3 py-1.5 rounded-xl font-black text-[9px] uppercase tracking-widest shadow-none">
-                    <CheckCircle2 className="w-3 h-3 mr-1.5" /> Approved
-                </Badge>
-            );
-        case "REJECTED":
-            return (
-                <Badge className="bg-rose-50 text-rose-600 border-rose-100 px-3 py-1.5 rounded-xl font-black text-[9px] uppercase tracking-widest shadow-none">
-                    <XCircle className="w-3 h-3 mr-1.5" /> Rejected
-                </Badge>
-            );
-        default:
-            return <Badge variant="outline">{status}</Badge>;
-    }
+          </div>
+        )}
+      </div>
+    </AdminShell>
+  );
 }

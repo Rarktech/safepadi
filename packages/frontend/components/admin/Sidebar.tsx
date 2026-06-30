@@ -1,231 +1,205 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
-    LayoutDashboard, Repeat, BarChart3, Users, CreditCard,
-    Settings, HelpCircle, Shield, Search, LogOut, Megaphone,
-    Lock, Server, TrendingUp, DollarSign, Star, Gift,
-    ShoppingBag, MessageSquare, UserSearch, Activity, BookOpen,
-    ChevronDown
+  LayoutDashboard, TrendingUp, DollarSign,
+  Users, BookOpen, Star, MessageSquare, UserSearch,
+  Repeat, Shield, CreditCard,
+  ShoppingBag, Gift, Megaphone, Bell,
+  Settings, Lock, Server, FileText,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import axios from "axios";
-import { useRouter } from "next/navigation";
+import { useAdminUser } from "./AuthProvider";
 
 const API_URL = "/api";
 
-type NavItem = { name: string; icon: any; href: string };
-type NavGroup = { label: string; items: NavItem[]; superAdminOnly?: boolean };
+type NavItem = { name: string; icon: any; href: string; badge?: string };
+type NavGroup = { label: string; items: NavItem[] };
 
 const NAV_GROUPS: NavGroup[] = [
-    {
-        label: 'Core Ops',
-        items: [
-            { name: 'Dashboard', icon: LayoutDashboard, href: '/admin/dashboard' },
-            { name: 'Transactions', icon: Repeat, href: '/admin/transactions' },
-            { name: 'Disputes', icon: Shield, href: '/admin/disputes' },
-            { name: 'KYC Verification', icon: BookOpen, href: '/admin/kyc' },
-            { name: 'Payouts', icon: CreditCard, href: '/admin/payouts' },
-        ],
-    },
-    {
-        label: 'People & Trust',
-        superAdminOnly: true,
-        items: [
-            { name: 'Customers', icon: Users, href: '/admin/customers' },
-            { name: 'Trust & Reputation', icon: Star, href: '/admin/trust' },
-            { name: 'Review Moderation', icon: Star, href: '/admin/reviews' },
-        ],
-    },
-    {
-        label: 'Analytics & Finance',
-        superAdminOnly: true,
-        items: [
-            { name: 'Analytics Hub', icon: TrendingUp, href: '/admin/analytics' },
-            { name: 'Financial Deep-Dive', icon: DollarSign, href: '/admin/finance' },
-            { name: 'User Segments', icon: UserSearch, href: '/admin/segments' },
-        ],
-    },
-    {
-        label: 'Growth',
-        superAdminOnly: true,
-        items: [
-            { name: 'Referral Program', icon: Gift, href: '/admin/referrals' },
-            { name: 'Marketing', icon: Megaphone, href: '/admin/marketing' },
-        ],
-    },
-    {
-        label: 'Marketplace',
-        superAdminOnly: true,
-        items: [
-            { name: 'Marketplace', icon: ShoppingBag, href: '/admin/marketplace' },
-        ],
-    },
-    {
-        label: 'Compliance',
-        items: [
-            { name: 'Reports', icon: BarChart3, href: '/admin/reports' },
-        ],
-    },
-    {
-        label: 'Communications',
-        superAdminOnly: true,
-        items: [
-            { name: 'Notifications', icon: MessageSquare, href: '/admin/communications' },
-        ],
-    },
-    {
-        label: 'System',
-        superAdminOnly: true,
-        items: [
-            { name: 'System Health', icon: Server, href: '/admin/system' },
-            { name: 'Management', icon: Lock, href: '/admin/management' },
-        ],
-    },
+  {
+    label: "Overview",
+    items: [
+      { name: "Dashboard",         icon: LayoutDashboard, href: "/admin/dashboard" },
+      { name: "Analytics Hub",     icon: TrendingUp,      href: "/admin/analytics" },
+      { name: "Financial Dive",    icon: DollarSign,      href: "/admin/finance" },
+    ],
+  },
+  {
+    label: "Users",
+    items: [
+      { name: "Customers",          icon: Users,       href: "/admin/customers" },
+      { name: "KYC Verification",   icon: BookOpen,    href: "/admin/kyc",     badge: "kyc" },
+      { name: "Trust & Reputation", icon: Star,        href: "/admin/trust" },
+      { name: "Review Moderation",  icon: MessageSquare, href: "/admin/reviews" },
+      { name: "User Segments",      icon: UserSearch,  href: "/admin/segments" },
+    ],
+  },
+  {
+    label: "Transactions",
+    items: [
+      { name: "Transactions", icon: Repeat,     href: "/admin/transactions" },
+      { name: "Disputes",     icon: Shield,     href: "/admin/disputes",    badge: "disputes" },
+      { name: "Payouts",      icon: CreditCard, href: "/admin/payouts" },
+    ],
+  },
+  {
+    label: "Platform",
+    items: [
+      { name: "Marketplace",    icon: ShoppingBag, href: "/admin/marketplace" },
+      { name: "Referrals",      icon: Gift,        href: "/admin/referrals" },
+      { name: "Marketing",      icon: Megaphone,   href: "/admin/marketing" },
+      { name: "Notifications",  icon: Bell,        href: "/admin/communications" },
+    ],
+  },
+  {
+    label: "Admin",
+    items: [
+      { name: "Settings",     icon: Settings, href: "/admin/settings" },
+      { name: "Management",   icon: Lock,     href: "/admin/management" },
+      { name: "System Health",icon: Server,   href: "/admin/system" },
+      { name: "Reports",      icon: FileText, href: "/admin/reports" },
+    ],
+  },
 ];
 
+const DISPUTER_ALLOWED = new Set([
+  "Dashboard", "Transactions", "Customers", "Disputes", "KYC Verification", "Payouts",
+]);
+
 export default function AdminSidebar() {
-    const pathname = usePathname();
-    const router = useRouter();
-    const [role, setRole] = useState<"SUPER_ADMIN" | "DISPUTER">("SUPER_ADMIN");
-    const [unassignedCount, setUnassignedCount] = useState(0);
-    const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const pathname = usePathname();
+  const router = useRouter();
+  const { user } = useAdminUser();
+  const role = user?.role ?? "SUPER_ADMIN";
 
-    useEffect(() => {
-        axios.get(`${API_URL}/admin/auth/me`, { withCredentials: true })
-            .then(res => { if (res.data.role === "DISPUTER") setRole("DISPUTER"); })
-            .catch(() => {});
-    }, []);
+  const [unassignedCount, setUnassignedCount] = useState(0);
+  const [pendingKyc, setPendingKyc] = useState(0);
 
-    useEffect(() => {
-        const fetchUnassigned = () => {
-            axios.get(`${API_URL}/admin/disputes/unassigned`, { withCredentials: true })
-                .then(res => setUnassignedCount(Array.isArray(res.data) ? res.data.length : 0))
-                .catch(() => {});
-        };
-        fetchUnassigned();
-        const interval = setInterval(fetchUnassigned, 30000);
-        return () => clearInterval(interval);
-    }, []);
-
-    const handleLogout = async () => {
-        await axios.post(`${API_URL}/admin/auth/logout`, {}, { withCredentials: true }).catch(() => {});
-        localStorage.removeItem('sf_admin_token');
-        delete axios.defaults.headers.common['Authorization'];
-        router.push("/admin/login");
+  useEffect(() => {
+    const fetchBadges = () => {
+      axios.get(`${API_URL}/admin/disputes/unassigned`, { withCredentials: true })
+        .then(res => setUnassignedCount(Array.isArray(res.data) ? res.data.length : 0))
+        .catch(() => {});
+      axios.get(`${API_URL}/admin/kyc`, { withCredentials: true })
+        .then(res => {
+          const list: any[] = Array.isArray(res.data) ? res.data : (res.data?.submissions ?? []);
+          setPendingKyc(list.filter((k: any) => k.status === "PENDING").length);
+        })
+        .catch(() => {});
     };
+    fetchBadges();
+    const iv = setInterval(fetchBadges, 30000);
+    return () => clearInterval(iv);
+  }, []);
 
-    const toggleGroup = (label: string) => {
-        setCollapsed(prev => ({ ...prev, [label]: !prev[label] }));
-    };
+  const handleLogout = async () => {
+    await axios.post(`${API_URL}/admin/auth/logout`, {}, { withCredentials: true }).catch(() => {});
+    localStorage.removeItem("sf_admin_token");
+    delete axios.defaults.headers.common["Authorization"];
+    router.push("/admin/login");
+  };
 
-    const DISPUTER_ALLOWED = new Set(['Dashboard', 'Transactions', 'Customers', 'Disputes', 'KYC Verification', 'Payouts']);
+  const visibleGroups = NAV_GROUPS.map(group => ({
+    ...group,
+    items: group.items.filter(item =>
+      role === "SUPER_ADMIN" ? true : DISPUTER_ALLOWED.has(item.name)
+    ),
+  })).filter(g => g.items.length > 0);
 
-    const visibleGroups = NAV_GROUPS.map(group => ({
-        ...group,
-        items: group.items.filter(item => {
-            if (role === 'SUPER_ADMIN') return true;
-            return DISPUTER_ALLOWED.has(item.name);
-        }),
-    })).filter(group => group.items.length > 0 && !(group.superAdminOnly && role !== 'SUPER_ADMIN'));
+  const initial = (user?.name?.[0] ?? "A").toUpperCase();
 
-    return (
-        <aside className="w-68 bg-gradient-to-b from-[#0a2d1d] to-[#05140b] flex flex-col h-screen sticky top-0 text-white overflow-hidden shadow-2xl z-50">
-            {/* Header */}
-            <div className="p-8 pb-4">
-                <div className="flex items-center gap-2 mb-8">
-                    <img src="/logo-main.svg" alt="Safeeely Logo" className="h-12 w-auto object-contain drop-shadow-sm" />
-                </div>
-            </div>
+  return (
+    <aside className="w-[238px] bg-white border-r border-[#e9eaec] flex flex-col h-screen fixed top-0 left-0 z-40 overflow-hidden">
 
-            {/* Search */}
-            <div className="px-6 mb-6">
-                <div className="relative group">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 group-hover:text-white/60 transition-colors" />
-                    <input
-                        type="text"
-                        placeholder="Search system..."
-                        className="w-full h-11 pl-10 pr-4 bg-white/5 border border-white/10 rounded-2xl text-[11px] font-bold focus:bg-white/10 outline-none transition-all text-white placeholder:text-white/30"
-                    />
-                </div>
-            </div>
+      {/* Logo */}
+      <div className="px-4 pt-5 pb-4 border-b border-[#f1f5f9] flex items-center gap-3">
+        <img src="/logo-main.svg" alt="Safeeely" className="h-8 w-auto" />
+        <span
+          className="text-[9.5px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full"
+          style={{ background: "#ecfdf5", color: "#059669", letterSpacing: "0.08em" }}
+        >
+          Admin · v2.0
+        </span>
+      </div>
 
-            {/* Navigation */}
-            <div className="flex-1 px-4 overflow-y-auto scrollbar-hide space-y-2">
-                {visibleGroups.map(group => {
-                    const isCollapsed = collapsed[group.label];
-                    return (
-                        <div key={group.label}>
-                            <button
-                                onClick={() => toggleGroup(group.label)}
-                                className="w-full flex items-center justify-between px-4 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/25 hover:text-white/40 transition-colors"
-                            >
-                                {group.label}
-                                <ChevronDown className={cn("w-3 h-3 transition-transform", isCollapsed ? "-rotate-90" : "")} />
-                            </button>
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto admin-area px-2 py-2.5 flex flex-col gap-0.5">
+        {visibleGroups.map(group => (
+          <div key={group.label} className="mb-1">
+            <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-[#cbd5e1]">
+              {group.label}
+            </p>
+            {group.items.map(item => {
+              const active = pathname === item.href || pathname.startsWith(item.href + "/");
+              const badgeCount =
+                item.badge === "disputes" ? unassignedCount :
+                item.badge === "kyc" ? pendingKyc : 0;
 
-                            {!isCollapsed && (
-                                <nav className="space-y-0.5">
-                                    {group.items.map(item => {
-                                        const active = pathname === item.href || pathname.startsWith(item.href + '/');
-                                        return (
-                                            <Link
-                                                key={item.name}
-                                                href={item.href}
-                                                className={cn(
-                                                    "flex items-center gap-3 px-4 py-3 rounded-2xl transition-all group outline-none",
-                                                    active
-                                                        ? "bg-white/15 text-white shadow-lg shadow-black/10 font-bold translate-x-1"
-                                                        : "text-white/50 hover:bg-white/5 hover:text-white font-medium hover:translate-x-1"
-                                                )}
-                                            >
-                                                <item.icon className={cn("w-4 h-4 transition-transform duration-300 shrink-0",
-                                                    active ? "text-emerald-400 scale-110" : "text-white/30 group-hover:text-emerald-400 group-hover:scale-110"
-                                                )} />
-                                                <span className="text-sm tracking-tight truncate">{item.name}</span>
-                                                <div className="ml-auto flex items-center gap-1.5 shrink-0">
-                                                    {item.name === 'Disputes' && unassignedCount > 0 && (
-                                                        <span className="px-1.5 py-0.5 text-[9px] font-black bg-rose-500 text-white rounded-full min-w-[18px] text-center leading-tight">
-                                                            {unassignedCount > 99 ? '99+' : unassignedCount}
-                                                        </span>
-                                                    )}
-                                                    {active && <div className="w-1 h-5 bg-emerald-400 rounded-full shadow-[0_0_10px_#10b981]" />}
-                                                </div>
-                                            </Link>
-                                        );
-                                    })}
-                                </nav>
-                            )}
-                        </div>
-                    );
-                })}
-            </div>
-
-            {/* Footer */}
-            <div className="p-6 space-y-2 mt-auto">
-                <div className="h-px bg-white/10 mb-4 mx-2" />
-                {role === 'SUPER_ADMIN' && (
-                    <Link href="/admin/settings"
-                        className="flex items-center gap-3 px-4 py-3 rounded-xl text-white/40 hover:bg-white/5 hover:text-white transition-all group">
-                        <Settings className="w-5 h-5 text-white/20 group-hover:text-white" />
-                        <span className="text-sm font-semibold tracking-tight">Settings</span>
-                    </Link>
-                )}
-                <Link href="/admin/help"
-                    className="flex items-center gap-3 px-4 py-3 rounded-xl text-white/40 hover:bg-white/5 hover:text-white transition-all group">
-                    <HelpCircle className="w-5 h-5 text-white/20 group-hover:text-white" />
-                    <span className="text-sm font-semibold tracking-tight">Help Center</span>
-                </Link>
-                <button
-                    onClick={handleLogout}
-                    className="w-full flex text-left items-center gap-3 px-4 py-3 rounded-xl text-rose-300/60 hover:bg-rose-500/10 hover:text-rose-400 transition-all group"
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-2.5 px-3 py-[9px] rounded-[9px] text-[13.5px] font-medium transition-colors relative",
+                    active
+                      ? "bg-[#f0fdf4] text-[#059669] font-semibold"
+                      : "text-[#64748b] hover:bg-[#f8f9fa] hover:text-[#0f172a]"
+                  )}
                 >
-                    <LogOut className="w-5 h-5" />
-                    <span className="text-sm font-semibold tracking-tight">Log Out</span>
-                </button>
-            </div>
-        </aside>
-    );
+                  <item.icon
+                    className={cn("w-[15px] h-[15px] shrink-0", active ? "text-[#059669]" : "text-[#94a3b8]")}
+                    strokeWidth={active ? 2.5 : 1.75}
+                  />
+                  <span className="flex-1 truncate">{item.name}</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {badgeCount > 0 && (
+                      <span
+                        className="text-[9px] font-black text-white rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center"
+                        style={{ background: item.badge === "kyc" ? "#f59e0b" : "#e11d48" }}
+                      >
+                        {badgeCount > 99 ? "99+" : badgeCount}
+                      </span>
+                    )}
+                    {active && (
+                      <span className="w-[5px] h-[5px] rounded-full bg-[#10b981] shrink-0" />
+                    )}
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        ))}
+      </nav>
+
+      {/* Footer */}
+      <div className="border-t border-[#f1f5f9] px-2 py-3">
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-[9px] text-[13px] font-medium text-[#64748b] hover:bg-[#f8f9fa] hover:text-[#0f172a] transition-colors"
+        >
+          <LogOut className="w-[15px] h-[15px] text-[#94a3b8]" strokeWidth={1.75} />
+          <span>Log Out</span>
+        </button>
+        <div className="flex items-center gap-2.5 px-3 py-2 mt-1">
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-[13px] font-black"
+            style={{ background: "#0f172a", color: "#10b981" }}
+          >
+            {initial}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[12.5px] font-bold text-[#0f172a] truncate">{user?.name ?? "Admin"}</p>
+            <p className="text-[10px] font-semibold text-[#10b981]">
+              {role === "SUPER_ADMIN" ? "Super Admin" : "Disputer"}
+            </p>
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
 }

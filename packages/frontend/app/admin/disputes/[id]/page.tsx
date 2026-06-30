@@ -37,7 +37,6 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 
@@ -469,7 +468,7 @@ export default function AdminDisputePage() {
 
     if (loading || !dispute) {
         return (
-            <div className="h-screen bg-[#020617] flex items-center justify-center">
+            <div className="h-screen bg-[#0f172a] flex items-center justify-center">
                 <div className="flex flex-col items-center gap-4">
                     <Shield className="w-12 h-12 text-emerald-500 animate-pulse" />
                     <p className="text-white text-[10px] font-black uppercase tracking-[0.3em]">Establishing Link...</p>
@@ -483,9 +482,9 @@ export default function AdminDisputePage() {
     return (
         <div className="h-screen bg-white flex overflow-hidden font-sans selection:bg-emerald-100">
             {/* Sidebar: Navigation */}
-            <div className="w-20 bg-[#020617] flex flex-col items-center py-8 gap-10 shrink-0 border-r border-white/5">
+            <div className="w-20 bg-[#0f172a] flex flex-col items-center py-8 gap-10 shrink-0 border-r border-white/5">
                 <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center p-2.5">
-                    <img src="/favicon.ico.png" alt="Safeeely" className="w-full h-full object-contain" />
+                    <img src="/logo-main.svg" alt="Safeeely" className="w-full h-full object-contain" />
                 </div>
                 <div className="flex flex-col gap-6">
                     <button onClick={() => router.push('/admin/dashboard')} className="w-12 h-12 rounded-2xl flex items-center justify-center text-slate-500 hover:bg-white/10 hover:text-white transition-all">
@@ -525,7 +524,7 @@ export default function AdminDisputePage() {
                                 onClick={() => setActiveTab('conversation')}
                                 className={cn(
                                     "px-6 h-10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
-                                    activeTab === 'conversation' ? "bg-slate-900 text-white shadow-lg shadow-slate-200" : "text-slate-400 hover:bg-slate-50"
+                                    activeTab === 'conversation' ? "bg-[#0f172a] text-white shadow-lg shadow-slate-200" : "text-slate-400 hover:bg-slate-50"
                                 )}
                             >
                                 Conversation
@@ -534,7 +533,7 @@ export default function AdminDisputePage() {
                                 onClick={() => setActiveTab('logs')}
                                 className={cn(
                                     "px-6 h-10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
-                                    activeTab === 'logs' ? "bg-slate-900 text-white shadow-lg shadow-slate-200" : "text-slate-400 hover:bg-slate-50"
+                                    activeTab === 'logs' ? "bg-[#0f172a] text-white shadow-lg shadow-slate-200" : "text-slate-400 hover:bg-slate-50"
                                 )}
                             >
                                 Transaction Logs
@@ -565,16 +564,16 @@ export default function AdminDisputePage() {
                             ))}
                         </div>
 
-                        <Button 
+                        <button
                             onClick={() => setSplitMode(!splitMode)}
                             className={cn(
-                                "h-11 px-6 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all",
-                                splitMode ? "bg-rose-500 text-white" : "bg-[#020617] text-white hover:bg-slate-800"
+                                "h-11 px-6 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all flex items-center",
+                                splitMode ? "bg-rose-500 text-white" : "bg-[#0f172a] text-white hover:bg-slate-800"
                             )}
                         >
                             <BadgePercent className="w-4 h-4 mr-2" />
                             {splitMode ? 'Close Settlement' : 'Initialize Settlement'}
-                        </Button>
+                        </button>
                         <div className="h-6 w-px bg-slate-100 mx-2" />
                         <div className="flex -space-x-3">
                             {[txn.buyer, txn.seller].map((user: any, i: number) => (
@@ -653,7 +652,7 @@ export default function AdminDisputePage() {
                                         <div key={msg.id} className={cn("flex gap-4 group", isSelf && "flex-row-reverse")}>
                                             <div className={cn(
                                                 "w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-sm transition-transform group-hover:scale-105",
-                                                isSystem ? "bg-[#020617] text-emerald-400" : (isSelf ? "bg-emerald-500 text-white" : "bg-white text-slate-400")
+                                                isSystem ? "bg-[#0f172a] text-emerald-400" : (isSelf ? "bg-emerald-500 text-white" : "bg-white text-slate-400")
                                             )}>
                                                 {isSystem ? <Zap className="w-5 h-5 fill-current" /> : (isSelf ? <User className="w-5 h-5" /> : <User className="w-5 h-5" />)}
                                             </div>
@@ -739,10 +738,10 @@ export default function AdminDisputePage() {
                                                 </div>
                                             </div>
                                             <div className="flex gap-3 flex-wrap">
-                                                <Button onClick={() => resolveDispute('REFUND_BUYER')} variant="outline" className="flex-1 rounded-2xl h-12 border-rose-200 text-rose-600 hover:bg-rose-50 font-black text-[10px] uppercase">100% Refund Buyer</Button>
-                                                <Button onClick={() => resolveDispute('PAY_SELLER')} variant="outline" className="flex-1 rounded-2xl h-12 border-emerald-200 text-emerald-600 hover:bg-emerald-50 font-black text-[10px] uppercase">100% Pay Seller</Button>
-                                                <Button onClick={() => resolveDispute('SPLIT')} className="flex-[1.5] rounded-2xl h-12 bg-emerald-500 hover:bg-emerald-600 text-white font-black text-[10px] uppercase shadow-lg shadow-emerald-100">Confirm Split Settlement</Button>
-                                                <Button onClick={() => resolveDispute('REFUND_AFTER_RETURN')} variant="outline" className="flex-1 rounded-2xl h-12 border-amber-200 text-amber-600 hover:bg-amber-50 font-black text-[10px] uppercase">🔄 Refund After Return</Button>
+                                                <button onClick={() => resolveDispute('REFUND_BUYER')} className="flex-1 rounded-2xl h-12 border border-rose-200 text-rose-600 hover:bg-rose-50 font-black text-[10px] uppercase transition-colors">100% Refund Buyer</button>
+                                                <button onClick={() => resolveDispute('PAY_SELLER')} className="flex-1 rounded-2xl h-12 border border-emerald-200 text-emerald-600 hover:bg-emerald-50 font-black text-[10px] uppercase transition-colors">100% Pay Seller</button>
+                                                <button onClick={() => resolveDispute('SPLIT')} className="flex-[1.5] rounded-2xl h-12 bg-emerald-500 hover:bg-emerald-600 text-white font-black text-[10px] uppercase shadow-lg shadow-emerald-100 transition-colors">Confirm Split Settlement</button>
+                                                <button onClick={() => resolveDispute('REFUND_AFTER_RETURN')} className="flex-1 rounded-2xl h-12 border border-amber-200 text-amber-600 hover:bg-amber-50 font-black text-[10px] uppercase transition-colors">🔄 Refund After Return</button>
                                             </div>
                                         </div>
                                     </div>
@@ -770,12 +769,12 @@ export default function AdminDisputePage() {
                                             </div>
                                             
                                             {!hasAdminJoined && (
-                                                <Button 
+                                                <button
                                                     onClick={handleJoinChat}
-                                                    className="h-9 px-6 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-100 animate-in fade-in slide-in-from-left-2"
+                                                    className="h-9 px-6 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-100 animate-in fade-in slide-in-from-left-2 transition-colors"
                                                 >
                                                     Join Chat
-                                                </Button>
+                                                </button>
                                             )}
                                         </div>
                                         
@@ -854,7 +853,7 @@ export default function AdminDisputePage() {
                                             <button 
                                                 onClick={() => handleSendMessage()}
                                                 disabled={!hasAdminJoined || (!message.trim() && attachments.length === 0)}
-                                                className="px-8 h-12 bg-slate-900 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-emerald-600 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                                                className="px-8 h-12 bg-[#0f172a] text-white rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-emerald-600 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                                             >
                                                 Send
                                             </button>
@@ -868,7 +867,7 @@ export default function AdminDisputePage() {
                     <div className="flex-1 overflow-y-auto p-12 bg-slate-50/30 custom-scrollbar">
                         <div className="max-w-3xl mx-auto space-y-12">
                             {/* Summary Card */}
-                            <div className="bg-[#020617] p-10 rounded-[48px] text-white overflow-hidden relative">
+                            <div className="bg-[#0f172a] p-10 rounded-[48px] text-white overflow-hidden relative">
                                 <div className="absolute top-0 right-0 p-12 opacity-10">
                                     <Activity className="w-48 h-48 text-emerald-400" />
                                 </div>
@@ -1065,7 +1064,7 @@ export default function AdminDisputePage() {
                                                     <p className="mt-3 text-[10px] text-slate-600 leading-relaxed font-medium border-t border-black/5 pt-3">{sop.rule_body}</p>
                                                     <button
                                                         onClick={() => applySopToChat(sop)}
-                                                        className="mt-3 w-full h-8 rounded-xl bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-colors"
+                                                        className="mt-3 w-full h-8 rounded-xl bg-[#0f172a] text-white text-[9px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-colors"
                                                     >
                                                         Apply to Chat
                                                     </button>
@@ -1165,7 +1164,7 @@ export default function AdminDisputePage() {
                         </div>
                     )}
 
-                    <div className="p-6 bg-[#020617] rounded-[40px] text-white">
+                    <div className="p-6 bg-[#0f172a] rounded-[40px] text-white">
                         <div className="flex items-center gap-3 mb-4">
                             <div className="w-10 h-10 bg-white/10 rounded-2xl flex items-center justify-center">
                                 <RotateCcw className="w-5 h-5 text-emerald-400" />
@@ -1223,20 +1222,19 @@ export default function AdminDisputePage() {
                             </div>
                         </div>
                         <div className="flex gap-3 mt-6">
-                            <Button
+                            <button
                                 onClick={() => setShowReassign(false)}
-                                variant="outline"
-                                className="flex-1 h-12 rounded-2xl font-black text-[10px] uppercase"
+                                className="flex-1 h-12 rounded-2xl border border-slate-200 text-slate-700 font-black text-[10px] uppercase hover:bg-slate-50 transition-colors"
                             >
                                 Cancel
-                            </Button>
-                            <Button
+                            </button>
+                            <button
                                 onClick={reassignSpecialist}
                                 disabled={!reassignAdminId || reassignLoading}
-                                className="flex-1 h-12 rounded-2xl bg-indigo-500 hover:bg-indigo-600 text-white font-black text-[10px] uppercase shadow-lg shadow-indigo-100"
+                                className="flex-1 h-12 rounded-2xl bg-indigo-500 hover:bg-indigo-600 text-white font-black text-[10px] uppercase shadow-lg shadow-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                             >
                                 {reassignLoading ? 'Assigning...' : 'Confirm Reassign'}
-                            </Button>
+                            </button>
                         </div>
                     </div>
                 </div>

@@ -161,7 +161,7 @@
   .sf-h1 { font-size: 42px; }
 }
 
-/* Green scrollbar */
+/* Green scrollbar (non-admin) */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -178,3 +178,50 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #059669;
 }
+
+/* ── Admin Design System ── */
+.admin-area ::-webkit-scrollbar { width: 4px; height: 4px; }
+.admin-area ::-webkit-scrollbar-track { background: transparent; }
+.admin-area ::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 99px; }
+
+/* Status chips */
+.adm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.chip-green  { background: #f0fdf4; color: #16a34a; }
+.chip-red    { background: #fff1f2; color: #e11d48; }
+.chip-blue   { background: #eff6ff; color: #2563eb; }
+.chip-amber  { background: #fffbeb; color: #d97706; }
+.chip-purple { background: #fdf4ff; color: #9333ea; }
+.chip-slate  { background: #f1f5f9; color: #475569; }
+
+/* Section group label */
+.adm-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+/* Admin card hover lift */
+.adm-card-lift {
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+.adm-card-lift:hover {
+  box-shadow: 0 6px 24px rgba(15,23,42,.09);
+  transform: translateY(-1px);
+}
+
+/* Admin login bob animations */
+@keyframes adminBobA { 0%,100% { transform:translateY(0) rotate(0deg); } 50% { transform:translateY(-18px) rotate(2deg); } }
+@keyframes adminBobB { 0%,100% { transform:translateY(0) rotate(0deg); } 50% { transform:translateY(-14px) rotate(-2deg); } }
+.admin-bob-a { animation: adminBobA 4s ease-in-out infinite; }
+.admin-bob-b { animation: adminBobB 5s ease-in-out infinite; }
