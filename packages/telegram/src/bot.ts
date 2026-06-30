@@ -359,18 +359,25 @@ bot.action('reviews', async (ctx) => {
         const profileRes = await axios.get(`${API_URL}/profiles/by_platform/telegram/${ctx.from?.id}`);
         const safetag = profileRes.data.safetag;
 
-        const [statsRes, cardRes] = await Promise.all([
+        const [statsRes, cardRes, badgesRes] = await Promise.all([
             axios.get(`${API_URL}/reviews/stats/${safetag}`),
             axios.get(`${API_URL}/profiles/${encodeURIComponent(safetag)}/badge-card`, { responseType: 'arraybuffer' }),
+            axios.get(`${API_URL}/profiles/${encodeURIComponent(safetag)}/badges`),
         ]);
 
         const { average_rating, review_count } = statsRes.data;
+        const badges = badgesRes.data || [];
         const rating = average_rating || 0;
         const starsInt = Math.round(rating);
         const stars = '⭐'.repeat(starsInt) + '☆'.repeat(5 - starsInt);
 
+        let badgeList = '';
+        if (badges.length > 0) {
+            badgeList = '\n🏆 <b>Badges:</b> ' + badges.map((b: any) => `${b.emoji} ${b.label}`).join(' | ');
+        }
+
         const reviewsUrl = await buildMagicLink({ platform_id: String(ctx.from!.id), scope: 'reviews', fallbackUrl: `${REVIEWS_URL}/reviews/${encodeURIComponent(safetag)}` });
-        const caption = `⭐ <b>Reviews & Ratings</b>\n\nTrust score: <b>${rating.toFixed(1)}/5 ${stars}</b> (${review_count} review${review_count !== 1 ? 's' : ''})\n\nYou can view your full review history on our platform.`;
+        const caption = `⭐ <b>Reviews & Ratings</b>\n\nYou have a trust score of <b>${rating.toFixed(1)}/5 ${stars}</b> (based on <b>${review_count}</b> reviews).${badgeList}\n\nYou can view your full review history on our external platform.`;
         return ctx.replyWithPhoto(
             { source: Buffer.from(cardRes.data) },
             {

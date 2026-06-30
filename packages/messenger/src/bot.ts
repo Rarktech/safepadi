@@ -1340,13 +1340,18 @@ async function handlePostback(psid: string, payload: string) {
             const p = await getProfile(psid);
             const safetag = p.safetag.startsWith('@') ? p.safetag : `@${p.safetag}`;
             const reviewsUrl = `${REVIEWS_URL}/${safetag}`;
-            const statsRes = await axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(safetag)}`);
+            const [statsRes, badgesRes] = await Promise.all([
+                axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(safetag)}`),
+                axios.get(`${API_URL}/profiles/${encodeURIComponent(safetag)}/badges`),
+            ]);
             const { average_rating, review_count } = statsRes.data;
+            const badges = badgesRes.data || [];
             const rating = Number(average_rating || 0);
             const starsCount = Math.round(rating);
             const stars = '⭐'.repeat(starsCount) + '☆'.repeat(Math.max(0, 5 - starsCount));
+            const badgeLine = badges.length > 0 ? `\n🏆 Badges: ${badges.map((b: any) => `${b.emoji || ''} ${b.label}`).join(' | ')}` : '';
             const badgeCardUrl = `${API_URL}/profiles/${encodeURIComponent(safetag)}/badge-card`;
-            const statsMsg = `⭐ Reviews & Ratings\n\nTrust score: ${rating.toFixed(1)}/5 ${stars}\nBased on ${review_count} review${review_count !== 1 ? 's' : ''}.\n\nTap below to view your full review history.`;
+            const statsMsg = `⭐ Reviews & Ratings\n\nYour trust score: ${rating.toFixed(1)}/5 ${stars}\nBased on ${review_count} review${review_count !== 1 ? 's' : ''}.${badgeLine}\n\nTap below to view your full review history.`;
             await sendMsg(psid, { attachment: { type: 'image', payload: { url: badgeCardUrl, is_reusable: false } } }, 'ACCOUNT_UPDATE');
             await sendMsg(psid, btnTemplate(statsMsg, [{ type: 'web_url', url: reviewsUrl, title: '⭐ View My Reviews' }]), 'ACCOUNT_UPDATE');
         } catch (_) {
