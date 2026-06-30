@@ -208,7 +208,10 @@ export async function runFinalizeSideEffects(txn: any): Promise<void> {
                     const totalSpent = buyerTxns.reduce((sum, t) => sum + Number(t.total_amount), 0);
                     if (totalSpent >= 1000000) {
                         const { error: e1 } = await supabase.from('profile_badges').insert({ profile_id: buyerId, badge_key: 'whale_buyer' });
-                        if (!e1) console.log(`🏆 Awarded Whale Buyer badge to ${buyerId}`);
+                        if (!e1) {
+                            console.log(`🏆 Awarded Whale Buyer badge to ${buyerId}`);
+                            routeNotification(buyerId, `🏆 You've earned a new badge!\n\n🐋 Whale Buyer\nYou've completed over ₦1,000,000 in escrow trades. You're one of our biggest traders!`, undefined, `${process.env.REVIEWS_URL || 'http://localhost:3001'}/badges/notifications/whale_buyer_badge.webp`, undefined, true).catch(() => {});
+                        }
                     }
                 }
 
@@ -224,7 +227,10 @@ export async function runFinalizeSideEffects(txn: any): Promise<void> {
                         const { data: sellerDisputes } = await supabase.from('disputes').select('id').in('transaction_id', txnIds);
                         if (!sellerDisputes || sellerDisputes.length === 0) {
                             const { error: e2 } = await supabase.from('profile_badges').insert({ profile_id: sellerId, badge_key: 'zero_drama' });
-                            if (!e2) console.log(`🏆 Awarded Zero Drama badge to ${sellerId}`);
+                            if (!e2) {
+                                console.log(`🏆 Awarded Zero Drama badge to ${sellerId}`);
+                                routeNotification(sellerId, `🏆 You've earned a new badge!\n\n🕊️ Zero Drama\nYou've completed 20+ trades with zero disputes. Pure professionalism!`, undefined, `${process.env.REVIEWS_URL || 'http://localhost:3001'}/badges/notifications/zero_drama_badge.webp`, undefined, true).catch(() => {});
+                            }
                         }
                     }
 
@@ -235,7 +241,10 @@ export async function runFinalizeSideEffects(txn: any): Promise<void> {
                             const avgRating = sellerReviews.reduce((sum, r) => sum + r.rating, 0) / sellerReviews.length;
                             if (avgRating >= 4.5) {
                                 const { error: e3 } = await supabase.from('profile_badges').insert({ profile_id: sellerId, badge_key: 'trusted_seller' });
-                                if (!e3) console.log(`🏆 Awarded Trusted Seller badge to ${sellerId}`);
+                                if (!e3) {
+                                    console.log(`🏆 Awarded Trusted Seller badge to ${sellerId}`);
+                                    routeNotification(sellerId, `🏆 You've earned a new badge!\n\n🛡️ Trusted Seller\nYou've completed 10+ trades with a 4.5+ star rating. Buyers trust you!`, undefined, `${process.env.REVIEWS_URL || 'http://localhost:3001'}/badges/notifications/trusted_seller.webp`, undefined, true).catch(() => {});
+                                }
                             }
                         }
                     }

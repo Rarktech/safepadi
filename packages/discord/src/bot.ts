@@ -1812,28 +1812,22 @@ client.on('interactionCreate', async (interaction) => {
                 try {
                     const profileRes = await axios.get(`${API_URL}/profiles/by_platform/discord/${interaction.user.id}`);
                     const safetag = profileRes.data.safetag;
-                    const [sRes, bRes] = await Promise.all([
+                    const [sRes, cardRes] = await Promise.all([
                         axios.get(`${API_URL}/reviews/stats/${safetag}`),
-                        axios.get(`${API_URL}/profiles/${safetag}/badges`)
+                        axios.get(`${API_URL}/profiles/${encodeURIComponent(safetag)}/badge-card`, { responseType: 'arraybuffer' }),
                     ]);
-                    
-                    const { average_rating, review_count } = sRes.data;
-                    const badges = bRes.data;
 
+                    const { average_rating, review_count } = sRes.data;
                     const rating = average_rating || 0;
                     const starsInt = Math.round(rating);
                     const stars = '⭐'.repeat(starsInt) + '☆'.repeat(5 - starsInt);
 
-                    let badgeList = '';
-                    if (badges && badges.length > 0) {
-                        badgeList = '\n🏆 **Badges:** ' + badges.map((b: any) => `${b.emoji} ${b.label}`).join(' | ');
-                    }
-
-                    const msg = `⭐ **Reviews & Ratings**\n\nYou have a trust score of **${rating.toFixed(1)}/5 ${stars}** (based on **${review_count}** reviews).${badgeList}\n\nYou can view your full review history on our external platform.`;
+                    const msg = `⭐ **Reviews & Ratings**\n\nTrust score: **${rating.toFixed(1)}/5 ${stars}** (${review_count} review${review_count !== 1 ? 's' : ''})\n\nYou can view your full review history on our platform.`;
 
                     const reviewsUrl = await buildMagicLink({ platform_id: interaction.user.id, scope: 'reviews', fallbackUrl: `${REVIEWS_URL}/reviews/${encodeURIComponent(safetag)}` });
                     await interaction.editReply({
                         content: msg,
+                        files: [{ attachment: Buffer.from(cardRes.data), name: 'badge-card.webp' }],
                         components: [{
                             type: 1, components: [
                                 { type: 2, label: '👌 View Reviews', style: 5, url: reviewsUrl },

@@ -1322,26 +1322,18 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
             const p = await getProfile(from);
             const safetag = p.safetag.startsWith('@') ? p.safetag : `@${p.safetag}`;
 
-            const [statsRes, badgesRes] = await Promise.all([
-                axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(safetag)}`),
-                axios.get(`${API_URL}/profiles/${encodeURIComponent(safetag)}/badges`),
-            ]);
-
+            const statsRes = await axios.get(`${API_URL}/reviews/stats/${encodeURIComponent(safetag)}`);
             const { average_rating, review_count } = statsRes.data;
-            const badges: any[] = badgesRes.data || [];
             const rating = Number(average_rating || 0);
             const starsCount = Math.round(rating);
             const stars = '⭐'.repeat(starsCount) + '☆'.repeat(Math.max(0, 5 - starsCount));
 
-            let badgeLine = '';
-            if (badges.length > 0) {
-                badgeLine = `\n🏆 *Badges:* ${badges.map((b: any) => `${b.emoji || ''} ${b.label}`).join(' | ')}`;
-            }
-
-            const msg = `⭐ *Reviews & Ratings*\n\nYour trust score: *${rating.toFixed(1)}/5* ${stars}\nBased on *${review_count}* review${review_count !== 1 ? 's' : ''}.${badgeLine}\n\nTap below to view your full review history and see feedback from your trading partners.`;
-
+            const caption = `⭐ *Reviews & Ratings*\n\nTrust score: *${rating.toFixed(1)}/5* ${stars}\nBased on *${review_count}* review${review_count !== 1 ? 's' : ''}.`;
+            const badgeCardUrl = `${API_URL}/profiles/${encodeURIComponent(safetag)}/badge-card`;
             const reviewsUrl = `${REVIEWS_URL}/reviews/${encodeURIComponent(safetag)}`;
-            await sendCTAUrl(from, msg, '⭐ View Full Reviews', reviewsUrl);
+
+            await sendImage(from, badgeCardUrl, caption);
+            await sendCTAUrl(from, '⭐ View your full review history and see feedback from your trading partners.', '⭐ View Full Reviews', reviewsUrl);
         } catch (_) { await sendText(from, '❌ Could not load your reviews. Please try again.'); }
 
     // My transactions

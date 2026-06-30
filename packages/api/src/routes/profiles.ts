@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
-import { sendNotification, sendReferralNotification, recordNotification } from '../services/notifications';
+import path from 'path';
+import sharp from 'sharp';
+import { sendNotification, sendReferralNotification, recordNotification, routeNotification } from '../services/notifications';
 import { sendEmail } from '../services/email';
 import multer from 'multer';
 import rateLimit from 'express-rate-limit';
@@ -163,6 +165,14 @@ router.post('/register', async (req, res) => {
                 earlyBirdAwarded = true;
                 console.log(`🏆 Awarded Early Bird badge to ${profile.id} (Total users: ${count})`);
                 track(profile.safetag, 'early_bird_awarded', { total_users_at_award: count });
+                routeNotification(
+                    profile.id,
+                    `🏆 You've earned a new badge!\n\n🐣 Early Bird\nYou were among the first 100 users to join Safeeely. Welcome to the future of safe trades!`,
+                    undefined,
+                    `${process.env.REVIEWS_URL || 'http://localhost:3001'}/badges/notifications/early_bird_badge.webp`,
+                    undefined,
+                    true
+                ).catch(() => {});
             }
         } catch (badgeErr) {
             console.error('Failed to award Early Bird badge:', badgeErr);
@@ -845,24 +855,83 @@ router.get('/:safetag/badges', async (req, res) => {
 
         if (error) throw error;
 
-        const BADGE_CONFIG: Record<string, { label: string, emoji: string }> = {
-            'early_bird': { label: 'Early Bird', emoji: '🐣' },
-            'whale_buyer': { label: 'Whale Buyer', emoji: '🐋' },
-            'trusted_seller': { label: 'Trusted Seller', emoji: '🛡️' },
-            'zero_drama': { label: 'Zero Drama', emoji: '🕊️' },
-            'verified_kyc': { label: 'KYC Verified', emoji: '✅' }
+        const REVIEWS_URL_BASE = process.env.REVIEWS_URL || 'http://localhost:3001';
+        const BADGE_CONFIG: Record<string, { label: string, emoji: string, awardImageUrl: string, description: string }> = {
+            'early_bird':     { label: 'Early Bird',     emoji: '🐣', awardImageUrl: `${REVIEWS_URL_BASE}/badges/notifications/early_bird_badge.webp`,  description: 'You were among the first 100 users to join Safeeely!' },
+            'whale_buyer':    { label: 'Whale Buyer',    emoji: '🐋', awardImageUrl: `${REVIEWS_URL_BASE}/badges/notifications/whale_buyer_badge.webp`, description: 'You\'ve completed over ₦1,000,000 in escrow trades!' },
+            'trusted_seller': { label: 'Trusted Seller', emoji: '🛡️', awardImageUrl: `${REVIEWS_URL_BASE}/badges/notifications/trusted_seller.webp`,   description: 'You\'ve completed 10+ trades with a 4.5+ star rating!' },
+            'zero_drama':     { label: 'Zero Drama',     emoji: '🕊️', awardImageUrl: `${REVIEWS_URL_BASE}/badges/notifications/zero_drama_badge.webp`,  description: 'You\'ve completed 20+ trades with zero disputes!' },
+            'verified_kyc':   { label: 'KYC Verified',   emoji: '✅', awardImageUrl: `${REVIEWS_URL_BASE}/badges/notifications/verified_user.webp`,     description: 'Your identity has been verified on Safeeely!' },
         };
 
         const result = (badges || []).map(b => ({
             key: b.badge_key,
             label: BADGE_CONFIG[b.badge_key]?.label || b.badge_key,
             emoji: BADGE_CONFIG[b.badge_key]?.emoji || '🏅',
+            imageUrl: BADGE_CONFIG[b.badge_key]?.awardImageUrl,
+            description: BADGE_CONFIG[b.badge_key]?.description,
             awarded_at: b.created_at
         }));
 
         res.json(result);
     } catch (err: any) {
         res.status(400).json({ error: err.message });
+    }
+});
+
+// Generate composited badge card image for the reviews section of all bots
+router.get('/:safetag/badge-card', async (req, res) => {
+    try {
+        const { safetag } = req.params;
+        const withAt = safetag.startsWith('@') ? safetag : `@${safetag}`;
+        const withoutAt = safetag.startsWith('@') ? safetag.slice(1) : safetag;
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('id')
+            .or(`safetag.ilike.${withAt},safetag.ilike.${withoutAt}`)
+            .maybeSingle();
+
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+        const { data: badges } = await supabase
+            .from('profile_badges')
+            .select('badge_key')
+            .eq('profile_id', profile.id);
+
+        const earnedKeys = new Set((badges || []).map((b: any) => b.badge_key));
+
+        const BADGE_LAYERS: { file: string, condition: 'always' | 'badge', key?: string }[] = [
+            { file: '01_background_image.webp',          condition: 'always' },
+            { file: '02_badge_verified_user_white.webp',  condition: 'always' },
+            { file: '03_badge_early_bird_white.webp',     condition: 'always' },
+            { file: '04_badge_verified_user.webp',        condition: 'badge',  key: 'verified_kyc'   },
+            { file: '05_badge_whale_buyer_white.webp',    condition: 'always' },
+            { file: '06_badge_zero_drama_white.webp',     condition: 'always' },
+            { file: '07_badge_trusted_seller_white.webp', condition: 'always' },
+            { file: '08_badge_trusted_seller.webp',       condition: 'badge',  key: 'trusted_seller' },
+            { file: '09_badge_early_bird.webp',           condition: 'badge',  key: 'early_bird'     },
+            { file: '10_badge_whale_buyer.webp',          condition: 'badge',  key: 'whale_buyer'    },
+            { file: '11_badge_zero_drama.webp',           condition: 'badge',  key: 'zero_drama'     },
+        ];
+
+        const BADGES_DIR = path.join(__dirname, '../../../../frontend/public/badges');
+
+        const activeLayers = BADGE_LAYERS.filter(l =>
+            l.condition === 'always' || (l.condition === 'badge' && earnedKeys.has(l.key!))
+        );
+
+        const [base, ...overlays] = activeLayers;
+        const composite = await sharp(path.join(BADGES_DIR, base.file))
+            .composite(overlays.map(l => ({ input: path.join(BADGES_DIR, l.file), top: 0, left: 0 })))
+            .webp({ quality: 85 })
+            .toBuffer();
+
+        res.set('Content-Type', 'image/webp');
+        res.set('Cache-Control', 'public, max-age=300');
+        res.send(composite);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
     }
 });
 

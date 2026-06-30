@@ -346,12 +346,16 @@ app.post('/webhook/:token', (req, res) => {
                             axios.get(`${API_URL}/profiles/${encodeURIComponent(cleanSafetag)}/badges`),
                         ]);
                         const { average_rating, review_count } = statsRes.data;
-                        const badges = badgesRes.data || [];
+                        const badges: any[] = badgesRes.data || [];
                         const rating = Number(average_rating || 0);
                         const starsCount = Math.round(rating);
                         const stars = '⭐'.repeat(starsCount) + '☆'.repeat(Math.max(0, 5 - starsCount));
-                        let badgeLine = badges.length > 0 ? `\nBadges: ${badges.map((b: any) => `${b.emoji || ''} ${b.label}`).join(' | ')}` : '';
-                        const reviewMsg = `⭐ Reviews & Ratings\n\nYour trust score: ${rating.toFixed(1)}/5 ${stars}\nBased on ${review_count} review${review_count !== 1 ? 's' : ''}.${badgeLine}\n\nTap below to view your full review history.`;
+                        let badgeSection = '';
+                        if (badges.length > 0) {
+                            const badgeLines = badges.map((b: any) => `${b.emoji || '🏅'} ${b.label}${b.description ? ` — ${b.description}` : ''}`).join('\n');
+                            badgeSection = `\n\n🏆 Your Badges:\n${badgeLines}`;
+                        }
+                        const reviewMsg = `⭐ Reviews & Ratings\n\nTrust score: ${rating.toFixed(1)}/5 ${stars}\nBased on ${review_count} review${review_count !== 1 ? 's' : ''}.${badgeSection}\n\nView your full review history:`;
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: reviewMsg });
                         const reviewLink = `${FRONTEND_URL}/reviews/${encodeURIComponent(cleanSafetag)}`;
                         await sendJivoChatMessage(clientId, chatId, { type: 'TEXT', text: reviewLink });
