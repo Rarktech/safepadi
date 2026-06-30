@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { getBrowser } from './puppeteer';
+import { withPage } from './puppeteer';
 import { generateInvoiceTemplate, InvoiceData } from '../templates/invoiceTemplate';
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY || process.env.SMTP_PASS;
@@ -47,17 +47,14 @@ export async function sendTransactionInvoiceEmail(data: InvoiceData) {
     const html = generateInvoiceTemplate(data);
 
     let pdfBase64: string | undefined;
-    let page: import('puppeteer').Page | null = null;
     try {
-        const browser = await getBrowser();
-        page = await browser.newPage();
-        await page.setContent(html, { waitUntil: 'networkidle0' as any });
-        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
+        const pdfBuffer = await withPage(async (page) => {
+            await page.setContent(html, { waitUntil: 'networkidle0' as any });
+            return page.pdf({ format: 'A4', printBackground: true });
+        });
         pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
     } catch (err: any) {
         console.error('❌ [Invoice] PDF generation failed, sending email without attachment:', err.message);
-    } finally {
-        if (page) await page.close().catch(() => {});
     }
 
     const subject = `Invoice #${data.txnCode} from ${data.seller.firstName} (${data.seller.safetag})`;

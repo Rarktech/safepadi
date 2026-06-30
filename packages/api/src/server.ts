@@ -124,4 +124,5 @@ app.listen(PORT, () => {
 
 process.on('SIGTERM', () => {
     shutdownPostHog().catch(() => {});
+    import('./services/puppeteer').then(({ closeBrowser }) => closeBrowser()).catch(() => {});
 });

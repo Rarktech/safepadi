@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
-import { getBrowser } from '../services/puppeteer';
+import { withPage } from '../services/puppeteer';
 import { generateReceiptTemplate } from '../templates/receiptTemplate';
 
 const router = Router();
@@ -88,32 +88,21 @@ router.get('/:txnCode.png', async (req, res) => {
         const htmlContent = generateReceiptTemplate(templateData as any);
 
         // Render HTML to PNG using Puppeteer
-        const browser = await getBrowser();
-        const page = await browser.newPage();
-        
-        try {
+        const screenshot = await withPage(async (page) => {
             await page.setViewport({ width: 600, height: 800 });
             await page.setContent(htmlContent, { waitUntil: 'load', timeout: 20000 });
-
             const element = await page.$('body');
-            if (!element) {
-                throw new Error("Failed to find body element in the template");
-            }
+            if (!element) throw new Error('Failed to find body element in the template');
+            return await element.screenshot({ type: 'png' }) as Buffer;
+        });
 
-            const screenshot = await element.screenshot({ type: 'png' }) as Buffer;
-            await page.close();
+        // Persist to Supabase Storage (fire-and-forget)
+        supabase.storage.from('receipts').upload(sKey, screenshot, { contentType: 'image/png', upsert: true })
+            .catch(e => console.error('[Receipt Service] Storage upload error:', e));
 
-            // Persist to Supabase Storage (fire-and-forget)
-            supabase.storage.from('receipts').upload(sKey, screenshot, { contentType: 'image/png', upsert: true })
-                .catch(e => console.error('[Receipt Service] Storage upload error:', e));
-
-            res.setHeader('Content-Type', 'image/png');
-            res.setHeader('Cache-Control', 'public, max-age=31536000');
-            res.send(screenshot);
-        } catch (err) {
-            await page.close().catch(() => {});
-            throw err;
-        }
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=31536000');
+        res.send(screenshot);
 
     } catch (err: any) {
         console.error('Failed to generate receipt:', err);

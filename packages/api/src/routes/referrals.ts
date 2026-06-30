@@ -1,10 +1,9 @@
 import { Router } from 'express';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '@safepal/shared';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
-import { Browser } from 'puppeteer';
-import { getBrowser } from '../services/puppeteer';
+import { withPage } from '../services/puppeteer';
 import { generateReferralTemplate, generateReferralQrTemplate } from '../templates/referralTemplate';
 
 // Read logo-mark.svg once at startup and embed as base64 data URL.
@@ -26,9 +25,6 @@ if (!_bgDataUrl) {
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
 const router = Router();
-const supabase = createClient(process.env.SUPABASE_URL || '', process.env.SUPABASE_SERVICE_ROLE_KEY || '');
-
-// Browser instance manager removed - handled by service
 
 // Public endpoint: returns current referral commission rates (no auth required)
 router.get('/rates', async (req, res) => {
@@ -206,39 +202,27 @@ router.get('/:safetag/card', async (req, res) => {
             bgDataUrl: _bgDataUrl
         });
 
-        const browser = await getBrowser();
-        const page = await browser.newPage();
-        page.on('pageerror', (err) => console.error('[Referral Card] Page error:', err));
-        page.on('console', (msg) => {
-            if (msg.type() === 'error') console.error('[Referral Card] Console error:', msg.text());
-        });
-
-        try {
+        const screenshot = await withPage(async (page) => {
+            page.on('pageerror', (err) => console.error('[Referral Card] Page error:', err));
+            page.on('console', (msg) => {
+                if (msg.type() === 'error') console.error('[Referral Card] Console error:', msg.text());
+            });
             await page.setViewport({ width: 1000, height: 1150 });
             await page.setContent(htmlContent, { waitUntil: 'networkidle2' as any, timeout: 50000 });
-
             // Allow time for Google Fonts + qrcodejs CDN script to execute and canvas to render
             await new Promise(r => setTimeout(r, 1500));
-
             const element = await page.$('.canvas');
-            if (!element) {
-                throw new Error("Failed to find canvas element in the template");
-            }
+            if (!element) throw new Error('Failed to find canvas element in the template');
+            return await element.screenshot({ type: 'png' }) as Buffer;
+        });
 
-            const screenshot = await element.screenshot({ type: 'png' }) as Buffer;
-            await page.close();
+        // Persist to Supabase Storage (fire-and-forget)
+        supabase.storage.from('receipts').upload(sKey, screenshot, { contentType: 'image/png', upsert: true })
+            .catch(e => console.error('[Referral Card] Storage upload error:', e));
 
-            // Persist to Supabase Storage (fire-and-forget)
-            supabase.storage.from('receipts').upload(sKey, screenshot, { contentType: 'image/png', upsert: true })
-                .catch(e => console.error('[Referral Card] Storage upload error:', e));
-
-            res.setHeader('Content-Type', 'image/png');
-            res.setHeader('Cache-Control', 'public, max-age=86400');
-            res.send(screenshot);
-        } catch (err) {
-            await page.close().catch(() => {});
-            throw err;
-        }
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        res.send(screenshot);
 
     } catch (err: any) {
         console.error('Failed to generate referral card:', err);
@@ -270,36 +254,25 @@ router.get('/:safetag/qr', async (req, res) => {
             logoDataUrl: _logoDataUrl,
         });
 
-        const browser = await getBrowser();
-        const page = await browser.newPage();
-        page.on('pageerror', (err) => console.error('[Referral QR] Page error:', err));
-        page.on('console', (msg) => {
-            if (msg.type() === 'error') console.error('[Referral QR] Console error:', msg.text());
-        });
-
-        try {
+        const screenshot = await withPage(async (page) => {
+            page.on('pageerror', (err) => console.error('[Referral QR] Page error:', err));
+            page.on('console', (msg) => {
+                if (msg.type() === 'error') console.error('[Referral QR] Console error:', msg.text());
+            });
             await page.setViewport({ width: 380, height: 380 });
             await page.setContent(htmlContent, { waitUntil: 'networkidle2' as any, timeout: 50000 });
             await new Promise(r => setTimeout(r, 1500));
-
             const element = await page.$('.qr-wrap');
-            if (!element) {
-                throw new Error('Failed to find qr-wrap element in the template');
-            }
+            if (!element) throw new Error('Failed to find qr-wrap element in the template');
+            return await element.screenshot({ type: 'png' }) as Buffer;
+        });
 
-            const screenshot = await element.screenshot({ type: 'png' }) as Buffer;
-            await page.close();
+        supabase.storage.from('receipts').upload(sKey, screenshot, { contentType: 'image/png', upsert: true })
+            .catch(e => console.error('[Referral QR] Storage upload error:', e));
 
-            supabase.storage.from('receipts').upload(sKey, screenshot, { contentType: 'image/png', upsert: true })
-                .catch(e => console.error('[Referral QR] Storage upload error:', e));
-
-            res.setHeader('Content-Type', 'image/png');
-            res.setHeader('Cache-Control', 'public, max-age=86400');
-            res.send(screenshot);
-        } catch (err) {
-            await page.close().catch(() => {});
-            throw err;
-        }
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        res.send(screenshot);
     } catch (err: any) {
         console.error('Failed to generate referral QR:', err);
         res.status(500).send('Internal Server Error');
