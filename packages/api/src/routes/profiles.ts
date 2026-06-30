@@ -901,14 +901,14 @@ router.get('/:safetag/badge-card', async (req, res) => {
 
         const earnedKeys = new Set((badges || []).map((b: any) => b.badge_key));
 
-        const BADGE_LAYERS: { file: string, condition: 'always' | 'badge', key?: string }[] = [
+        const BADGE_LAYERS: { file: string, condition: 'always' | 'badge' | 'locked', key?: string }[] = [
             { file: '01_background_image.webp',          condition: 'always' },
-            { file: '02_badge_verified_user_white.webp',  condition: 'always' },
-            { file: '03_badge_early_bird_white.webp',     condition: 'always' },
+            { file: '02_badge_verified_user_white.webp',  condition: 'locked', key: 'verified_kyc'   },
+            { file: '03_badge_early_bird_white.webp',     condition: 'locked', key: 'early_bird'     },
             { file: '04_badge_verified_user.webp',        condition: 'badge',  key: 'verified_kyc'   },
-            { file: '05_badge_whale_buyer_white.webp',    condition: 'always' },
-            { file: '06_badge_zero_drama_white.webp',     condition: 'always' },
-            { file: '07_badge_trusted_seller_white.webp', condition: 'always' },
+            { file: '05_badge_whale_buyer_white.webp',    condition: 'locked', key: 'whale_buyer'    },
+            { file: '06_badge_zero_drama_white.webp',     condition: 'locked', key: 'zero_drama'     },
+            { file: '07_badge_trusted_seller_white.webp', condition: 'locked', key: 'trusted_seller' },
             { file: '08_badge_trusted_seller.webp',       condition: 'badge',  key: 'trusted_seller' },
             { file: '09_badge_early_bird.webp',           condition: 'badge',  key: 'early_bird'     },
             { file: '10_badge_whale_buyer.webp',          condition: 'badge',  key: 'whale_buyer'    },
@@ -918,7 +918,9 @@ router.get('/:safetag/badge-card', async (req, res) => {
         const BADGES_DIR = path.join(__dirname, '../../../frontend/public/badges');
 
         const activeLayers = BADGE_LAYERS.filter(l =>
-            l.condition === 'always' || (l.condition === 'badge' && earnedKeys.has(l.key!))
+            l.condition === 'always'
+            || (l.condition === 'badge'  &&  earnedKeys.has(l.key!))
+            || (l.condition === 'locked' && !earnedKeys.has(l.key!))
         );
 
         const [base, ...overlays] = activeLayers;
