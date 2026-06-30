@@ -154,6 +154,7 @@ export default function AnalyticsHubPage() {
 
   return (
     <AdminShell title="Analytics" subtitle="Platform intelligence">
+    <div style={{ fontFamily: "'Inter Tight',sans-serif" }}>
 
       {/* ── Page header ── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
@@ -526,6 +527,7 @@ export default function AnalyticsHubPage() {
           )}
         </>
       )}
+    </div>
     </AdminShell>
   );
 }
