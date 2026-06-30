@@ -171,11 +171,17 @@ export default function AdminSettings() {
         merged.platform_fee_percent_usd = pct;
         merged.platform_fee_percent_usdt = pct;
       }
-      // backward compat: referral stored as decimal (0.10 → 10)
-      if (raw.referral_tier1_percent !== undefined && raw.referral_tier1_percent <= 1)
-        merged.referral_tier1_percent = raw.referral_tier1_percent * 100;
-      if (raw.referral_tier2_percent !== undefined && raw.referral_tier2_percent <= 1)
-        merged.referral_tier2_percent = raw.referral_tier2_percent * 100;
+      // backward compat: referral stored as decimal (0.10 → 10 for display)
+      if (raw.referral_tier1_percent !== undefined && Number(raw.referral_tier1_percent) <= 1)
+        merged.referral_tier1_percent = Number(raw.referral_tier1_percent) * 100;
+      if (raw.referral_tier2_percent !== undefined && Number(raw.referral_tier2_percent) <= 1)
+        merged.referral_tier2_percent = Number(raw.referral_tier2_percent) * 100;
+      // boolean fields: API may return 0/1 (old rows stored before new GET parser)
+      for (const k of Object.keys(DEFAULTS)) {
+        if (typeof DEFAULTS[k] === 'boolean' && merged[k] !== undefined) {
+          merged[k] = Boolean(Number(merged[k]) || merged[k] === true);
+        }
+      }
       setSaved(merged);
       setDraft(merged);
     } catch (err: any) {
@@ -191,12 +197,32 @@ export default function AdminSettings() {
   const isDirty = (section: string) =>
     (SECTION_KEYS[section] ?? []).some(k => draft[k] !== saved[k]);
 
+  // Boolean keys sent as 0/1; referral percents sent as decimals; fee % sent as-is (new fields) + legacy rate
+  const BOOLEAN_KEYS = new Set([
+    'auto_disburse_enabled', 'crypto_payouts_enabled', 'referral_programme_enabled',
+    'kyc_required_for_transactions', 'kyc_auto_approve', 'kyc_doc_nin', 'kyc_doc_passport', 'kyc_doc_drivers_license',
+    'dispute_ai_mediator_enabled', 'dispute_auto_routing_enabled', 'dispute_specialist_auto_assign',
+    'marketplace_enabled', 'milestone_transactions_enabled', 'magic_link_auth_enabled',
+    'new_registrations_enabled', 'maintenance_mode', 'admin_2fa_required',
+  ]);
+
   const saveSection = async (section: string) => {
     const keys = SECTION_KEYS[section] ?? [];
     const payload: Draft = {};
-    for (const k of keys) payload[k] = draft[k];
-    // send backward-compat single fee rate alongside new per-currency fields
+    for (const k of keys) {
+      if (BOOLEAN_KEYS.has(k)) {
+        payload[k] = draft[k] ? 1 : 0;
+      } else {
+        payload[k] = draft[k];
+      }
+    }
+    // fees: also send legacy platform_fee_rate (decimal) for backward compat
     if (section === 'fees') payload.platform_fee_rate = draft.platform_fee_percent_ngn / 100;
+    // referral: tier percents must be sent as decimals (API stores 0.10 = 10%)
+    if (section === 'referral') {
+      payload.referral_tier1_percent = draft.referral_tier1_percent / 100;
+      payload.referral_tier2_percent = draft.referral_tier2_percent / 100;
+    }
     setSaving(s => ({ ...s, [section]: true }));
     try {
       await axios.patch(`${API_URL}/admin/settings`, payload, {

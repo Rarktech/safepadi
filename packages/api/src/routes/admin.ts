@@ -1149,9 +1149,15 @@ router.get('/settings', async (req, res) => {
             .select('key, value');
         if (error) throw error;
 
-        const settings: Record<string, number> = {};
+        const settings: Record<string, any> = {};
         (data || []).forEach((row: any) => {
-            settings[row.key] = parseFloat(row.value);
+            const raw = row.value;
+            if (raw === 'true') settings[row.key] = true;
+            else if (raw === 'false') settings[row.key] = false;
+            else {
+                const n = parseFloat(raw);
+                settings[row.key] = isNaN(n) ? raw : n;
+            }
         });
         res.json(settings);
     } catch (err: any) {
@@ -1168,6 +1174,7 @@ router.patch('/settings', async (req, res) => {
         }
 
         const allowed = [
+            // legacy
             'platform_fee_rate',
             'referral_tier1_percent',
             'referral_tier2_percent',
@@ -1178,14 +1185,55 @@ router.patch('/settings', async (req, res) => {
             'community_enterprise_price',
             'community_pro_duration_days',
             'community_enterprise_duration_days',
+            // fees
+            'platform_fee_percent_ngn',
+            'platform_fee_percent_usd',
+            'platform_fee_percent_usdt',
+            'default_fee_allocation',
+            'transaction_minimum_ngn',
+            'transaction_minimum_usd',
+            // payouts
+            'auto_disburse_enabled',
+            'auto_disburse_threshold_ngn',
+            'auto_disburse_threshold_usd',
+            'auto_disburse_threshold_gbp',
+            'max_pending_withdrawals_per_24h',
+            'crypto_payouts_enabled',
+            // referral
+            'referral_programme_enabled',
+            // kyc
+            'kyc_required_for_transactions',
+            'kyc_auto_approve',
+            'kyc_threshold_ngn',
+            'kyc_threshold_usd',
+            'kyc_doc_nin',
+            'kyc_doc_passport',
+            'kyc_doc_drivers_license',
+            // disputes
+            'dispute_ai_mediator_enabled',
+            'dispute_auto_routing_enabled',
+            'dispute_resolution_window_hours',
+            'dispute_specialist_auto_assign',
+            'dispute_escalation_threshold_hours',
+            // platform features
+            'marketplace_enabled',
+            'milestone_transactions_enabled',
+            'magic_link_auth_enabled',
+            'new_registrations_enabled',
+            'maintenance_mode',
+            // security
+            'admin_session_timeout_hours',
+            'admin_2fa_required',
+            'admin_ip_whitelist',
         ];
-        const updates = req.body as Record<string, number>;
+        const updates = req.body as Record<string, any>;
 
         const unknownKeys = Object.keys(updates).filter(k => !allowed.includes(k));
         if (unknownKeys.length > 0) {
             return res.status(400).json({ error: `Unknown settings keys: ${unknownKeys.join(', ')}` });
         }
 
+        // Validate legacy decimal fields
         const feeRate = updates.platform_fee_rate ?? null;
         const t1 = updates.referral_tier1_percent ?? null;
         const t2 = updates.referral_tier2_percent ?? null;
