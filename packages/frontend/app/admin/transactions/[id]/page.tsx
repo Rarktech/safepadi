@@ -78,37 +78,45 @@ export default function AdminTransactionDetails() {
   const buyerName = buyer ? `${buyer.first_name ?? ""} ${buyer.last_name ?? ""}`.trim() : "Unknown";
   const sellerName = seller ? `${seller.first_name ?? ""} ${seller.last_name ?? ""}`.trim() : "Unknown";
 
+  const IT: React.CSSProperties = { fontFamily: "'Inter Tight',sans-serif" };
+
   return (
-    <AdminShell title={txn.txn_code} subtitle="Transaction details">
-      {/* Back + actions bar */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-[12px] text-[#94a3b8]">
-          <button onClick={() => router.push("/admin/transactions")} className="flex items-center gap-1.5 hover:text-[#0f172a] transition-colors">
-            <ArrowLeft className="w-3.5 h-3.5" /> Transactions
-          </button>
-          <span>/</span>
-          <span className="text-[#64748b]">{txn.txn_code}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {dispute_id && (
-            <Link href={`/admin/disputes/${dispute_id}`}>
-              <button className="h-9 px-4 rounded-lg text-[12px] font-semibold flex items-center gap-1.5 transition-colors"
-                style={{ background: "#fff1f2", color: "#e11d48", border: "1px solid #fecdd3" }}>
-                <AlertTriangle className="w-3.5 h-3.5" /> View Dispute
-              </button>
-            </Link>
-          )}
-          <button className="h-9 px-4 rounded-lg text-[12px] font-semibold flex items-center gap-1.5 text-[#64748b] hover:bg-[#f1f5f9] transition-colors"
-            style={{ border: "1px solid #e9eaec" }}>
-            <ExternalLink className="w-3.5 h-3.5" /> Export
-          </button>
-        </div>
+    <AdminShell title="Transaction Detail" subtitle={txn.txn_code}>
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-2" style={{ fontSize: '12px', color: '#94a3b8' }}>
+        <button onClick={() => router.push("/admin/transactions")} className="hover:text-[#0f172a] transition-colors">All Transactions</button>
+        <span>›</span>
+        <span style={{ color: '#64748b', fontWeight: '600' }}>{txn.txn_code}</span>
       </div>
 
-      {/* Status header */}
-      <div className="flex items-center gap-3">
-        <h1 className="font-tight text-2xl font-bold text-[#0f172a]">{txn.txn_code}</h1>
-        <span className={`adm-chip ${cfg.chip}`}>{cfg.label}</span>
+      {/* Header card */}
+      <div className="bg-white rounded-2xl border border-[#e9eaec]" style={{ padding: '22px 26px' }}>
+        <div className="flex items-start justify-between flex-wrap gap-3">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <code style={{ ...IT, fontSize: '18px', fontWeight: '800', color: '#0f172a', letterSpacing: '-.02em' }}>{txn.txn_code}</code>
+              <span className={`adm-chip ${cfg.chip}`}>{cfg.label}</span>
+              <span className="adm-chip chip-slate">{txn.transaction_type === 'MILESTONE' ? 'Milestone' : 'One-time'}</span>
+            </div>
+            <div className="flex items-center gap-3 text-[12px] text-[#64748b]">
+              <span>{buyerName}</span>
+              <span style={{ color: '#94a3b8' }}>→</span>
+              <span>{sellerName}</span>
+              <span style={{ color: '#e9eaec' }}>·</span>
+              <span>{dateStr}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {dispute_id && (
+              <Link href={`/admin/disputes/${dispute_id}`}>
+                <button className="flex items-center gap-1.5 text-[12px] font-semibold transition-colors"
+                  style={{ background: "#fff1f2", color: "#e11d48", border: "1px solid #fecdd3", padding: '7px 14px', borderRadius: '9px' }}>
+                  <AlertTriangle className="w-3.5 h-3.5" /> View Dispute
+                </button>
+              </Link>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Two-col layout */}
@@ -122,14 +130,14 @@ export default function AdminTransactionDetails() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
             {/* Buyer */}
             <div>
-              <p className="adm-section-label mb-2">Buyer</p>
+              <p style={{ fontSize: '10.5px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '8px' }}>Buyer</p>
               <p className="text-[13px] font-semibold text-[#0f172a]">{buyerName}</p>
               <p className="text-[12px] text-[#64748b]">{buyer?.email}</p>
               <p className="text-[11px] font-semibold text-[#059669] mt-0.5">{buyer?.safetag}</p>
             </div>
             {/* Seller */}
             <div>
-              <p className="adm-section-label mb-2">Seller</p>
+              <p style={{ fontSize: '10.5px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '8px' }}>Seller</p>
               <p className="text-[13px] font-semibold text-[#0f172a]">{sellerName}</p>
               <p className="text-[12px] text-[#64748b]">{seller?.email}</p>
               <p className="text-[11px] font-semibold text-[#2563eb] mt-0.5">{seller?.safetag}</p>
@@ -147,7 +155,7 @@ export default function AdminTransactionDetails() {
               { label: "Payment Gateway", value: txn.metadata?.payment_gateway || "Pending" },
             ].map(row => (
               <div key={row.label} className="flex items-center justify-between py-1.5">
-                <span className="adm-section-label">{row.label}</span>
+                <span style={{ fontSize: '11px', fontWeight: '500', color: '#94a3b8' }}>{row.label}</span>
                 <span className="text-[12px] font-semibold text-[#0f172a]">{row.value}</span>
               </div>
             ))}
@@ -214,7 +222,7 @@ export default function AdminTransactionDetails() {
             {(!transaction_proofs?.length) ? (
               <div className="flex flex-col items-center justify-center py-6 text-center border border-dashed border-[#e9eaec] rounded-xl">
                 <ImageIcon className="w-7 h-7 text-[#cbd5e1] mb-2" />
-                <p className="adm-section-label">No proofs attached</p>
+                <p style={{ fontSize: '12px', color: '#94a3b8' }}>No proofs attached</p>
               </div>
             ) : (
               <div className="space-y-2">

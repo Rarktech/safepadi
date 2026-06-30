@@ -5,13 +5,12 @@ import axios from "axios";
 import { useRouter } from "next/navigation";
 import {
   TrendingUp, Users, ShoppingCart, Shield, CreditCard, FileCheck,
-  AlertTriangle, Globe, MessageCircle, Activity, Coins, ChevronDown,
+  Globe, MessageCircle, Coins, ChevronDown,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, CartesianGrid, ResponsiveContainer, Tooltip,
 } from "recharts";
 import AdminShell from "@/components/admin/AdminShell";
-import { cn } from "@/lib/utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api";
@@ -19,6 +18,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api";
 const CURRENCY_CONFIG: Record<string, { symbol: string }> = {
   USDT: { symbol: "$" }, NGN: { symbol: "₦" }, USD: { symbol: "$" }, GBP: { symbol: "£" },
 };
+
+const IT: React.CSSProperties = { fontFamily: "'Inter Tight',sans-serif" };
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -43,8 +44,9 @@ export default function AdminDashboard() {
   if (loading) {
     return (
       <AdminShell title="Dashboard" subtitle="Platform overview">
-        <div className="flex items-center justify-center h-64">
-          <div className="w-8 h-8 border-[3px] border-[#e9eaec] border-t-[#10b981] rounded-full animate-spin" />
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
+          <div className="w-7 h-7 border-[2.5px] border-[#e9eaec] border-t-[#10b981] rounded-full animate-spin" />
+          <p style={{ fontSize: '13px', color: '#94a3b8' }}>Loading dashboard…</p>
         </div>
       </AdminShell>
     );
@@ -56,138 +58,182 @@ export default function AdminDashboard() {
   const attentionItems = [
     {
       label: "Pending KYC",
+      sub: "Identity docs awaiting review",
       count: stats?.pending_kyc_count ?? 0,
       icon: FileCheck,
       borderColor: "#f59e0b",
+      iconBg: "#fffbeb",
+      iconColor: "#d97706",
+      badgeBg: "#fffbeb",
+      badgeColor: "#d97706",
+      badgeBorder: "#fde68a",
+      badgeText: "Review →",
       href: "/admin/kyc",
     },
     {
       label: "Open Disputes",
+      sub: "Cases awaiting resolution",
       count: stats?.open_disputes_count ?? 0,
       icon: Shield,
       borderColor: "#e11d48",
+      iconBg: "#fff1f2",
+      iconColor: "#e11d48",
+      badgeBg: "#fff1f2",
+      badgeColor: "#e11d48",
+      badgeBorder: "#fecdd3",
+      badgeText: "Review →",
       href: "/admin/disputes",
     },
     {
       label: "Pending Payouts",
+      sub: "Withdrawals queued for processing",
       count: stats?.pending_payouts_count ?? 0,
       icon: CreditCard,
       borderColor: "#2563eb",
+      iconBg: "#eff6ff",
+      iconColor: "#2563eb",
+      badgeBg: "#eff6ff",
+      badgeColor: "#2563eb",
+      badgeBorder: "#bfdbfe",
+      badgeText: "Process →",
       href: "/admin/payouts",
     },
   ];
 
   return (
-    <AdminShell title="Dashboard" subtitle="Platform overview & intelligence">
+    <AdminShell title="Dashboard" subtitle="Real-time view of platform activity">
 
-      {/* Needs Attention row */}
-      {stats && (stats.pending_kyc_count > 0 || stats.open_disputes_count > 0 || stats.pending_payouts_count > 0) && (
+      {/* ── Platform KPIs ── */}
+      <div>
+        <p style={{ fontSize: '11px', fontWeight: '700', color: '#94a3b8', letterSpacing: '.07em', textTransform: 'uppercase', marginBottom: '12px' }}>
+          Platform metrics
+        </p>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <KpiCard
+            label="Total Volume"
+            value={`${CURRENCY_CONFIG[volCurrency]?.symbol ?? ""}${Math.round(stats?.volume_by_currency?.[volCurrency] ?? 0).toLocaleString()}`}
+            iconBg="#f0fdf4"
+            iconColor="#10b981"
+            icon={<Coins className="w-[15px] h-[15px]" />}
+            chipColor="#f0fdf4"
+            chipText="#16a34a"
+            trend="↑ 12.4%"
+            extra={
+              availableVolCurrencies.length > 1 ? (
+                <CurrencyPicker currencies={availableVolCurrencies} value={volCurrency} onChange={setVolCurrency} />
+              ) : undefined
+            }
+          />
+          <KpiCard
+            label="Platform Profit"
+            value={`${CURRENCY_CONFIG[profitCurrency]?.symbol ?? ""}${Math.round(stats?.profit_by_currency?.[profitCurrency] ?? 0).toLocaleString()}`}
+            iconBg="#ecfdf5"
+            iconColor="#059669"
+            icon={<TrendingUp className="w-[15px] h-[15px]" />}
+            chipColor="#f0fdf4"
+            chipText="#16a34a"
+            trend="↑ 8.2%"
+            extra={
+              availableProfitCurrencies.length > 1 ? (
+                <CurrencyPicker currencies={availableProfitCurrencies} value={profitCurrency} onChange={setProfitCurrency} />
+              ) : undefined
+            }
+          />
+          <KpiCard
+            label="New Users"
+            value={(stats?.new_customers_today ?? 0).toLocaleString()}
+            iconBg="#fdf4ff"
+            iconColor="#9333ea"
+            icon={<Users className="w-[15px] h-[15px]" />}
+            chipColor="#fdf4ff"
+            chipText="#9333ea"
+            trend="↑ 15.1%"
+            statColor="#9333ea"
+          />
+          <KpiCard
+            label="Total Orders"
+            value={(stats?.total_transactions ?? 0).toLocaleString()}
+            iconBg="#fffbeb"
+            iconColor="#d97706"
+            icon={<ShoppingCart className="w-[15px] h-[15px]" />}
+            chipColor="#fffbeb"
+            chipText="#d97706"
+            trend="↑ 4.3%"
+          />
+        </div>
+      </div>
+
+      {/* ── Needs Attention ── */}
+      <div>
+        <p style={{ fontSize: '11px', fontWeight: '700', color: '#94a3b8', letterSpacing: '.07em', textTransform: 'uppercase', marginBottom: '12px' }}>
+          Needs attention
+        </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {attentionItems.map(item => (
             <button
               key={item.label}
               onClick={() => router.push(item.href)}
-              className="bg-white rounded-2xl border border-[#e9eaec] p-5 text-left adm-card-lift flex items-center gap-4"
+              className="bg-white rounded-2xl border border-[#e9eaec] p-5 text-left adm-card-lift flex flex-col"
               style={{ borderLeft: `3px solid ${item.borderColor}` }}
             >
-              <div
-                className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-                style={{ background: `${item.borderColor}18`, color: item.borderColor }}
-              >
-                <item.icon className="w-6 h-6" strokeWidth={1.75} />
+              <div className="flex items-start justify-between mb-3">
+                <div
+                  className="w-[38px] h-[38px] rounded-[10px] flex items-center justify-center shrink-0"
+                  style={{ background: item.iconBg, color: item.iconColor }}
+                >
+                  <item.icon className="w-4 h-4" strokeWidth={2.2} />
+                </div>
+                <span style={{ fontSize: '10px', fontWeight: '700', color: item.badgeColor, background: item.badgeBg, border: `1px solid ${item.badgeBorder}`, padding: '3px 8px', borderRadius: '999px' }}>
+                  {item.badgeText}
+                </span>
               </div>
-              <div>
-                <p className="font-tight text-[36px] font-extrabold text-[#0f172a] leading-none">
-                  {item.count}
-                </p>
-                <p className="text-[11px] font-semibold text-[#64748b] mt-1">{item.label}</p>
-              </div>
+              <p style={{ ...IT, fontSize: '36px', fontWeight: '800', color: '#0f172a', letterSpacing: '-.04em', lineHeight: '1', marginBottom: '4px' }}>
+                {item.count}
+              </p>
+              <p style={{ fontSize: '13px', fontWeight: '600', color: item.iconColor }}>{item.label}</p>
+              <p style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>{item.sub}</p>
             </button>
           ))}
         </div>
-      )}
-
-      {/* KPI grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* Volume */}
-        <KpiCard
-          label="Total Volume"
-          value={`${CURRENCY_CONFIG[volCurrency]?.symbol ?? ""}${Math.round(stats?.volume_by_currency?.[volCurrency] ?? 0).toLocaleString()}`}
-          sub={`Currency: ${volCurrency}`}
-          iconBg="#f0fdf4"
-          iconColor="#10b981"
-          icon={<Coins className="w-5 h-5" />}
-          trend="+12.4%"
-          extra={
-            availableVolCurrencies.length > 1 && (
-              <CurrencyPicker currencies={availableVolCurrencies} value={volCurrency} onChange={setVolCurrency} />
-            )
-          }
-        />
-        {/* Profit */}
-        <KpiCard
-          label="Platform Profit"
-          value={`${CURRENCY_CONFIG[profitCurrency]?.symbol ?? ""}${Math.round(stats?.profit_by_currency?.[profitCurrency] ?? 0).toLocaleString()}`}
-          sub={`Currency: ${profitCurrency}`}
-          iconBg="#eff6ff"
-          iconColor="#2563eb"
-          icon={<TrendingUp className="w-5 h-5" />}
-          trend="+8.2%"
-          extra={
-            availableProfitCurrencies.length > 1 && (
-              <CurrencyPicker currencies={availableProfitCurrencies} value={profitCurrency} onChange={setProfitCurrency} />
-            )
-          }
-        />
-        {/* New customers */}
-        <KpiCard
-          label="New Customers"
-          value={(stats?.new_customers_today ?? 0).toLocaleString()}
-          sub="Today"
-          iconBg="#fdf4ff"
-          iconColor="#9333ea"
-          icon={<Users className="w-5 h-5" />}
-          trend="+15.1%"
-        />
-        {/* Total orders */}
-        <KpiCard
-          label="Total Orders"
-          value={(stats?.total_transactions ?? 0).toLocaleString()}
-          sub="All time"
-          iconBg="#fffbeb"
-          iconColor="#d97706"
-          icon={<ShoppingCart className="w-5 h-5" />}
-          trend="+4.3%"
-        />
       </div>
 
-      {/* 7-day stats */}
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          { label: "New Users (7d)", value: stats?.last_7d_new_users ?? 0, color: "#9333ea" },
-          { label: "Transactions (7d)", value: stats?.last_7d_transactions ?? 0, color: "#2563eb" },
-          { label: "Disputes (7d)", value: stats?.last_7d_disputes ?? 0, color: "#e11d48" },
-        ].map(item => (
-          <div key={item.label} className="bg-white rounded-2xl border border-[#e9eaec] p-5">
-            <p className="font-tight text-2xl font-bold leading-none" style={{ color: item.color }}>
-              {item.value.toLocaleString()}
-            </p>
-            <p className="adm-section-label mt-2">{item.label}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Chart + Market Reach */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Revenue chart */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-[#e9eaec] p-6">
-          <div className="flex items-center justify-between mb-5">
+      {/* ── Revenue Trajectory + Market Reach ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-[18px]">
+        {/* Chart card */}
+        <div className="bg-white rounded-2xl border border-[#e9eaec]" style={{ padding: '24px 26px' }}>
+          <div className="flex items-start justify-between mb-1.5">
             <div>
-              <p className="font-tight text-[15px] font-bold text-[#0f172a]">Revenue Trajectory</p>
-              <p className="text-[12px] text-[#94a3b8] mt-0.5">Monthly volume across all channels</p>
+              <h2 style={{ ...IT, fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>Revenue Trajectory</h2>
+              <p style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '3px' }}>Monthly transaction volume · all channels</p>
+            </div>
+            <span className="adm-chip chip-green" style={{ fontSize: '10.5px' }}>↑ 15.2% this month</span>
+          </div>
+
+          {/* Mini-stats strip */}
+          <div className="flex gap-5 my-3.5 p-3 rounded-[10px]" style={{ background: '#f8fafc' }}>
+            <div>
+              <p style={{ fontSize: '10px', fontWeight: '600', color: '#94a3b8', marginBottom: '2px' }}>Transactions (7d)</p>
+              <p style={{ ...IT, fontSize: '18px', fontWeight: '700', color: '#2563eb', letterSpacing: '-.02em' }}>
+                {(stats?.last_7d_transactions ?? 0).toLocaleString()}
+              </p>
+            </div>
+            <div style={{ width: '1px', background: '#e9eaec' }} />
+            <div>
+              <p style={{ fontSize: '10px', fontWeight: '600', color: '#94a3b8', marginBottom: '2px' }}>New Users (7d)</p>
+              <p style={{ ...IT, fontSize: '18px', fontWeight: '700', color: '#9333ea', letterSpacing: '-.02em' }}>
+                {(stats?.last_7d_new_users ?? 0).toLocaleString()}
+              </p>
+            </div>
+            <div style={{ width: '1px', background: '#e9eaec' }} />
+            <div>
+              <p style={{ fontSize: '10px', fontWeight: '600', color: '#94a3b8', marginBottom: '2px' }}>Open Disputes</p>
+              <p style={{ ...IT, fontSize: '18px', fontWeight: '700', color: '#e11d48', letterSpacing: '-.02em' }}>
+                {(stats?.open_disputes_count ?? 0).toLocaleString()}
+              </p>
             </div>
           </div>
-          <ResponsiveContainer width="100%" height={260}>
+
+          <ResponsiveContainer width="100%" height={180}>
             <AreaChart data={stats?.chart_data ?? []} margin={{ left: 0, right: 0, top: 5, bottom: 0 }}>
               <defs>
                 <linearGradient id="adminGrad" x1="0" y1="0" x2="0" y2="1">
@@ -220,23 +266,19 @@ export default function AdminDashboard() {
           </ResponsiveContainer>
         </div>
 
-        {/* Market Reach */}
-        <div className="rounded-2xl p-6 flex flex-col" style={{ background: "#0f172a" }}>
+        {/* Market Reach dark card */}
+        <div className="rounded-2xl flex flex-col" style={{ background: '#0f172a', padding: '24px' }}>
           <div className="flex items-center justify-between mb-4">
-            <p className="font-tight text-[14px] font-bold text-white flex items-center gap-1.5">
-              <Globe className="w-4 h-4 text-[#10b981]" />
-              Market Reach
-            </p>
+            <h2 style={{ ...IT, fontSize: '15px', fontWeight: '800', color: '#fff' }}>Market Reach</h2>
+            <span style={{ fontSize: '11px', fontWeight: '600', color: '#10b981', cursor: 'pointer' }}>Details</span>
           </div>
-          <div className="mb-6">
-            <p className="font-tight text-4xl font-bold text-white">
+          <div className="mb-5">
+            <p style={{ ...IT, fontSize: '32px', fontWeight: '800', color: '#fff', letterSpacing: '-.04em', lineHeight: '1' }}>
               {(stats?.total_customers ?? 0).toLocaleString()}
             </p>
-            <p className="text-[11px] text-[rgba(255,255,255,.5)] uppercase tracking-wider mt-1">
-              Active ecosystem nodes
-            </p>
+            <p style={{ fontSize: '11px', color: 'rgba(255,255,255,.35)', marginTop: '4px' }}>Active users on platform</p>
           </div>
-          <div className="flex-1 space-y-5">
+          <div className="flex-1 flex flex-col gap-3.5">
             {Object.entries(stats?.platform_stats ?? {}).map(([platform, count]: any) => (
               <PlatformBar key={platform} platform={platform} count={count} total={stats?.total_customers ?? 1} />
             ))}
@@ -244,88 +286,80 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Recent Transactions */}
+      {/* ── Recent Trade Ledger ── */}
       <div className="bg-white rounded-2xl border border-[#e9eaec] overflow-hidden">
-        <div className="px-6 py-4 border-b border-[#f3f4f6] flex items-center justify-between">
+        <div className="flex items-start justify-between border-b border-[#f3f4f6]" style={{ padding: '20px 26px 16px' }}>
           <div>
-            <p className="font-tight text-[15px] font-bold text-[#0f172a]">Recent Trade Ledger</p>
-            <p className="text-[12px] text-[#94a3b8] mt-0.5">Latest platform transactions</p>
+            <h2 style={{ ...IT, fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>Recent Trade Ledger</h2>
+            <p style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '3px' }}>Latest platform transactions · audit log</p>
           </div>
           <button
             onClick={() => router.push("/admin/transactions")}
-            className="text-[12px] font-semibold text-[#059669] hover:text-[#047857] transition-colors"
+            className="flex items-center gap-1 text-[12.5px] font-semibold text-[#0f172a] bg-[#f7f8f9] border border-[#e9eaec] rounded-[8px] hover:bg-[#f1f5f9] transition-colors whitespace-nowrap"
+            style={{ padding: '7px 13px' }}
           >
-            View all →
+            View all <span style={{ fontSize: '11px' }}>›</span>
           </button>
         </div>
         <div className="overflow-x-auto admin-area">
-          <table className="w-full min-w-[700px]">
-            <thead>
-              <tr>
-                {["TXN Code", "Parties", "Amount", "Status", "Date"].map(h => (
-                  <th key={h} className="px-6 py-3 text-left adm-section-label">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {(stats?.recent_transactions ?? []).map((tx: any) => (
-                <tr
-                  key={tx.id}
-                  onClick={() => router.push(`/admin/transactions/${tx.id}`)}
-                  className="border-t border-[#f3f4f6] hover:bg-[#fafafa] cursor-pointer transition-colors"
-                >
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
-                      <code className="text-[12px] font-bold text-[#0f172a]">{tx.txn_code}</code>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <p className="text-[12px] font-semibold text-[#0f172a]">{tx.buyer?.safetag}</p>
-                    <p className="text-[11px] text-[#94a3b8]">→ {tx.seller?.safetag}</p>
-                  </td>
-                  <td className="px-6 py-4">
-                    <p className="text-[13px] font-bold text-[#0f172a]">
-                      {tx.currency} {Number(tx.total_amount).toLocaleString()}
-                    </p>
-                  </td>
-                  <td className="px-6 py-4">
-                    <StatusChip status={tx.status} />
-                  </td>
-                  <td className="px-6 py-4">
-                    <p className="text-[11px] text-[#94a3b8]">
-                      {new Date(tx.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
-                    </p>
-                  </td>
-                </tr>
+          <div style={{ minWidth: '620px', padding: '0 26px' }}>
+            {/* Table header */}
+            <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr 130px 80px', gap: '12px', padding: '10px 0', borderBottom: '1px solid #f3f4f6' }}>
+              {["TXN Code", "Buyer → Seller", "Amount", "Status", "Fee"].map(h => (
+                <p key={h} style={{ fontSize: '10px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>{h}</p>
               ))}
-            </tbody>
-          </table>
+            </div>
+            {/* Rows */}
+            {(stats?.recent_transactions ?? []).map((tx: any) => (
+              <div
+                key={tx.id}
+                onClick={() => router.push(`/admin/transactions/${tx.id}`)}
+                style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr 130px 80px', gap: '12px', alignItems: 'center', padding: '13px 0', borderBottom: '1px solid #f3f4f6', cursor: 'pointer' }}
+                className="hover:bg-[#fafafa] transition-colors"
+              >
+                <div className="flex items-center gap-1.5">
+                  <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
+                  <code style={{ ...IT, fontSize: '12.5px', fontWeight: '700', color: '#0f172a' }}>{tx.txn_code}</code>
+                </div>
+                <div>
+                  <p style={{ fontSize: '13px', fontWeight: '600', color: '#0f172a' }}>{tx.buyer?.safetag}</p>
+                  <p style={{ fontSize: '10.5px', color: '#94a3b8', marginTop: '1px' }}>→ {tx.seller?.safetag}</p>
+                </div>
+                <p style={{ ...IT, fontSize: '13.5px', fontWeight: '700', color: '#0f172a' }}>
+                  {tx.currency} {Number(tx.total_amount).toLocaleString()}
+                </p>
+                <StatusChip status={tx.status} />
+                <p style={{ fontSize: '12px', fontWeight: '600', color: '#10b981' }}>
+                  {tx.fee_amount ? `${tx.currency} ${Number(tx.fee_amount).toLocaleString()}` : '—'}
+                </p>
+              </div>
+            ))}
+            {(stats?.recent_transactions ?? []).length === 0 && (
+              <p style={{ fontSize: '13px', color: '#94a3b8', padding: '32px 0', textAlign: 'center' }}>No transactions yet</p>
+            )}
+          </div>
         </div>
       </div>
     </AdminShell>
   );
 }
 
-function KpiCard({ label, value, sub, icon, iconBg, iconColor, trend, extra }: any) {
+function KpiCard({ label, value, icon, iconBg, iconColor, chipColor, chipText, trend, extra, statColor }: any) {
+  const IT: React.CSSProperties = { fontFamily: "'Inter Tight',sans-serif" };
   return (
-    <div className="bg-white rounded-2xl border border-[#e9eaec] p-5">
-      <div className="flex items-start justify-between mb-4">
-        <div
-          className="w-9 h-9 rounded-[10px] flex items-center justify-center"
-          style={{ background: iconBg, color: iconColor }}
-        >
+    <div className="bg-white rounded-2xl border border-[#e9eaec]" style={{ padding: '20px 22px' }}>
+      <div className="flex items-center justify-between mb-3.5">
+        <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: iconBg, color: iconColor, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {icon}
         </div>
         {extra ?? (
-          <span className="adm-chip chip-green text-[10px]">{trend}</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 9px', borderRadius: '999px', fontSize: '10.5px', fontWeight: '600', background: chipColor, color: chipText }}>
+            {trend}
+          </span>
         )}
       </div>
-      <p className="adm-section-label mb-1">{label}</p>
-      <p className="font-tight text-2xl font-bold text-[#0f172a]">{value}</p>
-      {sub && <p className="text-[11px] text-[#94a3b8] mt-0.5">{sub}</p>}
+      <p style={{ fontSize: '11px', fontWeight: '500', color: '#94a3b8', marginBottom: '6px' }}>{label}</p>
+      <p style={{ ...IT, fontSize: '26px', fontWeight: '700', color: statColor ?? '#0f172a', letterSpacing: '-.03em', marginBottom: '8px' }}>{value}</p>
     </div>
   );
 }
@@ -334,8 +368,11 @@ function CurrencyPicker({ currencies, value, onChange }: { currencies: string[];
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-1 text-[10px] font-bold text-[#64748b] hover:text-[#0f172a] transition-colors uppercase tracking-wider bg-[#f1f5f9] px-2 py-1 rounded-lg">
-          {value} <ChevronDown className="w-3 h-3" />
+        <button
+          className="flex items-center gap-1 hover:text-[#0f172a] transition-colors"
+          style={{ fontSize: '10.5px', fontWeight: '700', color: '#475569', background: '#f7f8f9', border: '1px solid #e9eaec', borderRadius: '7px', padding: '4px 9px', cursor: 'pointer' }}
+        >
+          {value} <ChevronDown className="w-2 h-2" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="rounded-xl border-[#e9eaec] shadow-lg p-1 min-w-[80px]">
@@ -351,36 +388,47 @@ function CurrencyPicker({ currencies, value, onChange }: { currencies: string[];
 
 function PlatformBar({ platform, count, total }: { platform: string; count: number; total: number }) {
   const pct = Math.round((count / total) * 100);
-  const colors: Record<string, string> = { telegram: "#229ED9", discord: "#5865F2", whatsapp: "#25D366", instagram: "#E1306C" };
+  const colors: Record<string, string> = {
+    telegram: "#229ED9", discord: "#5865F2", whatsapp: "#25D366",
+    instagram: "#E1306C", messenger: "#0084FF", apple_business: "#888",
+  };
   const color = colors[platform.toLowerCase()] ?? "#10b981";
   return (
     <div>
       <div className="flex items-center justify-between mb-1.5">
-        <div className="flex items-center gap-2">
-          <MessageCircle className="w-3.5 h-3.5" style={{ color }} />
-          <span className="text-[11px] font-semibold capitalize" style={{ color: "rgba(255,255,255,.6)" }}>
-            {platform}
-          </span>
+        <div className="flex items-center gap-1.5">
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: color, flexShrink: 0 }} />
+          <span style={{ fontSize: '11.5px', fontWeight: '600', color: 'rgba(255,255,255,.6)' }}>{platform}</span>
         </div>
-        <span className="text-[12px] font-bold text-white">{pct}%</span>
+        <span style={{ fontSize: '12px', fontWeight: '700', color: '#fff' }}>{pct}%</span>
       </div>
-      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,.08)" }}>
-        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
+      <div style={{ height: '4px', background: 'rgba(255,255,255,.07)', borderRadius: '999px' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: '999px' }} />
       </div>
     </div>
   );
 }
 
 function StatusChip({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    FINALIZED: "chip-green", DISPUTED: "chip-red", CANCELLED: "chip-slate",
-    PAID: "chip-blue", PENDING_SELLER_ACCEPTANCE: "chip-amber", AWAITING_PROOF: "chip-purple",
+  const map: Record<string, [string, string]> = {
+    FINALIZED:              ["#f0fdf4", "#16a34a"],
+    DISPUTED:               ["#fff1f2", "#e11d48"],
+    CANCELLED:              ["#f1f5f9", "#475569"],
+    PAID:                   ["#eff6ff", "#2563eb"],
+    PENDING_SELLER_ACCEPTANCE: ["#fffbeb", "#d97706"],
+    AWAITING_PROOF:         ["#fdf4ff", "#9333ea"],
+    ACCEPTED:               ["#eff6ff", "#2563eb"],
+    COMPLETED_BY_SELLER:    ["#eff6ff", "#2563eb"],
   };
-  const cls = map[status] ?? "chip-slate";
   const labels: Record<string, string> = {
     FINALIZED: "Completed", DISPUTED: "Disputed", CANCELLED: "Cancelled",
     PAID: "Paid", PENDING_SELLER_ACCEPTANCE: "Pending", AWAITING_PROOF: "Awaiting",
     ACCEPTED: "Accepted", COMPLETED_BY_SELLER: "Delivered",
   };
-  return <span className={`adm-chip ${cls}`}>{labels[status] ?? status.replace(/_/g, " ")}</span>;
+  const [bg, color] = map[status] ?? ["#f1f5f9", "#475569"];
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 9px', borderRadius: '999px', fontSize: '11px', fontWeight: '600', background: bg, color }}>
+      {labels[status] ?? status.replace(/_/g, " ")}
+    </span>
+  );
 }

@@ -98,11 +98,14 @@ export default function AdminTransactions() {
     setSearch(""); setStatusFilter("all"); setCurrencyFilter("all"); setDateRange(undefined); setPage(1);
   };
 
+  const IT: React.CSSProperties = { fontFamily: "'Inter Tight',sans-serif" };
+
   if (loading) {
     return (
-      <AdminShell title="Transactions" subtitle="All platform transactions">
-        <div className="flex items-center justify-center h-64">
-          <div className="w-8 h-8 border-[3px] border-[#e9eaec] border-t-[#10b981] rounded-full animate-spin" />
+      <AdminShell title="Transactions" subtitle="Platform ledger">
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
+          <div className="w-6 h-6 border-[2.5px] border-[#e9eaec] border-t-[#10b981] rounded-full animate-spin" />
+          <p style={{ fontSize: '13px', color: '#94a3b8' }}>Loading transactions…</p>
         </div>
       </AdminShell>
     );
@@ -111,243 +114,131 @@ export default function AdminTransactions() {
   return (
     <AdminShell title="Transactions" subtitle="Complete ledger of all platform transactions">
 
-      {/* KPI row */}
+      {/* ── Page header ── */}
+      <div>
+        <p style={{ fontSize: '11px', fontWeight: '700', color: '#10b981', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: '6px' }}>Platform Ledger</p>
+        <h1 style={{ ...IT, fontSize: '26px', fontWeight: '900', color: '#0f172a', letterSpacing: '-.03em' }}>All Transactions</h1>
+        <p style={{ fontSize: '12.5px', color: '#94a3b8', marginTop: '5px' }}>{allTxns.length.toLocaleString()} trades recorded · click any row for details</p>
+      </div>
+
+      {/* ── 4 stat cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiBox label="Total Transactions" value={(stats.total_transactions ?? 0).toLocaleString()} sub={`${stats.active_transactions ?? 0} active`} iconColor="#2563eb" icon={<Repeat className="w-5 h-5" />} />
-        <KpiBox label="Total Volume" value={formatCurrencyMap(stats.volume_by_currency)} sub="Across currencies" iconColor="#10b981" icon={<Coins className="w-5 h-5" />} />
-        <KpiBox label="Platform Fees" value={formatCurrencyMap(stats.fees_by_currency)} sub="Earned" iconColor="#d97706" icon={<Coins className="w-5 h-5" />} />
-        <div className="bg-white rounded-2xl border border-[#e9eaec] p-5">
-          <p className="adm-section-label mb-3">Status Breakdown</p>
-          <div className="space-y-2">
-            {[
-              { label: "Ongoing",   count: stats.active_transactions ?? 0,    color: "#2563eb" },
-              { label: "Completed", count: stats.completed_transactions ?? 0, color: "#10b981" },
-              { label: "Disputed",  count: stats.disputed_transactions ?? 0,  color: "#e11d48" },
-            ].map(s => (
-              <div key={s.label} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full" style={{ background: s.color }} />
-                  <span className="text-[12px] text-[#64748b]">{s.label}</span>
-                </div>
-                <span className="text-[12px] font-bold text-[#0f172a]">{s.count.toLocaleString()}</span>
-              </div>
-            ))}
+        <div className="bg-white rounded-2xl border border-[#e9eaec]" style={{ padding: '18px 20px' }}>
+          <div className="flex items-center justify-between mb-3">
+            <p style={{ fontSize: '10.5px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>Total Volume</p>
           </div>
+          <p style={{ ...IT, fontSize: '24px', fontWeight: '800', color: '#0f172a', letterSpacing: '-.03em' }}>{formatCurrencyMap(stats.volume_by_currency)}</p>
+          <span style={{ display: 'inline-flex', padding: '3px 9px', borderRadius: '999px', fontSize: '10px', fontWeight: '600', background: '#f0fdf4', color: '#16a34a', marginTop: '6px' }}>↑ 8.4%</span>
+        </div>
+        <div className="bg-white rounded-2xl border border-[#e9eaec]" style={{ padding: '18px 20px' }}>
+          <p style={{ fontSize: '10.5px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '12px' }}>Platform Fees</p>
+          <p style={{ ...IT, fontSize: '24px', fontWeight: '800', color: '#10b981', letterSpacing: '-.03em' }}>{formatCurrencyMap(stats.fees_by_currency)}</p>
+          <span style={{ display: 'inline-flex', padding: '3px 9px', borderRadius: '999px', fontSize: '10px', fontWeight: '600', background: '#f0fdf4', color: '#16a34a', marginTop: '6px' }}>↑ 5.2%</span>
+        </div>
+        <div className="bg-white rounded-2xl border border-[#e9eaec]" style={{ padding: '18px 20px' }}>
+          <p style={{ fontSize: '10.5px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '12px' }}>Total Trades</p>
+          <p style={{ ...IT, fontSize: '24px', fontWeight: '800', color: '#0f172a', letterSpacing: '-.03em' }}>{(stats.total_transactions ?? 0).toLocaleString()}</p>
+          <span style={{ display: 'inline-flex', padding: '3px 9px', borderRadius: '999px', fontSize: '10px', fontWeight: '600', background: '#eff6ff', color: '#2563eb', marginTop: '6px' }}>All time</span>
+        </div>
+        <div className="bg-white rounded-2xl border border-[#e9eaec]" style={{ padding: '18px 20px' }}>
+          <p style={{ fontSize: '10.5px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '12px' }}>Open Disputes</p>
+          <p style={{ ...IT, fontSize: '24px', fontWeight: '800', color: '#e11d48', letterSpacing: '-.03em' }}>{(stats.disputed_transactions ?? 0).toLocaleString()}</p>
+          <span style={{ display: 'inline-flex', padding: '3px 9px', borderRadius: '999px', fontSize: '10px', fontWeight: '600', background: '#fff1f2', color: '#e11d48', marginTop: '6px' }}>Needs review</span>
         </div>
       </div>
 
-      {/* Table card */}
-      <div className="bg-white rounded-2xl border border-[#e9eaec] overflow-hidden">
-        {/* Controls */}
-        <div className="px-6 py-4 border-b border-[#f3f4f6]">
-          {/* Status filter chips */}
-          <div className="flex flex-wrap items-center gap-2 mb-3">
-            {STATUS_FILTERS.map(f => (
-              <button
-                key={f.key}
-                onClick={() => { setStatusFilter(f.key); setPage(1); }}
-                className="px-4 py-1.5 rounded-full text-[12px] font-semibold border-[1.5px] transition-colors"
-                style={statusFilter === f.key
-                  ? { background: "#0f172a", color: "#fff", borderColor: "#0f172a" }
-                  : { background: "#fff", color: "#64748b", borderColor: "#e9eaec" }
-                }
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Search + filters row */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#94a3b8]" />
-              <input
-                type="text"
-                placeholder="Search TXN code, product, safetag..."
-                value={search}
-                onChange={e => { setSearch(e.target.value); setPage(1); }}
-                className="h-9 w-full pl-9 pr-3 text-[12.5px] outline-none rounded-lg"
-                style={{ background: "#f7f8f9", border: "1px solid #e9eaec", color: "#0f172a" }}
-              />
-            </div>
-
-            {/* Currency toggle */}
-            <div
-              className="flex items-center rounded-full p-0.5 gap-0.5"
-              style={{ background: "#f1f5f9" }}
+      {/* ── Search + filter chips ── */}
+      <div className="flex items-center gap-2.5 flex-wrap">
+        <div style={{ position: 'relative', flex: '1', maxWidth: '340px' }}>
+          <Search style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', width: '14px', height: '14px', color: '#94a3b8' }} />
+          <input
+            type="text"
+            placeholder="Search txn code, safetag…"
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(1); }}
+            style={{ width: '100%', height: '40px', paddingLeft: '38px', paddingRight: '14px', background: '#f7f8f9', border: '1.5px solid #edeff3', borderRadius: '10px', fontSize: '13.5px', fontWeight: '500', color: '#0f172a', outline: 'none' }}
+            className="focus:border-[#10b981] focus:bg-white"
+          />
+        </div>
+        <div className="flex gap-1.5 flex-wrap">
+          {STATUS_FILTERS.map(f => (
+            <button
+              key={f.key}
+              onClick={() => { setStatusFilter(f.key); setPage(1); }}
+              style={{ padding: '6px 14px', borderRadius: '999px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', border: '1.5px solid', whiteSpace: 'nowrap', transition: 'all .14s',
+                ...(statusFilter === f.key ? { background: '#0f172a', color: '#fff', borderColor: '#0f172a' } : { background: '#fff', color: '#64748b', borderColor: '#e9eaec' }) }}
             >
-              {["all", "NGN", "USD", "USDT"].map(c => (
-                <button
-                  key={c}
-                  onClick={() => { setCurrencyFilter(c === "all" ? "all" : c.toLowerCase()); setPage(1); }}
-                  className="px-3 py-1.5 rounded-full text-[11px] font-bold transition-all"
-                  style={currencyFilter === (c === "all" ? "all" : c.toLowerCase())
-                    ? { background: "#fff", color: "#0f172a", boxShadow: "0 1px 4px rgba(15,23,42,.1)" }
-                    : { color: "#64748b" }
-                  }
-                >
-                  {c === "all" ? "All" : (CURRENCY_FLAG[c] ?? "") + " " + c}
-                </button>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        {hasFilters && (
+          <button onClick={clearFilters} className="flex items-center gap-1 text-[12px] font-semibold text-[#64748b] hover:text-[#0f172a] transition-colors" style={{ padding: '6px 12px', border: '1.5px solid #e9eaec', borderRadius: '999px', background: '#fff' }}>
+            <X className="w-3.5 h-3.5" /> Clear
+          </button>
+        )}
+        <span style={{ fontSize: '12px', color: '#94a3b8', marginLeft: 'auto' }}>{filtered.length.toLocaleString()} results</span>
+      </div>
+
+      {/* ── Table card ── */}
+      <div className="bg-white rounded-2xl border border-[#e9eaec] overflow-hidden">
+        <div className="overflow-x-auto admin-area">
+          <div style={{ minWidth: '860px' }}>
+            {/* Table header */}
+            <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 1fr 140px 110px 90px 110px', gap: '10px', padding: '11px 24px', background: '#fafafa', borderBottom: '1px solid #f3f4f6' }}>
+              {["TXN Code", "Buyer", "Seller", "Amount", "Fee", "Status", "Date"].map(h => (
+                <p key={h} style={{ fontSize: '10px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>{h}</p>
               ))}
             </div>
-
-            {/* Date range */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  className="h-9 px-3 flex items-center gap-2 rounded-lg text-[12px] font-semibold transition-colors"
-                  style={dateRange?.from
-                    ? { background: "#f0fdf4", border: "1px solid #d1fae5", color: "#059669" }
-                    : { background: "#f7f8f9", border: "1px solid #e9eaec", color: "#64748b" }
-                  }
-                >
-                  <CalendarDays className="w-3.5 h-3.5" strokeWidth={1.75} />
-                  {dateRange?.from ? (
-                    dateRange.to
-                      ? `${dateRange.from.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – ${dateRange.to.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
-                      : dateRange.from.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
-                  ) : "Date"}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0 rounded-2xl border-[#e9eaec] shadow-xl" align="end">
-                <Calendar
-                  mode="range"
-                  selected={dateRange}
-                  onSelect={r => { setDateRange(r); setPage(1); }}
-                  numberOfMonths={2}
-                  disabled={{ after: new Date() }}
-                  className="p-3"
-                />
-              </PopoverContent>
-            </Popover>
-
-            {hasFilters && (
-              <button
-                onClick={clearFilters}
-                className="h-9 px-3 flex items-center gap-1.5 rounded-lg text-[12px] font-semibold text-[#64748b] hover:bg-[#f1f5f9] transition-colors"
-                style={{ border: "1px solid #e9eaec" }}
-              >
-                <X className="w-3.5 h-3.5" /> Clear
-              </button>
-            )}
-
-            <span className="text-[11px] text-[#94a3b8] ml-auto">{filtered.length.toLocaleString()} results</span>
-          </div>
-        </div>
-
-        {/* Table */}
-        <div className="overflow-x-auto admin-area">
-          <table className="w-full min-w-[900px]">
-            <thead>
-              <tr className="border-b border-[#f3f4f6]">
-                {["TXN Code", "Product", "Buyer", "Seller", "Amount", "Fee", "Status", "Date", ""].map(h => (
-                  <th key={h} className="px-5 py-3 text-left adm-section-label">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
+            {/* Rows */}
+            <div style={{ padding: '0 24px' }}>
               {paginated.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-5 py-16 text-center text-[13px] text-[#94a3b8]">
-                    No transactions found
-                  </td>
-                </tr>
+                <p style={{ fontSize: '13px', color: '#94a3b8', padding: '64px 0', textAlign: 'center' }}>No transactions found</p>
               ) : paginated.map((t: any) => {
                 const cfg = STATUS_CONFIG[t.status] ?? { label: t.status, chip: "chip-slate" };
-                const flag = CURRENCY_FLAG[t.currency] ?? "";
                 const date = new Date(t.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
                 return (
-                  <tr key={t.id} className="border-b border-[#f3f4f6] hover:bg-[#fafafa] transition-colors">
-                    <td className="px-5 py-4">
-                      <code className="text-[11px] font-bold text-[#0f172a]">{t.txn_code}</code>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className="text-[12px] font-semibold text-[#0f172a] line-clamp-1 max-w-[120px] block">{t.product_name}</span>
-                    </td>
-                    <td className="px-5 py-4"><SafetagCell safetag={t.buyer?.safetag} name={`${t.buyer?.first_name ?? ""} ${t.buyer?.last_name ?? ""}`.trim()} /></td>
-                    <td className="px-5 py-4"><SafetagCell safetag={t.seller?.safetag} name={`${t.seller?.first_name ?? ""} ${t.seller?.last_name ?? ""}`.trim()} /></td>
-                    <td className="px-5 py-4">
-                      <span className="text-[12px] font-bold text-[#0f172a]">{flag}{Number(t.total_amount).toLocaleString()} {t.currency}</span>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className="text-[11px] text-[#64748b]">{Number(t.fee_amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {t.currency}</span>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className={`adm-chip ${cfg.chip}`}>{cfg.label}</span>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className="text-[11px] text-[#94a3b8]">{date}</span>
-                    </td>
-                    <td className="px-5 py-4">
-                      <Link href={`/admin/transactions/${t.id}`}>
-                        <button className="w-8 h-8 flex items-center justify-center rounded-lg text-[#94a3b8] hover:bg-[#f1f5f9] hover:text-[#0f172a] transition-colors">
-                          <MoreHorizontal className="w-4 h-4" />
-                        </button>
-                      </Link>
-                    </td>
-                  </tr>
+                  <Link key={t.id} href={`/admin/transactions/${t.id}`}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 1fr 140px 110px 90px 110px', gap: '10px', alignItems: 'center', padding: '13px 0', borderBottom: '1px solid #f3f4f6', cursor: 'pointer' }}
+                      className="hover:bg-[#fafafa] transition-colors">
+                      <div className="flex items-center gap-1.5">
+                        <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
+                        <code style={{ ...IT, fontSize: '12px', fontWeight: '700', color: '#0f172a' }}>{t.txn_code}</code>
+                      </div>
+                      <SafetagCell safetag={t.buyer?.safetag} name={`${t.buyer?.first_name ?? ""} ${t.buyer?.last_name ?? ""}`.trim()} />
+                      <SafetagCell safetag={t.seller?.safetag} name={`${t.seller?.first_name ?? ""} ${t.seller?.last_name ?? ""}`.trim()} />
+                      <div>
+                        <p style={{ ...IT, fontSize: '14px', fontWeight: '700', color: '#0f172a' }}>{Number(t.total_amount).toLocaleString()} {t.currency}</p>
+                      </div>
+                      <div>
+                        <p style={{ fontSize: '12px', fontWeight: '600', color: '#10b981' }}>{Number(t.fee_amount).toLocaleString(undefined, { maximumFractionDigits: 2 })} {t.currency}</p>
+                      </div>
+                      <div><span className={`adm-chip ${cfg.chip}`}>{cfg.label}</span></div>
+                      <p style={{ fontSize: '11.5px', color: '#64748b' }}>{date}</p>
+                    </div>
+                  </Link>
                 );
               })}
-            </tbody>
-          </table>
+            </div>
+          </div>
         </div>
 
         {/* Pagination */}
-        <div className="px-6 py-4 border-t border-[#f3f4f6] flex items-center justify-between">
-          <p className="text-[12px] text-[#64748b]">
-            Showing <span className="font-semibold text-[#0f172a]">{Math.min((page - 1) * PAGE_SIZE + 1, filtered.length)}–{Math.min(page * PAGE_SIZE, filtered.length)}</span> of <span className="font-semibold text-[#0f172a]">{filtered.length}</span>
+        <div className="flex items-center justify-between border-t border-[#f3f4f6]" style={{ padding: '14px 24px' }}>
+          <p style={{ fontSize: '12px', color: '#94a3b8' }}>
+            Showing {Math.min((page - 1) * PAGE_SIZE + 1, filtered.length)}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
           </p>
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#e9eaec] text-[#64748b] disabled:opacity-40 hover:bg-[#f1f5f9] transition-colors"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-            </button>
-            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-              const p = i + Math.max(1, page - 2);
-              if (p > totalPages) return null;
-              return (
-                <button
-                  key={p}
-                  onClick={() => setPage(p)}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg text-[12px] font-semibold transition-colors"
-                  style={p === page
-                    ? { background: "#0f172a", color: "#fff" }
-                    : { border: "1px solid #e9eaec", color: "#64748b", background: "#fff" }
-                  }
-                >
-                  {p}
-                </button>
-              );
-            })}
-            <button
-              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
-              className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#e9eaec] text-[#64748b] disabled:opacity-40 hover:bg-[#f1f5f9] transition-colors"
-            >
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+          <div className="flex gap-1.5">
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+              style={{ padding: '6px 14px', fontSize: '12px', fontWeight: '600', color: '#64748b', background: '#fff', border: '1px solid #e9eaec', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}
+              className="disabled:opacity-40">← Prev</button>
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+              style={{ padding: '6px 14px', fontSize: '12px', fontWeight: '600', color: '#0f172a', background: '#f7f8f9', border: '1px solid #e9eaec', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}
+              className="disabled:opacity-40">Next →</button>
           </div>
         </div>
       </div>
     </AdminShell>
-  );
-}
-
-function KpiBox({ label, value, sub, icon, iconColor }: any) {
-  return (
-    <div className="bg-white rounded-2xl border border-[#e9eaec] p-5">
-      <div className="flex items-center justify-between mb-3">
-        <p className="adm-section-label">{label}</p>
-        <div className="w-8 h-8 rounded-[9px] flex items-center justify-center" style={{ background: `${iconColor}18`, color: iconColor }}>
-          {icon}
-        </div>
-      </div>
-      <p className="font-tight text-2xl font-bold text-[#0f172a]">{value}</p>
-      {sub && <p className="text-[11px] text-[#94a3b8] mt-0.5">{sub}</p>}
-    </div>
   );
 }
 
@@ -359,15 +250,13 @@ function formatCurrencyMap(map: Record<string, number> | undefined): string {
 }
 
 function SafetagCell({ safetag, name }: { safetag?: string; name?: string }) {
+  const initials = (safetag || "?").replace("@", "").slice(0, 2).toUpperCase();
   return (
     <div className="flex items-center gap-2">
-      <div className="w-6 h-6 rounded-full overflow-hidden border border-[#e9eaec] shrink-0">
-        <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${safetag}&backgroundColor=f1f5f9`} alt="" className="w-full h-full object-cover" />
+      <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: '700', color: '#64748b', flexShrink: 0 }}>
+        {initials}
       </div>
-      <div>
-        <p className="text-[11px] font-semibold text-[#0f172a] leading-none">{name || "—"}</p>
-        <p className="text-[10px] text-[#94a3b8] leading-none mt-0.5">{safetag}</p>
-      </div>
+      <p style={{ fontSize: '12.5px', fontWeight: '600', color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{safetag || "—"}</p>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import { Settings, Save, RefreshCw, DollarSign, Percent, TrendingUp, Users, Calendar, BadgeDollarSign } from "lucide-react";
@@ -135,8 +135,17 @@ export default function AdminSettings() {
     </div>
   );
 
+  const IT: React.CSSProperties = { fontFamily: "'Inter Tight',sans-serif" };
+
   return (
     <AdminShell title="Platform Settings" subtitle="Configure fee rates and referral commission percentages">
+      {/* Page header */}
+      <div>
+        <p style={{ fontSize: '11px', fontWeight: '700', color: '#10b981', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: '6px' }}>Configuration</p>
+        <h1 style={{ ...IT, fontSize: '26px', fontWeight: '900', color: '#0f172a', letterSpacing: '-.03em' }}>Platform Settings</h1>
+        <p style={{ fontSize: '12.5px', color: '#94a3b8', marginTop: '5px' }}>Configure fees, limits, and platform behaviour</p>
+      </div>
+
       {toast && (
         <div className="fixed top-6 right-6 z-[100] flex items-center gap-3 px-5 py-4 rounded-2xl shadow-2xl text-white text-[13px] font-bold animate-in slide-in-from-top duration-300"
           style={{ background: toast.type === "success" ? "#059669" : "#e11d48" }}>
@@ -182,7 +191,7 @@ export default function AdminSettings() {
                     <Icon className="w-4 h-4 text-[#64748b]" />
                   </div>
                   <div>
-                    <p className="adm-section-label">{f.label}</p>
+                    <p style={{ fontSize: '12px', fontWeight: '700', color: '#0f172a', marginBottom: '2px' }}>{f.label}</p>
                     <p className="text-[11px] text-[#94a3b8] mt-0.5">{f.desc}</p>
                   </div>
                   {numInput((form as any)[f.key], v => setForm({ ...form, [f.key]: v }), '%', 0, f.max || 100)}
@@ -202,7 +211,7 @@ export default function AdminSettings() {
                 { label: "Platform Keeps", value: `$${previewPlatformKeeps.toFixed(2)}`, sub: "After referral payouts", color: previewPlatformKeeps < 0 ? "#e11d48" : "#2563eb" },
               ].map(p => (
                 <div key={p.label} className="space-y-1">
-                  <p className="adm-section-label">{p.label}</p>
+                  <p style={{ fontSize: '10.5px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>{p.label}</p>
                   <p className="font-tight text-xl font-bold" style={{ color: p.color }}>{p.value}</p>
                   <p className="text-[11px] text-[#94a3b8]">{p.sub}</p>
                 </div>
@@ -239,7 +248,7 @@ export default function AdminSettings() {
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <BadgeDollarSign className="w-3.5 h-3.5 text-[#94a3b8]" />
-                <p className="adm-section-label">Revenue Share (%)</p>
+                <p style={{ fontSize: '12px', fontWeight: '700', color: '#0f172a' }}>Revenue Share (%)</p>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {[
@@ -259,7 +268,7 @@ export default function AdminSettings() {
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <Calendar className="w-3.5 h-3.5 text-[#94a3b8]" />
-                <p className="adm-section-label">Pricing & Duration</p>
+                <p style={{ fontSize: '12px', fontWeight: '700', color: '#0f172a' }}>Pricing & Duration</p>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {[

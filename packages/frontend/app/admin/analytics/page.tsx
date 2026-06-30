@@ -68,76 +68,77 @@ export default function AnalyticsHubPage() {
 
   const tooltipStyle = { borderRadius: 12, border: 'none', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', fontSize: 11, fontWeight: 700 };
 
+  const IT: React.CSSProperties = { fontFamily: "'Inter Tight',sans-serif" };
+
   return (
-    <AdminShell title="Analytics Hub" subtitle="Platform-wide growth, revenue, and engagement metrics">
-      {/* KPI row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Users', value: fmtNum(totalUsers), sub: 'across all platforms', icon: Users },
-          { label: `Revenue (${revenueData.currency})`, value: fmtNum(totalRevenue), sub: 'platform fees earned', icon: DollarSign },
-          { label: `Volume (${revenueData.currency})`, value: fmtNum(totalVolume), sub: 'gross escrow volume', icon: TrendingUp },
-          { label: 'Conversion Rate', value: `${conversionRate}%`, sub: 'registered → completed', icon: Activity },
-        ].map(card => {
-          const Icon = card.icon;
-          return (
-            <div key={card.label} className="bg-white rounded-2xl border border-[#e9eaec] p-5">
-              <div className="flex items-center justify-between mb-3">
-                <p className="adm-section-label">{card.label}</p>
-                <div className="w-8 h-8 rounded-lg bg-[#f1f5f9] flex items-center justify-center">
-                  <Icon className="w-4 h-4 text-[#64748b]" />
-                </div>
-              </div>
-              <p className="font-tight text-2xl font-bold text-[#0f172a]">{card.value}</p>
-              <p className="text-[11px] text-[#94a3b8] mt-0.5">{card.sub}</p>
+    <AdminShell title="Analytics" subtitle="Platform intelligence">
+      {/* ── Page header ── */}
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <p style={{ fontSize: '11px', fontWeight: '700', color: '#10b981', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: '6px' }}>
+            Platform Intelligence
+          </p>
+          <h1 style={{ ...IT, fontSize: '28px', fontWeight: '900', color: '#0f172a', letterSpacing: '-.03em', lineHeight: '1.1' }}>Analytics</h1>
+          <p style={{ fontSize: '12.5px', color: '#94a3b8', marginTop: '5px' }}>Growth, revenue and engagement — all in one place</p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Period toggle */}
+          {(activeTab === 'Revenue' || activeTab === 'Growth') && (
+            <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', borderRadius: '999px', padding: '3px' }}>
+              {PERIODS.map(p => (
+                <button key={p.value} onClick={() => setPeriod(p.value)}
+                  style={{ padding: '4px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '700', cursor: 'pointer', border: 'none', transition: 'all .15s', whiteSpace: 'nowrap',
+                    ...(period === p.value ? { background: '#fff', color: '#0f172a', boxShadow: '0 1px 4px rgba(15,23,42,.1)' } : { background: 'none', color: '#64748b' }) }}>
+                  {p.label}
+                </button>
+              ))}
             </div>
-          );
-        })}
+          )}
+          {/* Currency toggle (Revenue only) */}
+          {activeTab === 'Revenue' && (
+            <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', borderRadius: '999px', padding: '3px' }}>
+              {CURRENCIES.map(c => (
+                <button key={c} onClick={() => setCurrency(c)}
+                  style={{ minWidth: '40px', padding: '4px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '700', cursor: 'pointer', border: 'none', transition: 'all .15s',
+                    ...(currency === c ? { background: '#fff', color: '#0f172a', boxShadow: '0 1px 4px rgba(15,23,42,.1)' } : { background: 'none', color: '#64748b' }) }}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
+          <button onClick={() => Promise.allSettled([fetchFunnel(), fetchRevenue(), fetchGrowth(), fetchPlatform()])}
+            className="flex items-center gap-1.5 text-[12px] font-semibold transition-colors hover:bg-[#f1f5f9]"
+            style={{ border: '1px solid #e9eaec', color: '#64748b', padding: '6px 14px', borderRadius: '999px', background: '#fff' }}>
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </button>
+        </div>
       </div>
 
-      {/* Tabs + controls row */}
-      <div className="flex flex-wrap items-center gap-3">
-        {/* Tab pills */}
-        <div className="flex items-center gap-1 bg-white rounded-xl border border-[#e9eaec] p-1">
-          {TABS.map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)}
-              className="px-4 py-1.5 rounded-lg text-[12px] font-semibold transition-all"
-              style={activeTab === tab ? { background: '#0f172a', color: '#fff' } : { color: '#64748b' }}>
-              {tab}
-            </button>
-          ))}
-        </div>
-
-        {/* Period toggle */}
-        {(activeTab === 'Revenue' || activeTab === 'Growth') && (
-          <div className="flex items-center gap-1 bg-white rounded-xl border border-[#e9eaec] p-1">
-            {PERIODS.map(p => (
-              <button key={p.value} onClick={() => setPeriod(p.value)}
-                className="px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all"
-                style={period === p.value ? { background: '#0f172a', color: '#fff' } : { color: '#64748b' }}>
-                {p.label}
-              </button>
-            ))}
+      {/* ── KPI Strip ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          { label: 'Platform Users', value: fmtNum(totalUsers), sub: 'across all channels', color: '#0f172a' },
+          { label: `Revenue (${revenueData.currency})`, value: fmtNum(totalRevenue), sub: 'platform fees earned', color: '#10b981' },
+          { label: `Volume (${revenueData.currency})`, value: fmtNum(totalVolume), sub: 'gross escrow volume', color: '#2563eb' },
+          { label: 'Conversion Rate', value: `${conversionRate}%`, sub: 'registered → completed', color: '#9333ea' },
+        ].map(card => (
+          <div key={card.label} className="bg-white rounded-2xl border border-[#e9eaec]" style={{ padding: '18px 20px' }}>
+            <p style={{ fontSize: '10.5px', fontWeight: '600', color: '#94a3b8', marginBottom: '10px' }}>{card.label}</p>
+            <p style={{ ...IT, fontSize: '24px', fontWeight: '800', color: card.color, letterSpacing: '-.03em' }}>{card.value}</p>
+            <p style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>{card.sub}</p>
           </div>
-        )}
+        ))}
+      </div>
 
-        {/* Currency toggle (Revenue only) */}
-        {activeTab === 'Revenue' && (
-          <div className="flex items-center gap-1 bg-white rounded-xl border border-[#e9eaec] p-1">
-            {CURRENCIES.map(c => (
-              <button key={c} onClick={() => setCurrency(c)}
-                className="px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all"
-                style={currency === c ? { background: '#059669', color: '#fff' } : { color: '#64748b' }}>
-                {c}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <button onClick={() => Promise.allSettled([fetchFunnel(), fetchRevenue(), fetchGrowth(), fetchPlatform()])}
-          className="ml-auto h-9 px-4 rounded-xl text-[12px] font-semibold flex items-center gap-1.5 transition-colors hover:bg-[#f1f5f9]"
-          style={{ border: '1px solid #e9eaec', color: '#64748b' }}>
-          <RefreshCw className="w-3.5 h-3.5" /> Refresh
-        </button>
+      {/* ── Tab bar ── */}
+      <div className="flex items-center gap-1" style={{ background: '#f1f5f9', borderRadius: '999px', padding: '3px', alignSelf: 'flex-start', width: 'fit-content' }}>
+        {TABS.map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab)}
+            style={{ padding: '8px 18px', borderRadius: '999px', fontSize: '12.5px', fontWeight: '700', cursor: 'pointer', border: 'none', transition: 'all .15s',
+              ...(activeTab === tab ? { background: '#0f172a', color: '#fff' } : { background: 'none', color: '#64748b' }) }}>
+            {tab}
+          </button>
+        ))}
       </div>
 
       {/* Tab content */}
@@ -169,7 +170,7 @@ export default function AnalyticsHubPage() {
                 })}
               </div>
               <div className="border-t border-[#f3f4f6] pt-5">
-                <p className="adm-section-label mb-4">Drop-off Analysis</p>
+                <p style={{ fontSize: '11px', fontWeight: '700', color: '#94a3b8', letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: '16px' }}>Drop-off Analysis</p>
                 <div className="space-y-3">
                   {funnelData.slice(1).map((step, i) => {
                     const prev = funnelData[i];

@@ -383,7 +383,7 @@ export default function AdminPayoutsPage() {
                 <div className="h-px bg-[#f3f4f6]" />
                 <div>
                   <p className="adm-section-label mb-0.5">Pending</p>
-                  <p className="text-[14px] font-bold text-[#d97706]">
+                  <p className="font-tight text-[14px] font-bold text-[#d97706]">
                     {cur === "NGN" ? `₦${pending.toLocaleString()}` : cur === "USDT" ? `$${pending.toLocaleString()} USDT` : `${pending.toFixed(4)} BTC`}
                   </p>
                 </div>
