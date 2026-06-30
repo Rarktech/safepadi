@@ -915,7 +915,7 @@ router.get('/:safetag/badge-card', async (req, res) => {
             { file: '11_badge_zero_drama.webp',           condition: 'badge',  key: 'zero_drama'     },
         ];
 
-        const BADGES_DIR = path.join(__dirname, '../../../../frontend/public/badges');
+        const BADGES_DIR = path.join(__dirname, '../../../frontend/public/badges');
 
         const activeLayers = BADGE_LAYERS.filter(l =>
             l.condition === 'always' || (l.condition === 'badge' && earnedKeys.has(l.key!))
