@@ -168,6 +168,24 @@ async function sendVerdictNotifications(disputeId: string, action: string, txn: 
 }
 
 async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
+    // Lean snapshot — strips the full buyer/seller profile joins (profile(*) selects) so the
+    // original large txn object can be GC'd once the route handler returns. The AI pipeline
+    // runs fire-and-forget for up to ~90s; without this the full join stays alive the whole time.
+    const txnSnap = txn ? {
+        id: txn.id,
+        buyer_id: txn.buyer_id,
+        seller_id: txn.seller_id,
+        amount: txn.amount,
+        fee_amount: txn.fee_amount,
+        currency: txn.currency,
+        product_name: txn.product_name,
+        txn_code: txn.txn_code,
+        transaction_type: txn.transaction_type,
+        buyer: txn.buyer ? { id: txn.buyer.id, safetag: txn.buyer.safetag, email: txn.buyer.email } : null,
+        seller: txn.seller ? { id: txn.seller.id, safetag: txn.seller.safetag, email: txn.seller.email } : null,
+        milestones: txn.milestones,
+    } : undefined;
+
     // DB-level lock — survives server restarts (replaces in-memory Set)
     const { data: lockAcquired } = await supabase
         .from('disputes')
@@ -180,7 +198,7 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
     if (!lockAcquired) {
         // Lock held by in-progress pipeline — schedule one retry so new evidence isn't silently ignored
         if (!isRetry) {
-            setTimeout(() => runAIForDispute(disputeId, txn, true), 10000);
+            setTimeout(() => runAIForDispute(disputeId, txnSnap, true), 10000);
         }
         return;
     }
@@ -204,8 +222,8 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
                 if (aiResult.action === 'REFUND_AFTER_RETURN') newTxnStatus = 'RETURN_PENDING';
 
                 const splitBuyerPct = aiResult.split_pct_buyer ?? 0;
-                const splitPool = txn ? getRemainingMilestoneEscrow(txn) : 0;
-                const txnMeta = (aiResult.action === 'SPLIT' && splitBuyerPct != null && txn)
+                const splitPool = txnSnap ? getRemainingMilestoneEscrow(txnSnap) : 0;
+                const txnMeta = (aiResult.action === 'SPLIT' && splitBuyerPct != null && txnSnap)
                     ? { resolution: 'SPLIT', buyer_pct: splitBuyerPct, seller_pct: 100 - splitBuyerPct, buyer_amount: +(splitPool * splitBuyerPct / 100).toFixed(2), seller_amount: +(splitPool * (100 - splitBuyerPct) / 100).toFixed(2) }
                     : undefined;
 
@@ -216,17 +234,17 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
                     verdict_action: aiResult.action
                 }).eq('id', disputeId);
 
-                if (txn) {
+                if (txnSnap) {
                     await supabase.from('transactions').update({
                         status: newTxnStatus,
                         ...(txnMeta ? { metadata: txnMeta } : {})
-                    }).eq('id', txn.id);
+                    }).eq('id', txnSnap.id);
 
                     // Insert buyer refund credits immediately for REFUND_BUYER and SPLIT
                     if (aiResult.action === 'REFUND_BUYER') {
-                        await insertBuyerRefundCredit(disputeId, txn, 'FULL', 'AI');
+                        await insertBuyerRefundCredit(disputeId, txnSnap, 'FULL', 'AI');
                     } else if (aiResult.action === 'SPLIT' && txnMeta) {
-                        await insertBuyerRefundCredit(disputeId, txn, 'SPLIT_SHARE', 'AI', txnMeta.buyer_amount);
+                        await insertBuyerRefundCredit(disputeId, txnSnap, 'SPLIT_SHARE', 'AI', txnMeta.buyer_amount);
                     }
 
                     // PAY_SELLER on a MILESTONE transaction: release any still-pending
@@ -236,39 +254,39 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
                     // treatment a normal full completion would. ONE_TIME is untouched —
                     // it keeps issuing exactly the referral commissions it always has.
                     if (aiResult.action === 'PAY_SELLER') {
-                        if (txn.transaction_type === 'MILESTONE') {
-                            releaseRemainingMilestones(txn.id)
-                                .then(() => runFinalizeSideEffects(txn))
+                        if (txnSnap.transaction_type === 'MILESTONE') {
+                            releaseRemainingMilestones(txnSnap.id)
+                                .then(() => runFinalizeSideEffects(txnSnap))
                                 .catch((e: any) => console.error('❌ Milestone PAY_SELLER finalize failed:', e?.message || e));
                         } else {
-                            issueReferralCommissions(txn).catch(() => {});
+                            issueReferralCommissions(txnSnap).catch(() => {});
                         }
                     }
 
-                    if (txn.buyer?.safetag) {
-                        track(txn.buyer.safetag, 'dispute_verdict_executed', {
+                    if (txnSnap.buyer?.safetag) {
+                        track(txnSnap.buyer.safetag, 'dispute_verdict_executed', {
                             dispute_id: disputeId,
                             outcome: aiResult.action,
-                            refund_amount: txnMeta?.buyer_amount ?? (aiResult.action === 'REFUND_BUYER' ? txn.amount : 0),
-                            currency: txn.currency,
+                            refund_amount: txnMeta?.buyer_amount ?? (aiResult.action === 'REFUND_BUYER' ? txnSnap.amount : 0),
+                            currency: txnSnap.currency,
                         });
                     }
 
                     // Update reputation for all resolved verdicts
-                    updateDisputeReputation(txn, aiResult.action).catch(() => {});
+                    updateDisputeReputation(txnSnap, aiResult.action).catch(() => {});
 
                     if (aiResult.action !== 'REFUND_AFTER_RETURN') {
-                        await sendVerdictNotifications(disputeId, aiResult.action, txn);
+                        await sendVerdictNotifications(disputeId, aiResult.action, txnSnap);
                     } else {
                         // Notify both parties about the return requirement
-                        await Promise.allSettled([txn.buyer, txn.seller].filter(Boolean).map(async (user: any) => {
-                            const isBuyer = user.id === txn.buyer_id;
+                        await Promise.allSettled([txnSnap.buyer, txnSnap.seller].filter(Boolean).map(async (user: any) => {
+                            const isBuyer = user.id === txnSnap.buyer_id;
                             const msg = isBuyer
                                 ? `📦 <b>Return Required</b>\n\nThe mediator has ruled in your favour, but you must first return the goods to the seller. Please ship the item(s) back and confirm here once shipped. You have <b>${(aiResult as any).return_deadline_hours || 72} hours</b>.`
                                 : `📦 <b>Goods Being Returned</b>\n\nThe mediator has ruled that the buyer will return the goods. Once you confirm receipt, the refund will be released. Please confirm here when you receive them.`;
                             const btnLabel = isBuyer ? '📤 Confirm Goods Shipped' : '✅ Confirm Goods Received';
                             const btnId = isBuyer ? `dispute_return_buyer_${disputeId}` : `dispute_return_seller_${disputeId}`;
-                            await routeNotification(user.id, msg, async (platform, platformId) => [{ label: btnLabel, customId: btnId, url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform, platformId, scope: 'dispute', txnId: txn.id }) }], undefined, undefined, true);
+                            await routeNotification(user.id, msg, async (platform, platformId) => [{ label: btnLabel, customId: btnId, url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform, platformId, scope: 'dispute', txnId: txnSnap.id }) }], undefined, undefined, true);
                         }));
                     }
                 }
@@ -282,13 +300,13 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
                     sender_type: 'AI',
                     content: '🛡️ **Case Forwarded to Human Support**\n\nThis case needs a closer look from our support team. A Safeeely agent will review all the details and reach out to both parties shortly.\n\nYou don\'t need to do anything right now — just keep an eye on this chat.'
                 });
-                if (txn?.buyer && txn?.seller) {
-                    await Promise.allSettled([txn.buyer, txn.seller].map(async (user: any) => {
+                if (txnSnap?.buyer && txnSnap?.seller) {
+                    await Promise.allSettled([txnSnap.buyer, txnSnap.seller].map(async (user: any) => {
                         try {
                             await routeNotification(
                                 user.id,
                                 `🛡️ <b>Human Support Taking Over</b>\n\nOur AI mediator has flagged your case for human review. A Safeeely support agent will look into this shortly.\n\nYou don't need to do anything right now — just check back on your case.`,
-                                async (platform, platformId) => [{ label: '👁️ View Case', url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform, platformId, scope: 'dispute', txnId: txn.id }) }],
+                                async (platform, platformId) => [{ label: '👁️ View Case', url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform, platformId, scope: 'dispute', txnId: txnSnap!.id }) }],
                                 undefined,
                                 undefined,
                                 true
@@ -320,16 +338,16 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
                 }).eq('id', disputeId);
 
                 // Immediately notify the restricted party
-                if (txn) {
+                if (txnSnap) {
                     try {
-                        const targets: any[] = aiResult.restrict === 'BUYER' ? [txn.buyer]
-                            : aiResult.restrict === 'SELLER' ? [txn.seller]
-                            : [txn.buyer, txn.seller];
+                        const targets: any[] = aiResult.restrict === 'BUYER' ? [txnSnap.buyer]
+                            : aiResult.restrict === 'SELLER' ? [txnSnap.seller]
+                            : [txnSnap.buyer, txnSnap.seller];
                         await Promise.allSettled(targets.filter(Boolean).map(async (user: any) => {
                             await routeNotification(
                                 user.id,
                                 `⏱️ <b>Your response is needed</b>\n\nThe mediator has asked for your input on this case. Please check the dispute and share what you can — you have <b>2 hours</b> to respond.`,
-                                async (platform, platformId) => [{ label: '📤 Reply Now', url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform, platformId, scope: 'dispute', txnId: txn.id }) }],
+                                async (platform, platformId) => [{ label: '📤 Reply Now', url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform, platformId, scope: 'dispute', txnId: txnSnap!.id }) }],
                                 undefined,
                                 undefined,
                                 true
@@ -347,13 +365,13 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
                         content: '**[SYSTEM]** This case has been reviewed extensively and requires human judgment. A support agent will review this case shortly.'
                     });
                     // Notify both parties that the case has been escalated
-                    if (txn) {
-                        await Promise.allSettled([txn.buyer, txn.seller].filter(Boolean).map(async (user: any) => {
+                    if (txnSnap) {
+                        await Promise.allSettled([txnSnap.buyer, txnSnap.seller].filter(Boolean).map(async (user: any) => {
                             try {
                                 await routeNotification(
                                     user.id,
-                                    `⚠️ <b>Case Escalated</b>\n\nYour dispute for <b>"${txn.product_name}"</b> has been escalated for human review after extensive AI analysis. A Safeeely support agent will contact you shortly. Funds remain secure in escrow.`,
-                                    async (platform, platformId) => [{ label: '👁️ View Case', url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform, platformId, scope: 'dispute', txnId: txn.id }) }],
+                                    `⚠️ <b>Case Escalated</b>\n\nYour dispute for <b>"${txnSnap!.product_name}"</b> has been escalated for human review after extensive AI analysis. A Safeeely support agent will contact you shortly. Funds remain secure in escrow.`,
+                                    async (platform, platformId) => [{ label: '👁️ View Case', url: await buildInternalMagicLink({ profileId: user.id, safetag: user.safetag, platform, platformId, scope: 'dispute', txnId: txnSnap!.id }) }],
                                     undefined,
                                     undefined,
                                     true

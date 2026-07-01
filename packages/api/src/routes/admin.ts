@@ -831,18 +831,21 @@ router.post('/broadcast', upload.single('attachment'), async (req, res) => {
 
         // Process asynchronously without blocking the admin dashboard response
         const processBroadcast = async () => {
+            const accounts = [...activeAccounts];
             let successCount = 0;
             let failCount = 0;
-            
-            for (const acc of activeAccounts) {
-                try {
-                    await sendNotification(acc.platform, acc.platform_id, message, undefined, attachment_url);
-                    successCount++;
-                } catch (err) {
-                    failCount++;
+            while (accounts.length) {
+                const chunk = accounts.splice(0, 100);
+                for (const acc of chunk) {
+                    try {
+                        await sendNotification(acc.platform, acc.platform_id, message, undefined, attachment_url);
+                        successCount++;
+                    } catch {
+                        failCount++;
+                    }
+                    // Delay to respect platform rate limiting (e.g., Telegram is 30 msg/sec)
+                    await new Promise(resolve => setTimeout(resolve, 50));
                 }
-                // Delay to respect platform rate limiting (e.g., Telegram is 30 msg/sec)
-                await new Promise(resolve => setTimeout(resolve, 50));
             }
             console.log(`📢 Broadcast Finished. Success: ${successCount}, Failed: ${failCount}`);
         };

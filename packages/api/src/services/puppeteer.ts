@@ -78,12 +78,13 @@ function releasePage(): void {
 // Preferred API for all callers: handles acquire/release and page close automatically
 export async function withPage<T>(fn: (page: Page) => Promise<T>): Promise<T> {
     await acquirePage();
-    const browser = await getBrowser();
-    const page = await browser.newPage();
+    let page: Page | null = null;
     try {
+        const browser = await getBrowser();
+        page = await browser.newPage();
         return await fn(page);
     } finally {
-        await page.close().catch(() => {});
+        if (page) await page.close().catch(() => {});
         releasePage();
     }
 }
