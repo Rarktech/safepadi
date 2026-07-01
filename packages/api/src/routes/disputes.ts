@@ -19,6 +19,9 @@ import { track } from '../lib/posthog';
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
+// Deduplicates retry timeouts: at most one pending retry per dispute at a time
+const pendingDisputeRetries = new Set<string>();
+
 // Zod schemas for validation
 const RaiseDisputeSchema = z.object({
     transaction_id: z.string().uuid(),
@@ -181,6 +184,7 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
         product_name: txn.product_name,
         txn_code: txn.txn_code,
         transaction_type: txn.transaction_type,
+        group_id: txn.group_id,
         buyer: txn.buyer ? { id: txn.buyer.id, safetag: txn.buyer.safetag, email: txn.buyer.email } : null,
         seller: txn.seller ? { id: txn.seller.id, safetag: txn.seller.safetag, email: txn.seller.email } : null,
         milestones: txn.milestones,
@@ -196,10 +200,25 @@ async function runAIForDispute(disputeId: string, txn?: any, isRetry = false) {
         .maybeSingle();
 
     if (!lockAcquired) {
-        // Lock held by in-progress pipeline — schedule one retry so new evidence isn't silently ignored
-        if (!isRetry) {
-            setTimeout(() => runAIForDispute(disputeId, txnSnap, true), 10000);
+        // Lock held by in-progress pipeline — deduplicated retry so new evidence isn't silently ignored
+        if (!isRetry && !pendingDisputeRetries.has(disputeId)) {
+            pendingDisputeRetries.add(disputeId);
+            setTimeout(() => {
+                pendingDisputeRetries.delete(disputeId);
+                runAIForDispute(disputeId, txnSnap, true);
+            }, 10000);
         }
+        return;
+    }
+
+    // Guard against re-processing an already-resolved dispute (e.g. retry fires after first run completes)
+    const { data: disputeCheck } = await supabase
+        .from('disputes')
+        .select('status')
+        .eq('id', disputeId)
+        .single();
+    if (disputeCheck?.status !== 'OPEN') {
+        await supabase.from('disputes').update({ processing_locked_at: null }).eq('id', disputeId);
         return;
     }
 

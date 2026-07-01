@@ -17,7 +17,7 @@ setInterval(() => {
     for (const [key, record] of otpRateLimits) {
         if (now > record.resetAt) otpRateLimits.delete(key);
     }
-}, 15 * 60 * 1000);
+}, 15 * 60 * 1000).unref();
 function isRateLimited(key: string): boolean {
     const now = Date.now();
     const window = 15 * 60 * 1000;

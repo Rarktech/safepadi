@@ -103,9 +103,16 @@ cron.schedule('0 9 1 * *', () => {
     logCronRun('referral_summary', () => runMonthlyReferralSummary());
 });
 
-// Dispute evidence deadline enforcement — every 10 minutes
+// Dispute evidence deadline enforcement — every 10 minutes (skip if previous run is still in progress)
+let disputeEnforcementRunning = false;
 cron.schedule('*/10 * * * *', () => {
-    logCronRun('dispute_enforcement', () => runDisputeEnforcement());
+    if (disputeEnforcementRunning) {
+        console.warn('[Cron] dispute_enforcement skipped — previous run still in progress');
+        return;
+    }
+    disputeEnforcementRunning = true;
+    logCronRun('dispute_enforcement', () => runDisputeEnforcement())
+        .finally(() => { disputeEnforcementRunning = false; });
 });
 
 // Fraud enforcement — flag/block bad actors every 6 hours

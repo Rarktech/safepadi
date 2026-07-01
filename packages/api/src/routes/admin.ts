@@ -13,6 +13,8 @@ import jwt from 'jsonwebtoken';
 
 const upload = multer({ storage: multer.memoryStorage() });
 const router = Router();
+let broadcastRunning = false;
+
 // --- ADMIN AUTHENTICATION ---
 
 router.post('/auth/login', async (req, res) => {
@@ -829,13 +831,17 @@ router.post('/broadcast', upload.single('attachment'), async (req, res) => {
 
         console.log(`📡 Initiating broadcast to ${activeAccounts.length} targeted accounts on platforms: ${platforms.join(',')}`);
 
-        // Process asynchronously without blocking the admin dashboard response
-        const processBroadcast = async () => {
-            const accounts = [...activeAccounts];
+        if (broadcastRunning) {
+            return res.status(429).json({ error: 'A broadcast is already in progress. Please wait for it to finish.' });
+        }
+        broadcastRunning = true;
+
+        // Pass accounts as a parameter so the closure does not capture the outer activeAccounts reference
+        const runBroadcast = async (accountList: typeof activeAccounts) => {
             let successCount = 0;
             let failCount = 0;
-            while (accounts.length) {
-                const chunk = accounts.splice(0, 100);
+            while (accountList.length) {
+                const chunk = accountList.splice(0, 100);
                 for (const acc of chunk) {
                     try {
                         await sendNotification(acc.platform, acc.platform_id, message, undefined, attachment_url);
@@ -850,7 +856,7 @@ router.post('/broadcast', upload.single('attachment'), async (req, res) => {
             console.log(`📢 Broadcast Finished. Success: ${successCount}, Failed: ${failCount}`);
         };
 
-        processBroadcast();
+        runBroadcast([...activeAccounts]).finally(() => { broadcastRunning = false; });
 
         res.json({
             success: true,

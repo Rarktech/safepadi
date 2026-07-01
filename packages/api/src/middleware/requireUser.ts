@@ -29,7 +29,7 @@ setInterval(() => {
     for (const [jti, exp] of revokedJtiCache) {
         if (now > exp) revokedJtiCache.delete(jti);
     }
-}, 30_000);
+}, 30_000).unref();
 
 export function markJtiRevoked(jti: string) {
     revokedJtiCache.set(jti, Date.now() + JTI_CACHE_TTL_MS);

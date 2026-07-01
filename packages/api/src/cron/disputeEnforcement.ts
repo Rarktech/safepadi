@@ -163,7 +163,8 @@ async function processEvidenceDeadlines(now: Date): Promise<void> {
         `)
         .eq('status', 'OPEN')
         .eq('is_ai_paused', false)
-        .not('evidence_deadline', 'is', null);
+        .not('evidence_deadline', 'is', null)
+        .limit(100);
 
     if (error) {
         console.warn('⚠️  [enforcement] Could not fetch disputes:', error.message);
