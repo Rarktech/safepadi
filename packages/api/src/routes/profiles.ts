@@ -926,10 +926,10 @@ router.get('/:safetag/badge-card', async (req, res) => {
         const [base, ...overlays] = activeLayers;
         const composite = await sharp(path.join(BADGES_DIR, base.file))
             .composite(overlays.map(l => ({ input: path.join(BADGES_DIR, l.file), top: 0, left: 0 })))
-            .webp({ quality: 85 })
+            .png()
             .toBuffer();
 
-        res.set('Content-Type', 'image/webp');
+        res.set('Content-Type', 'image/png');
         res.set('Cache-Control', 'public, max-age=300');
         res.send(composite);
     } catch (err: any) {
