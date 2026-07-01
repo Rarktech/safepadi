@@ -1338,10 +1338,11 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
             }
 
             const caption = `⭐ *Reviews & Ratings*\n\nYour trust score: *${rating.toFixed(1)}/5* ${stars}\nBased on *${review_count}* review${review_count !== 1 ? 's' : ''}.${badgeLine}\n\nTap below to view your full review history and see feedback from your trading partners.`;
-            const badgeCardUrl = `${API_URL}/profiles/${encodeURIComponent(safetag)}/badge-card`;
+            const badgeCardUrl = `${PUBLIC_API_URL}/profiles/${encodeURIComponent(safetag)}/badge-card`;
             const reviewsUrl = `${REVIEWS_URL}/reviews/${encodeURIComponent(safetag)}`;
 
-            await sendImage(from, badgeCardUrl, caption);
+            await sendMsg(from, { type: 'text', text: { body: caption } });
+            try { await sendImage(from, badgeCardUrl); } catch (_) {}
             await sendCTAUrl(from, '📋 View your full reviews on Safeeely.', '⭐ View Full Reviews', reviewsUrl);
         } catch (_) { await sendText(from, '❌ Could not load your reviews. Please try again.'); }
 
