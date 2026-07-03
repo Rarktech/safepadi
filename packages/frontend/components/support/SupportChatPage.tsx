@@ -1,19 +1,26 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, Send, FileText, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { ArrowLeft, Send, FileText, Loader2, Paperclip, X } from 'lucide-react';
 import { format } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
 import api from '@/lib/api';
 import posthog from 'posthog-js';
 
-// ─── Attachment chip (render-only — support tickets have no upload endpoint) ──
+// ─── Attachment chip ────────────────────────────────────────────────────
 function AttachmentChip({ att }: { att: any }) {
   const isImage = att.type?.startsWith('image/');
+  if (isImage) {
+    return (
+      <a href={att.url} target="_blank" rel="noopener noreferrer" className="block mt-1.5 max-w-[220px] rounded-xl overflow-hidden border border-black/10">
+        <img src={att.url} alt={att.name || 'Attachment'} className="w-full h-auto object-cover" />
+      </a>
+    );
+  }
   return (
     <a href={att.url} target="_blank" rel="noopener noreferrer"
       className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/30 border border-white/20 hover:border-white/40 transition-colors mt-1.5 text-sm">
-      {isImage ? <ImageIcon size={14} /> : <FileText size={14} />}
+      <FileText size={14} />
       <span className="truncate max-w-[160px]">{att.name || 'Attachment'}</span>
     </a>
   );
@@ -71,7 +78,9 @@ export function SupportChatPage({ ticket: initialTicket, safetag, onBack }: Supp
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const ticketCode = `SUP-${ticket.id.slice(0, 4).toUpperCase()}`;
   const isOpen = ticket.status === 'OPEN';
@@ -113,11 +122,19 @@ export function SupportChatPage({ ticket: initialTicket, safetag, onBack }: Supp
   }, [messages]);
 
   const sendMessage = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() && pendingFiles.length === 0) return;
     setSending(true);
     try {
-      await api.post(`/support/${ticket.id}/messages`, { content: input.trim() });
+      let attachments: any[] = [];
+      if (pendingFiles.length > 0) {
+        const form = new FormData();
+        pendingFiles.forEach(f => form.append('files', f));
+        const upRes = await api.post(`/support/${ticket.id}/upload`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+        attachments = upRes.data || [];
+      }
+      await api.post(`/support/${ticket.id}/messages`, { content: input.trim(), attachments });
       setInput('');
+      setPendingFiles([]);
       fetchMessages();
     } catch {} finally { setSending(false); }
   };
@@ -170,7 +187,25 @@ export function SupportChatPage({ ticket: initialTicket, safetag, onBack }: Supp
 
         {isOpen ? (
           <div className="shrink-0 border-t border-[#e9eaec] bg-white px-4 py-3" style={{ paddingBottom: 'calc(12px + env(safe-area-inset-bottom, 0px))' }}>
+            {pendingFiles.length > 0 && (
+              <div className="flex gap-2 mb-2 flex-wrap">
+                {pendingFiles.map((f, i) => (
+                  <div key={i} className="flex items-center gap-1 bg-[#f1f5f9] rounded-lg px-2 py-1 text-xs text-[#475569]">
+                    <FileText size={11} />
+                    <span className="truncate max-w-[100px]">{f.name}</span>
+                    <button onClick={() => setPendingFiles(pf => pf.filter((_, j) => j !== i))} className="ml-1 text-[#94a3b8] hover:text-[#e11d48]">
+                      <X size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="flex items-end gap-2">
+              <button onClick={() => fileInputRef.current?.click()} className="w-10 h-10 rounded-[10px] border border-[#e9eaec] bg-[#f7f8f9] flex items-center justify-center shrink-0 text-[#64748b]">
+                <Paperclip size={16} />
+              </button>
+              <input type="file" ref={fileInputRef} className="hidden" multiple accept="image/*,.pdf,.doc,.docx,.txt"
+                onChange={e => { setPendingFiles(pf => [...pf, ...Array.from(e.target.files || [])]); e.target.value = ''; }} />
               <textarea
                 value={input}
                 onChange={e => setInput(e.target.value)}
@@ -181,9 +216,9 @@ export function SupportChatPage({ ticket: initialTicket, safetag, onBack }: Supp
               />
               <button
                 onClick={sendMessage}
-                disabled={sending || !input.trim()}
+                disabled={sending || (!input.trim() && pendingFiles.length === 0)}
                 className="w-[42px] h-[42px] rounded-[11px] flex items-center justify-center disabled:cursor-not-allowed transition-colors shrink-0"
-                style={{ background: (sending || !input.trim()) ? '#e2e8f0' : '#10b981', color: '#fff' }}
+                style={{ background: (sending || (!input.trim() && pendingFiles.length === 0)) ? '#e2e8f0' : '#10b981', color: '#fff' }}
               >
                 {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
               </button>

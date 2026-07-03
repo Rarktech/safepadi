@@ -1,17 +1,34 @@
 import { Router, Request, Response } from 'express';
 import { supabase } from '@safepal/shared';
+import multer from 'multer';
 import { requireBot, BotAuthedRequest } from '../middleware/requireBot';
 import { requireUser, AuthedRequest } from '../middleware/requireUser';
 import { adminAuthMiddleware } from './admin';
 import { routeNotification, recordNotification } from '../services/notifications';
 import { buildInternalMagicLink } from '../services/magicLinkInternal';
 import { sendAdminSupportTicketAssignedEmail, sendSupportReplyEmail } from '../services/email';
-import { routeSupportTicket } from '../services/supportRouter';
+import { routeSupportTicket, shortTicketCode } from '../services/supportRouter';
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Bot/user-facing endpoints — mounted at /api/support
 export const supportRoutes = Router();
 // Admin-facing endpoints — mounted at /api/admin/support
 export const adminSupportRoutes = Router();
+
+async function uploadAttachments(ticketId: string, files: Express.Multer.File[]) {
+    const uploaded: { name: string; url: string; type: string; size: number }[] = [];
+    for (const file of files) {
+        const fileName = `${ticketId}/${Date.now()}-${file.originalname.replace(/\s+/g, '_')}`;
+        const { error } = await supabase.storage
+            .from('support-attachments')
+            .upload(fileName, file.buffer, { contentType: file.mimetype, upsert: true });
+        if (error) throw error;
+        const { data: { publicUrl } } = supabase.storage.from('support-attachments').getPublicUrl(fileName);
+        uploaded.push({ name: file.originalname, url: publicUrl, type: file.mimetype, size: file.size });
+    }
+    return uploaded;
+}
 
 /**
  * POST /support/tickets
@@ -60,10 +77,12 @@ supportRoutes.post('/tickets', requireBot, async (req: Request, res: Response) =
                 : `Ticket opened — trigger: "${trigger_phrase || 'support request'}"`,
         });
 
+        const ticketCode = shortTicketCode(ticket.id);
+
         if (handled_externally) {
             // Apple Business already hands the user off to a live agent natively (JivoChat) —
             // this row exists purely for unified /admin/support visibility.
-            return res.status(201).json({ ticket_id: ticket.id });
+            return res.status(201).json({ ticket_id: ticket.id, ticket_code: ticketCode });
         }
 
         routeSupportTicket(ticket.id).catch((e) => console.error('[support] routing failed:', e));
@@ -72,7 +91,7 @@ supportRoutes.post('/tickets', requireBot, async (req: Request, res: Response) =
             profileId, safetag, platform, platformId: String(platform_id), scope: 'support', ticketId: ticket.id,
         });
 
-        res.status(201).json({ ticket_id: ticket.id, url });
+        res.status(201).json({ ticket_id: ticket.id, ticket_code: ticketCode, url });
     } catch (err: any) {
         console.error('[support] create ticket error:', err);
         res.status(500).json({ error: err.message || 'Internal error' });
@@ -176,6 +195,29 @@ supportRoutes.post('/:id/messages', requireUser, async (req: Request, res: Respo
         res.status(201).json(message);
     } catch (err: any) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * POST /support/:id/upload
+ * User-side attachment upload (images/documents) — mirrors disputes.ts's /:id/upload.
+ */
+supportRoutes.post('/:id/upload', requireUser, upload.array('files', 20), async (req: Request, res: Response) => {
+    try {
+        const user = (req as AuthedRequest).user;
+        const { id } = req.params;
+        const files = req.files as Express.Multer.File[];
+
+        const { data: ticket } = await supabase.from('support_tickets').select('profile_id').eq('id', id).single();
+        if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+        if (ticket.profile_id !== user.sub) return res.status(403).json({ error: 'FORBIDDEN' });
+
+        if (!files || files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
+
+        const uploaded = await uploadAttachments(String(id), files);
+        res.json(uploaded);
+    } catch (err: any) {
+        res.status(500).json({ error: 'Failed to upload files', details: err.message });
     }
 });
 
@@ -342,7 +384,7 @@ adminSupportRoutes.patch('/:id/assign', async (req: any, res: Response) => {
         if ((targetAdmin as any).email) {
             const adminPanelUrl = `${process.env.REVIEWS_URL || 'https://safeeely.com'}/admin/support/${id}`;
             sendAdminSupportTicketAssignedEmail((targetAdmin as any).email, {
-                adminName: (targetAdmin as any).name, ticketId: id, adminPanelUrl,
+                adminName: (targetAdmin as any).name, ticketCode: shortTicketCode(id), adminPanelUrl,
             });
         }
 
@@ -361,7 +403,7 @@ adminSupportRoutes.post('/:id/reply', async (req: any, res: Response) => {
     try {
         const admin = req.admin;
         const { id } = req.params;
-        const { content } = req.body;
+        const { content, attachments } = req.body;
         if (!content) return res.status(400).json({ error: 'content is required' });
 
         const { data: ticket } = await supabase.from('support_tickets').select('*').eq('id', id).single();
@@ -369,7 +411,7 @@ adminSupportRoutes.post('/:id/reply', async (req: any, res: Response) => {
 
         const { data: message, error } = await supabase
             .from('support_messages')
-            .insert({ ticket_id: id, sender_id: admin.id, sender_type: 'ADMIN', content })
+            .insert({ ticket_id: id, sender_id: admin.id, sender_type: 'ADMIN', content, attachments: attachments || [] })
             .select()
             .single();
 
@@ -382,25 +424,49 @@ adminSupportRoutes.post('/:id/reply', async (req: any, res: Response) => {
             .single();
 
         if (profile) {
-            const replyUrl = `${process.env.REVIEWS_URL || 'http://localhost:3001'}/withdraw/${encodeURIComponent(profile.safetag)}?view=support_chat&ticketId=${id}`;
+            const code = shortTicketCode(id);
+            // Relative path for the website notification tab's router.push(); absolute for the email link.
+            const relativeTicketPath = `/withdraw/${encodeURIComponent(profile.safetag)}?view=support_chat&ticketId=${id}`;
+            const replyUrl = `${process.env.REVIEWS_URL || 'http://localhost:3001'}${relativeTicketPath}`;
 
             await routeNotification(
                 profile.id,
-                `🆘 <b>Support Reply</b>\n\nOur support team has responded to your support ticket. Tap below to view and continue the conversation.`,
+                `🆘 <b>Support Reply</b> — 🎫 ${code}\n\nOur support team has responded to your support ticket. Tap below to view and continue the conversation.`,
                 async (platform, platformId) => [{
                     label: '💬 View Reply',
                     url: await buildInternalMagicLink({ profileId: profile.id, safetag: profile.safetag, platform, platformId, scope: 'support', ticketId: id }),
                 }],
                 undefined,
-                profile.email ? () => sendSupportReplyEmail(profile.email, { safetag: profile.safetag, ticketId: id, replyUrl }) : undefined,
+                profile.email ? () => sendSupportReplyEmail(profile.email, { safetag: profile.safetag, ticketCode: code, replyUrl }) : undefined,
                 true // isTransactional — direct reply to a user-initiated ticket, bypasses the 24h Meta window
             );
-            recordNotification(profile.id, 'support', '🆘 Support Reply', content.slice(0, 120), { ticket_id: id }).catch(() => {});
+            recordNotification(profile.id, 'support', `🆘 Support Reply — ${code}`, content.slice(0, 120), { ticket_id: id, link_url: relativeTicketPath }).catch(() => {});
         }
 
         res.status(201).json(message);
     } catch (err: any) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * POST /admin/support/:id/upload
+ * Admin-side attachment upload — no ownership check needed since adminSupportRoutes
+ * is already globally gated by adminAuthMiddleware.
+ */
+adminSupportRoutes.post('/:id/upload', upload.array('files', 20), async (req: any, res: Response) => {
+    try {
+        const { id } = req.params;
+        const files = req.files as Express.Multer.File[];
+
+        const { data: ticket } = await supabase.from('support_tickets').select('id').eq('id', id).single();
+        if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+        if (!files || files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
+
+        const uploaded = await uploadAttachments(id, files);
+        res.json(uploaded);
+    } catch (err: any) {
+        res.status(500).json({ error: 'Failed to upload files', details: err.message });
     }
 });
 
@@ -412,7 +478,7 @@ adminSupportRoutes.post('/:id/resolve', async (req: any, res: Response) => {
         const { id } = req.params;
         const { resolution_notes } = req.body;
 
-        const { data: ticket } = await supabase.from('support_tickets').select('profile_id, status').eq('id', id).single();
+        const { data: ticket } = await supabase.from('support_tickets').select('profile_id, status, safetag').eq('id', id).single();
         if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
         await supabase.from('support_tickets')
@@ -430,12 +496,16 @@ adminSupportRoutes.post('/:id/resolve', async (req: any, res: Response) => {
             content: 'This ticket has been marked resolved.',
         });
 
+        const code = shortTicketCode(id);
+        const resolvedLinkUrl = `/withdraw/${encodeURIComponent(ticket.safetag)}?view=support_chat&ticketId=${id}`;
+
         if (ticket.status === 'OPEN') {
             routeNotification(
                 ticket.profile_id,
-                `✅ <b>Support Ticket Resolved</b>\n\nYour support ticket has been marked as resolved. If you still need help, just reach out again with "i need support".`
+                `✅ <b>Support Ticket Resolved</b> — 🎫 ${code}\n\nYour support ticket has been marked as resolved. If you still need help, just reach out again with "i need support".`
             ).catch(() => {});
         }
+        recordNotification(ticket.profile_id, 'support', `✅ Support Ticket Resolved — ${code}`, 'Your support ticket has been marked as resolved.', { ticket_id: id, link_url: resolvedLinkUrl }).catch(() => {});
 
         res.json({ success: true });
     } catch (err: any) {
@@ -469,9 +539,11 @@ adminSupportRoutes.post('/:id/reopen', async (req: any, res: Response) => {
             content: 'This ticket has been reopened.',
         });
 
+        const reopenCode = shortTicketCode(id);
+
         routeNotification(
             ticket.profile_id,
-            `🔄 <b>Support Ticket Reopened</b>\n\nYour support ticket has been reopened — our team is looking into it again.`,
+            `🔄 <b>Support Ticket Reopened</b> — 🎫 ${reopenCode}\n\nYour support ticket has been reopened — our team is looking into it again.`,
             async (platform, platformId) => [{
                 label: '💬 View Ticket',
                 url: await buildInternalMagicLink({ profileId: ticket.profile_id, safetag: ticket.safetag, platform, platformId, scope: 'support', ticketId: id }),
@@ -480,6 +552,10 @@ adminSupportRoutes.post('/:id/reopen', async (req: any, res: Response) => {
             undefined,
             true
         ).catch(() => {});
+        recordNotification(ticket.profile_id, 'support', `🔄 Support Ticket Reopened — ${reopenCode}`, 'Your support ticket has been reopened.', {
+            ticket_id: id,
+            link_url: `/withdraw/${encodeURIComponent(ticket.safetag)}?view=support_chat&ticketId=${id}`,
+        }).catch(() => {});
 
         res.json({ success: true });
     } catch (err: any) {

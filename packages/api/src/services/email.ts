@@ -407,19 +407,19 @@ export function sendAdminCaseAssignmentEmail(to: string, opts: { adminName: stri
 }
 
 // 32. Admin support ticket assignment — notify admin a user needs human support
-export function sendAdminSupportTicketAssignedEmail(to: string, opts: { adminName: string; ticketId: string; adminPanelUrl: string }) {
+export function sendAdminSupportTicketAssignedEmail(to: string, opts: { adminName: string; ticketCode: string; adminPanelUrl: string }) {
     sendEmail({
         to,
-        subject: `New Support Ticket Assigned — #${opts.ticketId.slice(0, 8).toUpperCase()}`,
-        html: wrap('Support Ticket Assigned to You 🎫', `${p(`Hi <b>${opts.adminName}</b>,`)}${p(`A user has asked for human support and this ticket has been assigned to you. Please review and reply as soon as possible.`)}${kv('Ticket ID', `#${opts.ticketId.slice(0, 8).toUpperCase()}`)}`, opts.adminPanelUrl, '🔍 View Ticket')
+        subject: `New Support Ticket Assigned — ${opts.ticketCode}`,
+        html: wrap('Support Ticket Assigned to You 🎫', `${p(`Hi <b>${opts.adminName}</b>,`)}${p(`A user has asked for human support and this ticket has been assigned to you. Please review and reply as soon as possible.`)}${kv('Ticket', opts.ticketCode)}`, opts.adminPanelUrl, '🔍 View Ticket')
     }).catch(() => {});
 }
 
 // 33. Support ticket reply — notify user via email fallback that support replied
-export function sendSupportReplyEmail(to: string, opts: { safetag: string; ticketId: string; replyUrl: string }) {
+export function sendSupportReplyEmail(to: string, opts: { safetag: string; ticketCode: string; replyUrl: string }) {
     sendEmail({
         to,
-        subject: `Support Team Replied — Ticket #${opts.ticketId.slice(0, 8).toUpperCase()}`,
-        html: wrap('Support Reply 🆘', `${p(`Hi <b>${opts.safetag}</b>,`)}${p(`Our support team has responded to your support ticket. Tap below to view the reply and continue the conversation.`)}`, opts.replyUrl, '💬 View Reply')
+        subject: `Support Team Replied — Ticket ${opts.ticketCode}`,
+        html: wrap('Support Reply 🆘', `${p(`Hi <b>${opts.safetag}</b>,`)}${p(`Our support team has responded to your support ticket. Tap below to view the reply and continue the conversation.`)}${kv('Ticket', opts.ticketCode)}`, opts.replyUrl, '💬 View Reply')
     }).catch(() => {});
 }

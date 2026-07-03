@@ -1538,7 +1538,7 @@ bot.on('message', async (ctx) => {
                 const res = await axios.post(`${API_URL}/support/tickets`, { platform_id: ctx.from?.id, trigger_phrase: textBody }, { headers: BOT_AUTH_HEADERS });
                 const url = (res.data.url as string).replace('localhost', '127.0.0.1');
                 return ctx.reply(
-                    '🆘 <b>A human agent has been notified</b>\n\nWe\'ve opened a support ticket and someone from our team will get back to you shortly. Tap below to chat with them directly:',
+                    `🆘 <b>A human agent has been notified</b>\n\n🎫 Ticket: <b>${res.data.ticket_code}</b>\n\nWe've opened a support ticket and someone from our team will get back to you shortly. Tap below to chat with them directly:`,
                     { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '💬 Open Support Chat', url }]] } }
                 );
             } catch (e: any) {

@@ -114,7 +114,7 @@ export async function routeDispute(
 
     await supabase
         .from('disputes')
-        .update({ assigned_admin_id: chosen.id, metadata: merged })
+        .update({ assigned_admin_id: chosen.id, assigned_at: new Date().toISOString(), metadata: merged })
         .eq('id', disputeId);
 
     // Write assignment audit trail (defensive — table may not exist yet in older envs)

@@ -1118,7 +1118,7 @@ async function handleIncoming(from: string, msgType: string, rawText: string, te
         if (SUPPORT_TRIGGER.test(rawText)) {
             try {
                 const res = await axios.post(`${API_URL}/support/tickets`, { platform_id: from, trigger_phrase: rawText }, { headers: BOT_AUTH_HEADERS });
-                await sendCTAUrl(from, "🆘 A human agent has been notified — tap below to chat with our team.", '💬 Support Chat', res.data.url);
+                await sendCTAUrl(from, `🆘 A human agent has been notified — Ticket ${res.data.ticket_code}. Tap below to chat with our team.`, '💬 Support Chat', res.data.url);
             } catch (e: any) {
                 if (e.response?.status === 404) {
                     await sendText(from, '👋 Please register first, then reach out again.');

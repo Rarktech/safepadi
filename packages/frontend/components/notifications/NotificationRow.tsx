@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import {
   CheckCircle2, Clock, AlertTriangle, Star, DollarSign,
-  ShieldCheck, ArrowUpRight, Users, Bell,
+  ShieldCheck, ArrowUpRight, Users, Bell, LifeBuoy,
 } from 'lucide-react';
 
 interface NotificationRowProps {
@@ -25,6 +25,7 @@ const TYPE_CONFIG: Record<string, { icon: React.ReactNode; bg: string; color: st
   review:      { icon: <Star size={16} />,         bg: '#fefce8', color: '#ca8a04', badge: <Star size={8} strokeWidth={3} />,         badgeBg: '#eab308' },
   referral:    { icon: <Users size={16} />,        bg: '#fdf4ff', color: '#9333ea', badge: <DollarSign size={8} strokeWidth={3} />,   badgeBg: '#9333ea' },
   kyc:         { icon: <ShieldCheck size={16} />,  bg: '#f0fdfa', color: '#0d9488', badge: <CheckCircle2 size={8} strokeWidth={3} />, badgeBg: '#0d9488' },
+  support:     { icon: <LifeBuoy size={16} />,     bg: '#f0fdf4', color: '#16a34a', badge: <LifeBuoy size={8} strokeWidth={3} />,     badgeBg: '#16a34a' },
   system:      { icon: <Bell size={16} />,         bg: '#f8fafc', color: '#475569', badge: <Bell size={8} strokeWidth={3} />,         badgeBg: '#64748b' },
 };
 

@@ -376,7 +376,7 @@ export default function AdminDisputePage() {
 
     useEffect(() => {
         if (showReassign && availableAdmins.length === 0) {
-            api.get('/admin/management/workload').then(r => setAvailableAdmins(r.data || [])).catch(() => {});
+            api.get('/admin/management/workload').then(r => setAvailableAdmins(r.data?.workload || [])).catch(() => {});
         }
     }, [showReassign]);
 

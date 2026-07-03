@@ -24,7 +24,7 @@ interface NotificationsViewProps {
   onProfileUpdate?: () => void;
 }
 
-type FilterKey = 'all' | 'unread' | 'payment' | 'transaction' | 'withdrawal' | 'dispute' | 'referral' | 'kyc' | 'system';
+type FilterKey = 'all' | 'unread' | 'payment' | 'transaction' | 'withdrawal' | 'dispute' | 'referral' | 'kyc' | 'support' | 'system';
 
 const FILTER_TABS: { key: FilterKey; label: string }[] = [
   { key: 'all',         label: 'All' },
@@ -35,6 +35,7 @@ const FILTER_TABS: { key: FilterKey; label: string }[] = [
   { key: 'dispute',     label: 'Disputes' },
   { key: 'referral',    label: 'Referrals' },
   { key: 'kyc',         label: 'KYC' },
+  { key: 'support',     label: 'Support' },
   { key: 'system',      label: 'System' },
 ];
 
@@ -42,7 +43,7 @@ function matchesFilter(n: Notification, filter: FilterKey): boolean {
   if (filter === 'all') return true;
   if (filter === 'unread') return !n.is_read;
   if (filter === 'transaction') return n.type === 'transaction' || n.type === 'milestone';
-  if (filter === 'system') return !['payment', 'transaction', 'milestone', 'withdrawal', 'dispute', 'referral', 'kyc'].includes(n.type);
+  if (filter === 'system') return !['payment', 'transaction', 'milestone', 'withdrawal', 'dispute', 'referral', 'kyc', 'support'].includes(n.type);
   return n.type === filter;
 }
 
@@ -144,9 +145,9 @@ export function NotificationsView({ safetag, profile, onUnreadCountChange, onPro
   const filtered = useMemo(() => notifications.filter(n => matchesFilter(n, filter)), [notifications, filter]);
 
   const counts = useMemo(() => {
-    const c: Record<FilterKey, number> = { all: notifications.length, unread: 0, payment: 0, transaction: 0, withdrawal: 0, dispute: 0, referral: 0, kyc: 0, system: 0 };
+    const c: Record<FilterKey, number> = { all: notifications.length, unread: 0, payment: 0, transaction: 0, withdrawal: 0, dispute: 0, referral: 0, kyc: 0, support: 0, system: 0 };
     for (const n of notifications) {
-      for (const key of ['unread', 'payment', 'transaction', 'withdrawal', 'dispute', 'referral', 'kyc', 'system'] as FilterKey[]) {
+      for (const key of ['unread', 'payment', 'transaction', 'withdrawal', 'dispute', 'referral', 'kyc', 'support', 'system'] as FilterKey[]) {
         if (matchesFilter(n, key)) c[key]++;
       }
     }

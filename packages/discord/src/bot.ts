@@ -518,7 +518,7 @@ client.on('messageCreate', async (message) => {
         try {
             const res = await axios.post(`${API_URL}/support/tickets`, { platform_id: message.author.id, trigger_phrase: message.content }, { headers: BOT_AUTH_HEADERS });
             await message.reply({
-                content: `🆘 **A human agent has been notified**\n\nWe've opened a support ticket — tap below to chat with our team.`,
+                content: `🆘 **A human agent has been notified**\n\n🎫 Ticket: **${res.data.ticket_code}**\n\nWe've opened a support ticket — tap below to chat with our team.`,
                 components: [{ type: 1, components: [{ type: 2, style: 5, label: '💬 Open Support Chat', url: res.data.url }] }]
             });
         } catch (e: any) {

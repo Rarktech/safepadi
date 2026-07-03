@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Send, User, Clock, History, CheckCircle2, UserCheck, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Send, User, Clock, History, CheckCircle2, UserCheck, RotateCcw, Paperclip, FileText, X } from 'lucide-react';
 import api from '@/lib/api';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
@@ -20,7 +20,10 @@ export default function AdminSupportTicketPage() {
     const [availableAdmins, setAvailableAdmins] = useState<any[]>([]);
     const [reassignAdminId, setReassignAdminId] = useState('');
     const [reassignLoading, setReassignLoading] = useState(false);
+    const [attachments, setAttachments] = useState<any[]>([]);
+    const [uploading, setUploading] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         fetchTicketData();
@@ -46,21 +49,41 @@ export default function AdminSupportTicketPage() {
 
     useEffect(() => {
         if (showReassign && availableAdmins.length === 0) {
-            api.get('/admin/management/workload').then(r => setAvailableAdmins(r.data || [])).catch(() => {});
+            api.get('/admin/management/workload').then(r => setAvailableAdmins(r.data?.workload || [])).catch(() => {});
         }
     }, [showReassign]);
 
     const sendReply = async () => {
-        if (!message.trim()) return;
+        if (!message.trim() && attachments.length === 0) return;
         setSending(true);
         try {
-            const res = await api.post(`/admin/support/${id}/reply`, { content: message.trim() });
+            const res = await api.post(`/admin/support/${id}/reply`, { content: message.trim(), attachments });
             setMessages(prev => [...prev, res.data]);
             setMessage('');
+            setAttachments([]);
         } catch {
             toast.error('Failed to send reply');
         } finally {
             setSending(false);
+        }
+    };
+
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
+        const formData = new FormData();
+        Array.from(files).forEach(file => formData.append('files', file));
+
+        setUploading(true);
+        try {
+            const res = await api.post(`/admin/support/${id}/upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+            setAttachments(prev => [...prev, ...res.data]);
+        } catch {
+            toast.error('Upload failed');
+        } finally {
+            setUploading(false);
+            e.target.value = '';
         }
     };
 
@@ -250,6 +273,24 @@ export default function AdminSupportTicketPage() {
                                             <div style={{ padding: '12px 16px', borderRadius: '14px', fontSize: '13px', lineHeight: '1.5', boxShadow: '0 1px 3px rgba(0,0,0,.05)',
                                                 ...(isSelf ? { background: '#10b981', color: '#fff', borderTopRightRadius: '4px' } : { background: '#f8fafc', color: '#475569', borderTopLeftRadius: '4px', border: '1px solid #f1f5f9' }) }}>
                                                 <div className="markdown-content"><ReactMarkdown>{msg.content || ''}</ReactMarkdown></div>
+                                                {msg.attachments?.length > 0 && (
+                                                    <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(0,0,0,.07)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                                                        {msg.attachments.map((att: any, atIdx: number) => (
+                                                            <div key={atIdx}>
+                                                                {att.type?.startsWith('image/') ? (
+                                                                    <a href={att.url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', aspectRatio: '16/9', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(0,0,0,.05)' }}>
+                                                                        <img src={att.url} alt={att.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                                    </a>
+                                                                ) : (
+                                                                    <a href={att.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(0,0,0,.05)', padding: '5px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '600', color: 'inherit', textDecoration: 'none' }}>
+                                                                        <FileText className="w-3 h-3" />
+                                                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{att.name}</span>
+                                                                    </a>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -261,14 +302,32 @@ export default function AdminSupportTicketPage() {
 
                     {isOpen && (
                         <div style={{ borderTop: '1px solid #f3f4f6', padding: '14px 18px', flexShrink: 0, background: '#fff' }}>
+                            {attachments.length > 0 && (
+                                <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', overflowX: 'auto' }}>
+                                    {attachments.map((at, atI) => (
+                                        <div key={atI} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: '#f8fafc', border: '1px solid #e9eaec', borderRadius: '8px', padding: '5px 9px', flexShrink: 0 }}>
+                                            <FileText className="w-3 h-3 text-[#94a3b8]" />
+                                            <span style={{ fontSize: '11px', fontWeight: '600', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{at.name}</span>
+                                            <button onClick={() => setAttachments(prev => prev.filter((_, idx) => idx !== atI))} style={{ color: '#e11d48', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                                                <X className="w-3 h-3" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                             <div style={{ background: '#f8fafc', border: '1.5px solid #e9eaec', borderRadius: '12px', overflow: 'hidden' }} className="focus-within:border-[#10b981] transition-colors">
                                 <textarea value={message} onChange={(e) => setMessage(e.target.value)}
                                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
                                     placeholder="Reply to this user…"
                                     style={{ width: '100%', padding: '12px 14px', fontSize: '13px', fontWeight: '500', color: '#0f172a', background: 'transparent', outline: 'none', resize: 'none', minHeight: '68px' }} />
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '8px 12px', borderTop: '1px solid #f3f4f6' }}>
-                                    <button onClick={sendReply} disabled={sending || !message.trim()}
-                                        style={{ height: '30px', padding: '0 14px', borderRadius: '8px', fontSize: '11px', fontWeight: '700', cursor: sending || !message.trim() ? 'not-allowed' : 'pointer', border: 'none', background: sending || !message.trim() ? '#e2e8f0' : '#10b981', color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderTop: '1px solid #f3f4f6' }}>
+                                    <input type="file" ref={fileInputRef} style={{ display: 'none' }} multiple accept="image/*,.pdf,.doc,.docx,.txt" onChange={handleFileUpload} />
+                                    <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
+                                        style={{ width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', background: 'none', border: 'none', cursor: uploading ? 'not-allowed' : 'pointer', opacity: uploading ? 0.4 : 1 }}>
+                                        <Paperclip className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button onClick={sendReply} disabled={sending || (!message.trim() && attachments.length === 0)}
+                                        style={{ height: '30px', padding: '0 14px', borderRadius: '8px', fontSize: '11px', fontWeight: '700', cursor: sending || (!message.trim() && attachments.length === 0) ? 'not-allowed' : 'pointer', border: 'none', background: sending || (!message.trim() && attachments.length === 0) ? '#e2e8f0' : '#10b981', color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <Send className="w-3 h-3" /> Send
                                     </button>
                                 </div>
@@ -287,7 +346,7 @@ export default function AdminSupportTicketPage() {
                             style={{ width: '100%', height: '40px', borderRadius: '8px', border: '1.5px solid #e9eaec', padding: '0 10px', fontSize: '13px', marginBottom: '16px' }}>
                             <option value="">Select an admin…</option>
                             {availableAdmins.map((a: any) => (
-                                <option key={a.id} value={a.id}>{a.name} ({a.open_case_count ?? a.cases_resolved ?? 0} cases)</option>
+                                <option key={a.id} value={a.id}>{a.name} ({a.open_cases ?? 0} open cases)</option>
                             ))}
                         </select>
                         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>

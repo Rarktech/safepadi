@@ -1522,7 +1522,7 @@ router.patch('/disputes/:id/assign', async (req: any, res) => {
         const merged = { ...((dispute as any).metadata || {}), assigned_specialist: snapshot };
 
         await supabase.from('disputes')
-            .update({ assigned_admin_id: admin_id, metadata: merged })
+            .update({ assigned_admin_id: admin_id, assigned_at: new Date().toISOString(), metadata: merged })
             .eq('id', id);
 
         await supabase.from('dispute_assignments').insert({

@@ -6,6 +6,13 @@ export interface SupportAssigneeSnapshot {
     name: string;
 }
 
+// Short, human-quotable ticket code shown in every bot message, notification, and
+// email about a ticket — must match the identical formula used independently in
+// SupportChatPage.tsx, admin/support/[id]/page.tsx, and SupportTicketsListView.tsx.
+export function shortTicketCode(id: string): string {
+    return `SUP-${id.slice(0, 4).toUpperCase()}`;
+}
+
 /**
  * Assigns a newly created support ticket to an active admin, purely by workload
  * (fewest open tickets, tiebreak by cases_resolved). Unlike disputeRouter.ts's
@@ -74,7 +81,7 @@ export async function routeSupportTicket(ticketId: string): Promise<SupportAssig
         const adminPanelUrl = `${process.env.REVIEWS_URL || 'https://safeeely.com'}/admin/support/${ticketId}`;
         sendAdminSupportTicketAssignedEmail(chosen.email, {
             adminName: chosen.name,
-            ticketId,
+            ticketCode: shortTicketCode(ticketId),
             adminPanelUrl,
         });
     }
