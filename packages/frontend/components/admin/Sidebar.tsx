@@ -8,7 +8,7 @@ import {
   Repeat, Shield, CreditCard,
   ShoppingBag, Gift, Megaphone, Bell,
   Settings, Lock, Server, FileText,
-  LogOut,
+  LogOut, LifeBuoy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
@@ -44,6 +44,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { name: "Transactions", icon: Repeat,     href: "/admin/transactions" },
       { name: "Disputes",     icon: Shield,     href: "/admin/disputes",    badge: "disputes" },
+      { name: "Support",      icon: LifeBuoy,   href: "/admin/support",     badge: "support" },
       { name: "Payouts",      icon: CreditCard, href: "/admin/payouts" },
     ],
   },
@@ -68,7 +69,7 @@ const NAV_GROUPS: NavGroup[] = [
 ];
 
 const DISPUTER_ALLOWED = new Set([
-  "Dashboard", "Transactions", "Customers", "Disputes", "KYC Verification", "Payouts",
+  "Dashboard", "Transactions", "Customers", "Disputes", "Support", "KYC Verification", "Payouts",
 ]);
 
 export default function AdminSidebar() {
@@ -78,12 +79,16 @@ export default function AdminSidebar() {
   const role = user?.role ?? "SUPER_ADMIN";
 
   const [unassignedCount, setUnassignedCount] = useState(0);
+  const [unassignedSupportCount, setUnassignedSupportCount] = useState(0);
   const [pendingKyc, setPendingKyc] = useState(0);
 
   useEffect(() => {
     const fetchBadges = () => {
       axios.get(`${API_URL}/admin/disputes/unassigned`, { withCredentials: true })
         .then(res => setUnassignedCount(Array.isArray(res.data) ? res.data.length : 0))
+        .catch(() => {});
+      axios.get(`${API_URL}/admin/support/unassigned`, { withCredentials: true })
+        .then(res => setUnassignedSupportCount(Array.isArray(res.data.tickets) ? res.data.tickets.length : 0))
         .catch(() => {});
       axios.get(`${API_URL}/admin/kyc`, { withCredentials: true })
         .then(res => {
@@ -138,6 +143,7 @@ export default function AdminSidebar() {
               const active = pathname === item.href || pathname.startsWith(item.href + "/");
               const badgeCount =
                 item.badge === "disputes" ? unassignedCount :
+                item.badge === "support" ? unassignedSupportCount :
                 item.badge === "kyc" ? pendingKyc : 0;
 
               return (

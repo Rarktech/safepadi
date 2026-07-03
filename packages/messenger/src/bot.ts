@@ -29,6 +29,9 @@ const BOT_AUTH_HEADERS       = process.env.BOT_API_SECRET
     ? { 'Authorization': `Bearer ${process.env.BOT_API_SECRET}`, 'x-bot-platform': 'messenger' }
     : {};
 
+// Matches "i need support"/"i need help"/"talk to a human"/"talk to an agent"/"contact support"
+const SUPPORT_TRIGGER = /\b(i\s*need\s*support|i\s*need\s*help|talk\s*to\s*(a\s*)?(human|agent)|contact\s*support)\b/i;
+
 function trackBotEvent(safetag: string | undefined | null, event: string, properties: Record<string, any> = {}) {
     if (!safetag) return;
     axios.post(`${API_URL}/analytics/capture`, { distinct_id: safetag, event, properties }, { headers: BOT_AUTH_HEADERS }).catch(() => {});
@@ -1133,6 +1136,21 @@ async function handleMessage(psid: string, message: any) {
             }
         } catch (e: any) {
             await sendMsg(psid, { text: `❌ ${e.response?.data?.error || 'Transaction not found. Please check the code and try again.'}` });
+        }
+        return;
+    }
+
+    // ── Human support handoff ──────────────────────────────────────────────────
+    if (SUPPORT_TRIGGER.test(rawText)) {
+        try {
+            const res = await axios.post(`${API_URL}/support/tickets`, { platform_id: psid, trigger_phrase: rawText }, { headers: BOT_AUTH_HEADERS });
+            await sendMsg(psid, { attachment: { type: 'template', payload: { template_type: 'button', text: '🆘 A human agent has been notified — tap below to chat with our team.', buttons: [{ type: 'web_url', url: res.data.url, title: '💬 Support Chat' }] } } });
+        } catch (e: any) {
+            if (e.response?.status === 404) {
+                await sendMsg(psid, { text: '👋 Please register first, then reach out again.' });
+            } else {
+                await sendMsg(psid, { text: '❌ Could not open a support ticket right now. Please try again shortly.' });
+            }
         }
         return;
     }

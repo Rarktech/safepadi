@@ -405,3 +405,21 @@ export function sendAdminCaseAssignmentEmail(to: string, opts: { adminName: stri
         html: wrap('Case Assigned to You 🛡️', `${p(`Hi <b>${opts.adminName}</b>,`)}${p(`A dispute case has been assigned to you for review. Please review the case details and respond within 24 hours.`)}${kv('Case ID', `#${opts.disputeId.slice(0, 8).toUpperCase()}`)}${kv('Dispute Type', opts.disputeType.replace(/_/g, ' '))}${kv('Amount in Escrow', `${opts.amount} ${opts.currency}`)}${kv('Case Tier', tierBadge)}${p('Please log in to the admin panel to review the full case, read the dispute thread, and send your first response to both parties.')}`, opts.adminPanelUrl, '🔍 View Case')
     }).catch(() => {});
 }
+
+// 32. Admin support ticket assignment — notify admin a user needs human support
+export function sendAdminSupportTicketAssignedEmail(to: string, opts: { adminName: string; ticketId: string; adminPanelUrl: string }) {
+    sendEmail({
+        to,
+        subject: `New Support Ticket Assigned — #${opts.ticketId.slice(0, 8).toUpperCase()}`,
+        html: wrap('Support Ticket Assigned to You 🎫', `${p(`Hi <b>${opts.adminName}</b>,`)}${p(`A user has asked for human support and this ticket has been assigned to you. Please review and reply as soon as possible.`)}${kv('Ticket ID', `#${opts.ticketId.slice(0, 8).toUpperCase()}`)}`, opts.adminPanelUrl, '🔍 View Ticket')
+    }).catch(() => {});
+}
+
+// 33. Support ticket reply — notify user via email fallback that support replied
+export function sendSupportReplyEmail(to: string, opts: { safetag: string; ticketId: string; replyUrl: string }) {
+    sendEmail({
+        to,
+        subject: `Support Team Replied — Ticket #${opts.ticketId.slice(0, 8).toUpperCase()}`,
+        html: wrap('Support Reply 🆘', `${p(`Hi <b>${opts.safetag}</b>,`)}${p(`Our support team has responded to your support ticket. Tap below to view the reply and continue the conversation.`)}`, opts.replyUrl, '💬 View Reply')
+    }).catch(() => {});
+}

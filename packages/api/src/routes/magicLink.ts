@@ -19,6 +19,7 @@ const SCOPE_TTL: Record<string, number> = {
     reviews:          30 * 60,
     view_dashboard:   30 * 60,
     delete_account:   10 * 60,
+    support:          20 * 60,
 };
 
 // Scopes that grant a short-lived elevation claim in the session JWT
@@ -89,7 +90,7 @@ router.post('/', requireBot, async (req: Request, res: Response) => {
     try {
         const platform = (req as BotAuthedRequest).botPlatform;
 
-        const { platform_id, scope, txn_id } = req.body;
+        const { platform_id, scope, txn_id, ticket_id } = req.body;
         if (!platform_id || !scope) {
             return res.status(400).json({ error: 'platform_id and scope are required' });
         }
@@ -121,6 +122,7 @@ router.post('/', requireBot, async (req: Request, res: Response) => {
             safetag,
             scope,
             txn_id: txn_id || null,
+            ticket_id: ticket_id || null,
             issued_to_platform: platform,
             issued_to_platform_id: platform_id,
             expires_at: expiresAt.toISOString(),
@@ -141,6 +143,7 @@ router.post('/', requireBot, async (req: Request, res: Response) => {
             dispute:          txn_id ? `/withdraw/${encodeURIComponent(safetag)}?view=dispute_details&txnId=${txn_id}` : `/withdraw/${encodeURIComponent(safetag)}`,
             delivery_confirm: txn_id ? `/delivery/${txn_id}` : `/withdraw/${encodeURIComponent(safetag)}`,
             unlink:           `/withdraw/${encodeURIComponent(safetag)}`,
+            support:          ticket_id ? `/withdraw/${encodeURIComponent(safetag)}?view=support_chat&ticketId=${ticket_id}` : `/withdraw/${encodeURIComponent(safetag)}`,
         };
         const path = scopeToPath[scope] || `/withdraw/${encodeURIComponent(safetag)}`;
         const separator = path.includes('?') ? '&' : '?';

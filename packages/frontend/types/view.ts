@@ -8,4 +8,6 @@ export type ViewType =
   | 'notifications'
   | 'disputes'
   | 'dispute_chat'
-  | 'profile';
+  | 'profile'
+  | 'support_chat'
+  | 'support_tickets';

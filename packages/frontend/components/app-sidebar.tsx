@@ -40,6 +40,11 @@ const overviewItems: NavItem[] = [
     view: "disputes",
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M12 3 5 6v5c0 4.2 2.8 7.7 7 9 4.2-1.3 7-4.8 7-9V6z"/></svg>,
   },
+  {
+    title: "Support",
+    view: "support_tickets",
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.2"/><line x1="4.5" y1="4.5" x2="8.5" y2="8.5"/><line x1="19.5" y1="4.5" x2="15.5" y2="8.5"/><line x1="4.5" y1="19.5" x2="8.5" y2="15.5"/><line x1="19.5" y1="19.5" x2="15.5" y2="15.5"/></svg>,
+  },
 ]
 
 const financeItems: NavItem[] = [
@@ -65,6 +70,7 @@ const accountItems: NavItem[] = [
 
 function isActive(view: ViewType, current: ViewType) {
   if (view === "disputes") return current === "disputes" || current === "dispute_chat" || current === "dispute_details"
+  if (view === "support_tickets") return current === "support_tickets" || current === "support_chat"
   return view === current
 }
 

@@ -13,6 +13,8 @@ const PAGE_COPY: Record<ViewType, { title: string; sub: string }> = {
   referrals: { title: 'Referrals', sub: 'Invite friends, earn rewards' },
   notifications: { title: 'Notifications', sub: 'Your latest alerts' },
   profile: { title: 'Profile & Settings', sub: 'Manage your account' },
+  support_chat: { title: 'Support', sub: 'Chat with our support team' },
+  support_tickets: { title: 'Support', sub: 'Your support tickets' },
 };
 
 interface AppHeaderProps {

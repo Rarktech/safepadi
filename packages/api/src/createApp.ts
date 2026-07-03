@@ -9,6 +9,7 @@ import paymentRoutes from './routes/payments';
 import withdrawalRoutes from './routes/withdrawals';
 import referralRoutes from './routes/referrals';
 import disputeRoutes from './routes/disputes';
+import { supportRoutes, adminSupportRoutes } from './routes/support';
 import waitlistRoutes from './routes/waitlist';
 import receiptRoutes from './routes/receipts';
 import adminRoutes from './routes/admin';
@@ -82,6 +83,8 @@ export function createApp() {
     app.use('/api/withdrawals', withdrawalRoutes);
     app.use('/api/referrals', referralRoutes);
     app.use('/api/disputes', disputeRoutes);
+    app.use('/api/support', supportRoutes);
+    app.use('/api/admin/support', adminSupportRoutes);
     app.use('/api/waitlist', waitlistRoutes);
     app.use('/api/receipts', receiptRoutes);
     app.use('/api/admin', adminRoutes);

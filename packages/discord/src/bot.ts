@@ -24,6 +24,9 @@ const BOT_AUTH_HEADERS = process.env.BOT_API_SECRET
     ? { 'Authorization': `Bearer ${process.env.BOT_API_SECRET}`, 'x-bot-platform': 'discord' }
     : {};
 
+// Matches "i need support"/"i need help"/"talk to a human"/"talk to an agent"/"contact support"
+const SUPPORT_TRIGGER = /\b(i\s*need\s*support|i\s*need\s*help|talk\s*to\s*(a\s*)?(human|agent)|contact\s*support)\b/i;
+
 function trackBotEvent(safetag: string | undefined | null, event: string, properties: Record<string, any> = {}) {
     if (!safetag) return;
     axios.post(`${API_URL}/analytics/capture`, { distinct_id: safetag, event, properties }, { headers: BOT_AUTH_HEADERS }).catch(() => {});
@@ -506,6 +509,24 @@ client.on('messageCreate', async (message) => {
             }
         } catch (e: any) {
             await message.reply(`❌ Could not resume transaction: ${e.response?.data?.error || e.message}`);
+        }
+        return;
+    }
+
+    // ── Human support handoff ───────────────────────────────────────────────────
+    if (SUPPORT_TRIGGER.test(message.content)) {
+        try {
+            const res = await axios.post(`${API_URL}/support/tickets`, { platform_id: message.author.id, trigger_phrase: message.content }, { headers: BOT_AUTH_HEADERS });
+            await message.reply({
+                content: `🆘 **A human agent has been notified**\n\nWe've opened a support ticket — tap below to chat with our team.`,
+                components: [{ type: 1, components: [{ type: 2, style: 5, label: '💬 Open Support Chat', url: res.data.url }] }]
+            });
+        } catch (e: any) {
+            if (e.response?.status === 404) {
+                await message.reply('👋 Please register first, then reach out again.');
+            } else {
+                await message.reply('❌ Could not open a support ticket right now. Please try again shortly.');
+            }
         }
         return;
     }

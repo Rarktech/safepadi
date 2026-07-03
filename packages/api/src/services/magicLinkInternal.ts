@@ -10,9 +10,10 @@ const SCOPE_TTL: Record<string, number> = {
     dispute:          15 * 60,
     reviews:          30 * 60,
     view_dashboard:   30 * 60,
+    support:          20 * 60,
 };
 
-const SCOPE_TO_PATH = (safetag: string, txnId?: string): Record<string, string> => ({
+const SCOPE_TO_PATH = (safetag: string, txnId?: string, ticketId?: string): Record<string, string> => ({
     withdraw:         `/withdraw/${encodeURIComponent(safetag)}`,
     kyc:              '/kyc',
     payout_method:    `/withdraw/${encodeURIComponent(safetag)}`,
@@ -21,6 +22,7 @@ const SCOPE_TO_PATH = (safetag: string, txnId?: string): Record<string, string> 
     dispute:          txnId ? `/withdraw/${encodeURIComponent(safetag)}?view=dispute_details&txnId=${txnId}` : `/withdraw/${encodeURIComponent(safetag)}`,
     delivery_confirm: txnId ? `/delivery/${txnId}` : `/withdraw/${encodeURIComponent(safetag)}`,
     unlink:           `/withdraw/${encodeURIComponent(safetag)}`,
+    support:          ticketId ? `/withdraw/${encodeURIComponent(safetag)}?view=support_chat&ticketId=${ticketId}` : `/withdraw/${encodeURIComponent(safetag)}`,
 });
 
 /**
@@ -35,10 +37,11 @@ export async function buildInternalMagicLink(opts: {
     platformId: string;
     scope: string;
     txnId?: string;
+    ticketId?: string;
 }): Promise<string> {
     const frontendUrl = process.env.REVIEWS_URL || 'http://localhost:3001';
     const ttl = SCOPE_TTL[opts.scope] ?? 30 * 60;
-    const paths = SCOPE_TO_PATH(opts.safetag, opts.txnId);
+    const paths = SCOPE_TO_PATH(opts.safetag, opts.txnId, opts.ticketId);
     const basePath = paths[opts.scope] || `/withdraw/${encodeURIComponent(opts.safetag)}`;
 
     try {
@@ -52,6 +55,7 @@ export async function buildInternalMagicLink(opts: {
             safetag: opts.safetag,
             scope: opts.scope,
             txn_id: opts.txnId || null,
+            ticket_id: opts.ticketId || null,
             issued_to_platform: opts.platform,
             issued_to_platform_id: opts.platformId,
             expires_at: expiresAt.toISOString(),

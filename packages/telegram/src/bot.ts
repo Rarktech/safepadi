@@ -53,6 +53,9 @@ const BOT_AUTH_HEADERS = process.env.BOT_API_SECRET
     ? { 'Authorization': `Bearer ${process.env.BOT_API_SECRET}`, 'x-bot-platform': 'telegram' }
     : {};
 
+// Matches "i need support"/"i need help"/"talk to a human"/"talk to an agent"/"contact support"
+const SUPPORT_TRIGGER = /\b(i\s*need\s*support|i\s*need\s*help|talk\s*to\s*(a\s*)?(human|agent)|contact\s*support)\b/i;
+
 function trackBotEvent(safetag: string | undefined | null, event: string, properties: Record<string, any> = {}) {
     if (!safetag) return;
     axios.post(`${API_URL}/analytics/capture`, { distinct_id: safetag, event, properties }, { headers: BOT_AUTH_HEADERS }).catch(() => {});
@@ -1526,6 +1529,23 @@ bot.on('message', async (ctx) => {
                 return ctx.reply('⏳ No action needed right now — waiting for the other party.');
             } catch (e: any) {
                 return ctx.reply(`❌ Could not resume transaction: ${e.response?.data?.error || e.message}`);
+            }
+        }
+
+        // ── Human support handoff ──────────────────────────────────────────────
+        if (SUPPORT_TRIGGER.test(textBody)) {
+            try {
+                const res = await axios.post(`${API_URL}/support/tickets`, { platform_id: ctx.from?.id, trigger_phrase: textBody }, { headers: BOT_AUTH_HEADERS });
+                const url = (res.data.url as string).replace('localhost', '127.0.0.1');
+                return ctx.reply(
+                    '🆘 <b>A human agent has been notified</b>\n\nWe\'ve opened a support ticket and someone from our team will get back to you shortly. Tap below to chat with them directly:',
+                    { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '💬 Open Support Chat', url }]] } }
+                );
+            } catch (e: any) {
+                if (e.response?.status === 404) {
+                    return ctx.reply('👋 Please /start and complete registration first, then reach out again.');
+                }
+                return ctx.reply('❌ Could not open a support ticket right now. Please try again in a moment.');
             }
         }
 

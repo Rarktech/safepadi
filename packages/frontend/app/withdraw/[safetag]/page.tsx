@@ -39,6 +39,8 @@ import { ContinueTransactionModal } from '@/components/withdraw/ContinueTransact
 import { DisputesListView } from '@/components/disputes/DisputesListView';
 import { DisputeChatPage } from '@/components/disputes/DisputeChatPage';
 import { ProfileView } from '@/components/profile/ProfileView';
+import { SupportChatPage } from '@/components/support/SupportChatPage';
+import { SupportTicketsListView } from '@/components/support/SupportTicketsListView';
 
 export default function WithdrawDashboard() {
     const { safetag } = useParams() as { safetag: string };
@@ -49,6 +51,7 @@ export default function WithdrawDashboard() {
 
     const [currentView, setCurrentView] = useState<ViewType>('dashboard');
     const [selectedDispute, setSelectedDispute] = useState<any>(null);
+    const [selectedTicket, setSelectedTicket] = useState<any>(null);
     const [unreadNotifCount, setUnreadNotifCount] = useState(0);
     const [continueModal, setContinueModal] = useState<{ txnId: string; txnCode: string; txnTitle: string } | null>(null);
     const [balances, setBalances] = useState<any[]>([]);
@@ -108,10 +111,24 @@ export default function WithdrawDashboard() {
         }
     }, [searchParams, allTransactions]);
 
+    // Handle deep link for a support ticket magic link (?view=support_chat&ticketId=...)
+    useEffect(() => {
+        const viewParam = searchParams.get('view');
+        const ticketIdParam = searchParams.get('ticketId');
+        if (viewParam === 'support_chat' && ticketIdParam) {
+            api.get(`/support/${ticketIdParam}`)
+                .then(res => {
+                    setSelectedTicket(res.data);
+                    setCurrentView('support_chat');
+                })
+                .catch(() => {});
+        }
+    }, [searchParams]);
+
     // Restore simple views (e.g. ?view=notifications, ?view=profile) from the URL.
     // Separate effect (no allTransactions dep) so data reloads don't override user's current view.
     // Excludes dispute_details/dispute_chat, which need extra data and are handled above.
-    const SIMPLE_DEEP_LINK_VIEWS: ViewType[] = ['dashboard', 'transactions', 'withdraw', 'referrals', 'marketplace', 'notifications', 'disputes', 'profile'];
+    const SIMPLE_DEEP_LINK_VIEWS: ViewType[] = ['dashboard', 'transactions', 'withdraw', 'referrals', 'marketplace', 'notifications', 'disputes', 'profile', 'support_tickets'];
     useEffect(() => {
         const viewParam = searchParams.get('view');
         if (SIMPLE_DEEP_LINK_VIEWS.includes(viewParam as ViewType)) {
@@ -517,6 +534,21 @@ export default function WithdrawDashboard() {
                                 }}
                             />
                         </div>
+                    ) : currentView === 'support_tickets' ? (
+                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
+                            <SupportTicketsListView
+                                safetag={decodedSafetag}
+                                onSelectTicket={(t) => { setSelectedTicket(t); setCurrentView('support_chat'); }}
+                            />
+                        </div>
+                    ) : currentView === 'support_chat' && selectedTicket ? (
+                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full flex flex-col">
+                            <SupportChatPage
+                                ticket={selectedTicket}
+                                safetag={decodedSafetag}
+                                onBack={() => { setSelectedTicket(null); setCurrentView('support_tickets'); }}
+                            />
+                        </div>
                     ) : (
                         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 md:p-0 pb-24 md:pb-0">
                             <WithdrawalView
@@ -533,7 +565,7 @@ export default function WithdrawDashboard() {
                 </main>
             </SidebarInset>
 
-            {currentView !== 'dispute_details' && currentView !== 'dispute_chat' && (
+            {currentView !== 'dispute_details' && currentView !== 'dispute_chat' && currentView !== 'support_chat' && (
                 <TransactionDetailPanel
                     selectedTxn={selectedTxn}
                     setSelectedTxn={handleSelectTxn}

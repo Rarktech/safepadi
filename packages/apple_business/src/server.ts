@@ -36,6 +36,9 @@ const BOT_AUTH_HEADERS = process.env.BOT_API_SECRET
     ? { 'Authorization': `Bearer ${process.env.BOT_API_SECRET}`, 'x-bot-platform': 'apple' }
     : {};
 
+// Matches "i need support"/"i need help"/"talk to a human"/"talk to an agent"/"contact support"
+const SUPPORT_TRIGGER = /\b(i\s*need\s*support|i\s*need\s*help|talk\s*to\s*(a\s*)?(human|agent)|contact\s*support)\b/i;
+
 function trackBotEvent(safetag: string | undefined | null, event: string, properties: Record<string, any> = {}) {
     if (!safetag) return;
     axios.post(`${API_URL}/analytics/capture`, { distinct_id: safetag, event, properties }, { headers: BOT_AUTH_HEADERS }).catch(() => {});
@@ -199,7 +202,7 @@ app.post('/webhook/:token', (req, res) => {
             console.log(`💬 [INC] User ${clientId}: ${messageText}`);
 
             // 1. Check "I need help" (Human Escalation) => Transfer back to JivoChat Agent
-            if (messageText === 'i need help' || messageText === 'agent' || messageText === 'support') {
+            if (SUPPORT_TRIGGER.test(messageText) || messageText === 'agent' || messageText === 'support') {
                 await sendJivoChatMessage(clientId, chatId, {
                     type: 'TEXT',
                     text: '⏸️ I have paused the bot. An agent has been notified and will review your request shortly.'
@@ -215,6 +218,15 @@ app.post('/webhook/:token', (req, res) => {
                         });
                     } catch(e) {}
                 }
+
+                // Shadow-log this as a support ticket (pre-resolved via JivoChat) purely for
+                // unified /admin/support visibility — does not affect the JivoChat handoff above.
+                axios.post(`${API_URL}/support/tickets`, {
+                    platform_id: clientId,
+                    trigger_phrase: messageText,
+                    handled_externally: true,
+                }, { headers: BOT_AUTH_HEADERS }).catch(() => {});
+
                 return;
             }
 
