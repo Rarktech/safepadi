@@ -6,6 +6,7 @@ import { format } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
 import api from '@/lib/api';
 import posthog from 'posthog-js';
+import { toast } from 'sonner';
 
 // ─── Attachment chip ────────────────────────────────────────────────────
 function AttachmentChip({ att }: { att: any }) {
@@ -136,7 +137,9 @@ export function SupportChatPage({ ticket: initialTicket, safetag, onBack }: Supp
       setInput('');
       setPendingFiles([]);
       fetchMessages();
-    } catch {} finally { setSending(false); }
+    } catch {
+      toast.error('Failed to send message. Please try again.');
+    } finally { setSending(false); }
   };
 
   const STATUS_META: Record<string, { bg: string; color: string; label: string }> = {

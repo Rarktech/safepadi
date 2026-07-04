@@ -136,7 +136,7 @@ export default function AdminSidebar() {
       <nav className="flex-1 overflow-y-auto admin-area px-2 py-2.5 flex flex-col gap-0.5">
         {visibleGroups.map(group => (
           <div key={group.label} className="mb-1">
-            <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-[#cbd5e1]">
+            <p className="font-tight px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-[#cbd5e1]">
               {group.label}
             </p>
             {group.items.map(item => {
@@ -151,7 +151,7 @@ export default function AdminSidebar() {
                   key={item.name}
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-2.5 px-3 py-[9px] rounded-[9px] text-[13.5px] font-medium transition-colors relative",
+                    "font-tight flex items-center gap-2.5 px-3 py-[9px] rounded-[9px] text-[13.5px] font-medium transition-colors relative",
                     active
                       ? "bg-[#f0fdf4] text-[#059669] font-semibold"
                       : "text-[#64748b] hover:bg-[#f8f9fa] hover:text-[#0f172a]"

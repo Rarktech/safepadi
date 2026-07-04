@@ -171,6 +171,7 @@ export default function AdminSupportPage() {
               const adminName = ticket.metadata?.assigned_admin?.name || ticket.assigned_admin?.name;
               const date = ticket.created_at ? new Date(ticket.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—';
               const userTag = ticket.profile?.safetag || ticket.safetag || '—';
+              const ticketCode = `SUP-${ticket.id?.slice(0, 4).toUpperCase()}`;
 
               return (
                 <div key={ticket.id} onClick={() => router.push(`/admin/support/${ticket.id}`)}
@@ -178,7 +179,7 @@ export default function AdminSupportPage() {
                   className="hover:bg-[#fafafa] transition-colors">
                   <div className="flex items-center gap-1.5">
                     <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: ticket.status === 'OPEN' ? '#e11d48' : '#10b981', flexShrink: 0 }} />
-                    <code style={{ fontSize: '11px', fontWeight: '700', color: '#0f172a' }}>#{ticket.id?.slice(0, 7)}</code>
+                    <code style={{ fontSize: '11px', fontWeight: '700', color: '#0f172a' }}>{ticketCode}</code>
                   </div>
                   <div className="flex items-center gap-2">
                     <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: '700', color: '#059669', flexShrink: 0 }}>

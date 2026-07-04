@@ -141,6 +141,7 @@ export default function AdminSupportTicketPage() {
     const statusChip = isOpen ? 'chip-amber' : ticket.status === 'HANDLED_EXTERNALLY' ? 'chip-blue' : 'chip-green';
     const statusLabel = ticket.status === 'HANDLED_EXTERNALLY' ? 'Resolved (Live Chat)' : ticket.status;
     const assignedAdmin = ticket.metadata?.assigned_admin || ticket.assigned_admin;
+    const ticketCode = `SUP-${ticket.id.slice(0, 4).toUpperCase()}`;
 
     return (
         <div style={{ minHeight: '100vh', background: '#f1f5f9', display: 'flex', flexDirection: 'column' }}>
@@ -153,7 +154,7 @@ export default function AdminSupportTicketPage() {
                         <ArrowLeft className="w-4 h-4" /> Support
                     </button>
                     <span style={{ color: '#d1d5db' }}>›</span>
-                    <code style={{ ...IT, fontSize: '13px', fontWeight: '700', color: '#0f172a' }}>#{ticket.id.slice(0, 8)}</code>
+                    <code style={{ ...IT, fontSize: '13px', fontWeight: '700', color: '#0f172a' }}>{ticketCode}</code>
                     <span className={`adm-chip ${statusChip}`}>{statusLabel}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -186,7 +187,7 @@ export default function AdminSupportTicketPage() {
                         <p style={{ ...IT, fontSize: '13px', fontWeight: '700', color: '#0f172a', marginBottom: '14px' }}>Ticket Overview</p>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '9px' }}>
                             {([
-                                { label: 'Ticket ID', value: <code style={{ fontSize: '11px', fontWeight: '700', color: '#0f172a' }}>#{ticket.id.slice(0, 12)}</code> },
+                                { label: 'Ticket ID', value: <code style={{ fontSize: '11px', fontWeight: '700', color: '#0f172a' }}>{ticketCode}</code> },
                                 { label: 'User', value: <span style={{ fontSize: '11.5px', color: '#0f172a', fontWeight: '600' }}>{ticket.profile?.safetag || ticket.safetag || '—'}</span> },
                                 { label: 'Platform', value: <span style={{ fontSize: '11.5px', color: '#0f172a', fontWeight: '500', textTransform: 'capitalize' }}>{ticket.origin_platform}</span> },
                                 { label: 'Opened', value: <span style={{ fontSize: '11.5px', color: '#0f172a', fontWeight: '500' }}>{new Date(ticket.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span> },

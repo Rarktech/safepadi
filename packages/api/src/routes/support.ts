@@ -179,7 +179,9 @@ supportRoutes.post('/:id/messages', requireUser, async (req: Request, res: Respo
         const user = (req as AuthedRequest).user;
         const { id } = req.params;
         const { content, attachments } = req.body;
-        if (!content) return res.status(400).json({ error: 'content is required' });
+        if (!content && (!attachments || attachments.length === 0)) {
+            return res.status(400).json({ error: 'content or at least one attachment is required' });
+        }
 
         const { data: ticket } = await supabase.from('support_tickets').select('profile_id').eq('id', id).single();
         if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
@@ -404,7 +406,9 @@ adminSupportRoutes.post('/:id/reply', async (req: any, res: Response) => {
         const admin = req.admin;
         const { id } = req.params;
         const { content, attachments } = req.body;
-        if (!content) return res.status(400).json({ error: 'content is required' });
+        if (!content && (!attachments || attachments.length === 0)) {
+            return res.status(400).json({ error: 'content or at least one attachment is required' });
+        }
 
         const { data: ticket } = await supabase.from('support_tickets').select('*').eq('id', id).single();
         if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
