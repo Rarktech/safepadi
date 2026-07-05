@@ -331,7 +331,7 @@ async function applyAdverseInference(dispute: any, txn: any): Promise<void> {
     // finalize side-effects for MILESTONE transactions; ONE_TIME keeps the
     // original referral-commissions-only behavior.
     if (action === 'PAY_SELLER') {
-        finalizePaySeller(txn).catch((e: any) => console.error('❌ [enforcement] Milestone PAY_SELLER finalize failed:', e?.message || e));
+        await finalizePaySeller(txn).catch((e: any) => console.error('❌ [enforcement] Milestone PAY_SELLER finalize failed:', e?.message || e));
     }
 
     // Notify both parties
