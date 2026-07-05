@@ -69,6 +69,7 @@ export const SheetWithdrawal = ({
     const [savedMethods, setSavedMethods] = useState<any[]>([]);
     const [withdrawalReference, setWithdrawalReference] = useState('');
     const [withdrawalStatus, setWithdrawalStatus] = useState('');
+    const [showStepUpDialog, setShowStepUpDialog] = useState(false);
 
     const isInternationalBank = !!selectedBank && INTERNATIONAL_BANKS.some(b => b.code === selectedBank.code);
 
@@ -165,7 +166,11 @@ export const SheetWithdrawal = ({
             setStep(4);
         } catch (error: any) {
             const data = error.response?.data;
-            toast.error(data?.message || data?.error || 'Failed to process withdrawal');
+            if (data?.error === 'STEP_UP_REQUIRED') {
+                setShowStepUpDialog(true);
+            } else {
+                toast.error(data?.message || data?.error || 'Failed to process withdrawal');
+            }
         } finally {
             setLoading(false);
         }
@@ -187,6 +192,7 @@ export const SheetWithdrawal = ({
         setWalletAddress('');
         setWithdrawalReference('');
         setWithdrawalStatus('');
+        setShowStepUpDialog(false);
         onClose();
     };
 
@@ -728,6 +734,26 @@ export const SheetWithdrawal = ({
                             ))}
                         </div>
                     </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Step-up required dialog */}
+            <Dialog open={showStepUpDialog} onOpenChange={setShowStepUpDialog}>
+                <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-sm w-full p-6 bg-white border-none rounded-[24px] shadow-2xl">
+                    <DialogHeader>
+                        <DialogTitle className="font-['Inter_Tight',sans-serif] text-lg font-extrabold text-[#0f172a] tracking-[-.01em]">
+                            Confirm from your linked platform
+                        </DialogTitle>
+                        <DialogDescription className="text-[13px] text-[#64748b] leading-relaxed pt-1.5">
+                            For your security, withdrawals need to be confirmed from the messaging platform you registered with. Open the platform you registered with and choose <span className="font-bold text-[#0f172a]">Withdraw</span> from the menu to continue.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <Button
+                        onClick={() => setShowStepUpDialog(false)}
+                        className="w-full h-12 bg-[#0f172a] hover:bg-[#1e293b] text-white rounded-full text-sm font-bold mt-2"
+                    >
+                        Got it
+                    </Button>
                 </DialogContent>
             </Dialog>
         </Sheet>
