@@ -613,6 +613,101 @@ router.post('/account-otp/verify', async (req, res) => {
 });
 
 /**
+ * POST /api/auth/withdraw-otp/send
+ * Emails a 6-digit code to the caller's own profile email, to self-elevate the
+ * 'withdraw' scope on their current web session — an alternative to the bot-issued
+ * magic-link elevation path, for users who reach the withdraw sheet directly from
+ * the web dashboard. Always email-only: WhatsApp/Instagram/Messenger have no reliable
+ * way to message a user outside Meta's 24h window, so this avoids that failure mode
+ * entirely rather than special-casing it per platform.
+ */
+router.post('/withdraw-otp/send', requireUser, async (req, res) => {
+    try {
+        const user = (req as AuthedRequest).user;
+
+        if (isRateLimited(`withdraw_elevation:${user.sub}`)) {
+            return res.status(429).json({ error: 'Too many requests. Please wait 15 minutes before trying again.' });
+        }
+
+        const { data: profile } = await supabase.from('profiles').select('id, email').eq('id', user.sub).maybeSingle();
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+        await supabase.from('profile_action_otps').delete().eq('profile_id', profile.id).eq('purpose', 'withdraw_elevation');
+        const { error: insertErr } = await supabase.from('profile_action_otps').insert({
+            profile_id: profile.id, code, purpose: 'withdraw_elevation', expires_at: expiresAt
+        });
+        if (insertErr) throw insertErr;
+
+        const emailHtml = `
+            <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 8px; text-align: center;">
+                <h2 style="color: #0f172a;">Confirm your withdrawal</h2>
+                <p style="color: #475569; line-height: 1.5;">Use the code below to confirm and complete your withdrawal request.</p>
+                <div style="font-size: 32px; font-weight: bold; letter-spacing: 8px; padding: 20px; margin: 30px 0; background: #f8fafc; border-radius: 8px; color: #0284c7;">
+                    ${code}
+                </div>
+                <p style="color: #475569; line-height: 1.5;">This code will expire in 10 minutes.</p>
+                <p style="font-size: 13px; color: #94a3b8; margin-top: 40px;">If you did not request this, you can safely ignore this email — no funds will move without this code.</p>
+            </div>
+        `;
+
+        sendEmail({ to: profile.email, subject: `${code} is your Safeeely withdrawal confirmation code`, html: emailHtml }).catch(() => {});
+
+        res.json({ success: true, masked_email: maskEmail(profile.email) });
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+/**
+ * POST /api/auth/withdraw-otp/verify
+ * Verifies the code from /withdraw-otp/send and re-signs the caller's own session
+ * JWT (same jti — no need to rotate user_sessions, elevation lives only in the JWT
+ * claims) with a fresh 'withdraw' elevation, matching what a bot-issued magic-link
+ * exchange would grant.
+ */
+router.post('/withdraw-otp/verify', requireUser, async (req, res) => {
+    try {
+        const user = (req as AuthedRequest).user;
+        const { code } = z.object({ code: z.string().length(6) }).parse(req.body);
+
+        const { data: otpRow } = await supabase
+            .from('profile_action_otps')
+            .select('id, expires_at')
+            .eq('profile_id', user.sub)
+            .eq('purpose', 'withdraw_elevation')
+            .eq('code', code)
+            .maybeSingle();
+
+        if (!otpRow || new Date(otpRow.expires_at) < new Date()) {
+            return res.status(400).json({ error: 'Invalid or expired code' });
+        }
+        await supabase.from('profile_action_otps').delete().eq('id', otpRow.id);
+
+        const elevExp = Math.floor(Date.now() / 1000) + 5 * 60;
+        const newToken = jwt.sign(
+            { ...user, elevated_scopes: ['withdraw'], elev_exp: elevExp },
+            process.env.JWT_SECRET!,
+            { algorithm: 'HS256', noTimestamp: true }
+        );
+
+        res.cookie('sf_session', newToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            path: '/',
+            maxAge: 30 * 60 * 1000,
+        });
+
+        res.json({ success: true, elevated_until: new Date(elevExp * 1000).toISOString() });
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+/**
  * GET /api/auth/me
  * Returns the authenticated user's profile and session metadata.
  */

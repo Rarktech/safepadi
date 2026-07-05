@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription
 } from "@/components/ui/sheet";
@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import { apiErrorMessage } from '@/lib/apiError';
+import { OtpInput, focusOtpBox } from '@/components/auth/OtpInput';
 import {
     ArrowRight, X, Plus, Clock, Bitcoin, DollarSign,
     CheckCircle2, Search, Loader2, CheckCircle, AlertTriangle, Send
@@ -69,7 +71,17 @@ export const SheetWithdrawal = ({
     const [savedMethods, setSavedMethods] = useState<any[]>([]);
     const [withdrawalReference, setWithdrawalReference] = useState('');
     const [withdrawalStatus, setWithdrawalStatus] = useState('');
-    const [showStepUpDialog, setShowStepUpDialog] = useState(false);
+
+    // Step-up (STEP_UP_REQUIRED) OTP elevation state
+    const [stepUpStage, setStepUpStage] = useState<'none' | 'otp'>('none');
+    const [maskedEmail, setMaskedEmail] = useState('');
+    const [otp, setOtp] = useState<string[]>(['', '', '', '', '', '']);
+    const [otpError, setOtpError] = useState('');
+    const [verifyingOtp, setVerifyingOtp] = useState(false);
+    const [sendingOtp, setSendingOtp] = useState(false);
+    const [resendCountdown, setResendCountdown] = useState(60);
+    const [canResend, setCanResend] = useState(false);
+    const resendTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const isInternationalBank = !!selectedBank && INTERNATIONAL_BANKS.some(b => b.code === selectedBank.code);
 
@@ -119,6 +131,64 @@ export const SheetWithdrawal = ({
         return () => { cancelled = true; };
     }, [accountNumber, selectedBank, safetag, isInternationalBank]);
 
+    const startResendTimer = () => {
+        if (resendTimerRef.current) clearInterval(resendTimerRef.current);
+        setResendCountdown(60);
+        setCanResend(false);
+        resendTimerRef.current = setInterval(() => {
+            setResendCountdown((c) => {
+                if (c <= 1) {
+                    if (resendTimerRef.current) clearInterval(resendTimerRef.current);
+                    setCanResend(true);
+                    return 0;
+                }
+                return c - 1;
+            });
+        }, 1000);
+    };
+
+    useEffect(() => () => { if (resendTimerRef.current) clearInterval(resendTimerRef.current); }, []);
+
+    const requestWithdrawOtp = async () => {
+        setSendingOtp(true);
+        setOtpError('');
+        try {
+            const res = await api.post('/auth/withdraw-otp/send');
+            setMaskedEmail(res.data?.masked_email || '');
+            setStepUpStage('otp');
+            startResendTimer();
+            setTimeout(() => focusOtpBox(0), 100);
+        } catch (err) {
+            toast.error(apiErrorMessage(err, 'Could not send confirmation code — please try again'));
+        } finally {
+            setSendingOtp(false);
+        }
+    };
+
+    const handleResendOtp = async () => {
+        setOtp(['', '', '', '', '', '']);
+        setOtpError('');
+        await requestWithdrawOtp();
+    };
+
+    const handleVerifyOtp = async () => {
+        const code = otp.join('');
+        if (code.length < 6) { setOtpError('Please enter the full 6-digit code'); return; }
+
+        setVerifyingOtp(true);
+        setOtpError('');
+        try {
+            await api.post('/auth/withdraw-otp/verify', { code });
+            setStepUpStage('none');
+            setOtp(['', '', '', '', '', '']);
+            await handleWithdraw();
+        } catch (err) {
+            setOtpError(apiErrorMessage(err, 'Invalid or expired code. Please try again.'));
+        } finally {
+            setVerifyingOtp(false);
+        }
+    };
+
     const handleWithdraw = async () => {
         setLoading(true);
         try {
@@ -167,7 +237,7 @@ export const SheetWithdrawal = ({
         } catch (error: any) {
             const data = error.response?.data;
             if (data?.error === 'STEP_UP_REQUIRED') {
-                setShowStepUpDialog(true);
+                await requestWithdrawOtp();
             } else {
                 toast.error(data?.message || data?.error || 'Failed to process withdrawal');
             }
@@ -192,7 +262,11 @@ export const SheetWithdrawal = ({
         setWalletAddress('');
         setWithdrawalReference('');
         setWithdrawalStatus('');
-        setShowStepUpDialog(false);
+        setStepUpStage('none');
+        setMaskedEmail('');
+        setOtp(['', '', '', '', '', '']);
+        setOtpError('');
+        if (resendTimerRef.current) clearInterval(resendTimerRef.current);
         onClose();
     };
 
@@ -737,23 +811,42 @@ export const SheetWithdrawal = ({
                 </DialogContent>
             </Dialog>
 
-            {/* Step-up required dialog */}
-            <Dialog open={showStepUpDialog} onOpenChange={setShowStepUpDialog}>
+            {/* Step-up required — OTP elevation dialog */}
+            <Dialog open={stepUpStage === 'otp'} onOpenChange={(open) => !open && setStepUpStage('none')}>
                 <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-sm w-full p-6 bg-white border-none rounded-[24px] shadow-2xl">
                     <DialogHeader>
                         <DialogTitle className="font-['Inter_Tight',sans-serif] text-lg font-extrabold text-[#0f172a] tracking-[-.01em]">
-                            Confirm from your linked platform
+                            Confirm your withdrawal
                         </DialogTitle>
                         <DialogDescription className="text-[13px] text-[#64748b] leading-relaxed pt-1.5">
-                            For your security, withdrawals need to be confirmed from the messaging platform you registered with. Open the platform you registered with and choose <span className="font-bold text-[#0f172a]">Withdraw</span> from the menu to continue.
+                            For your security, we&apos;ve sent a 6-digit code to <span className="font-bold text-[#0f172a]">{maskedEmail}</span>. Enter it below to complete this withdrawal.
                         </DialogDescription>
                     </DialogHeader>
+
+                    <div className="mt-3">
+                        <OtpInput value={otp} onChange={(next) => { setOtp(next); setOtpError(''); }} error={!!otpError} onEnter={handleVerifyOtp} />
+                        {otpError && (
+                            <p className="text-[11.5px] text-[#e11d48] font-semibold mt-2">{otpError}</p>
+                        )}
+                    </div>
+
                     <Button
-                        onClick={() => setShowStepUpDialog(false)}
-                        className="w-full h-12 bg-[#0f172a] hover:bg-[#1e293b] text-white rounded-full text-sm font-bold mt-2"
+                        onClick={handleVerifyOtp}
+                        disabled={verifyingOtp || sendingOtp}
+                        className="w-full h-12 bg-[#10b981] hover:bg-[#0da271] text-white rounded-full text-sm font-bold mt-4 disabled:opacity-70"
                     >
-                        Got it
+                        {verifyingOtp ? (
+                            <span className="flex items-center justify-center gap-2"><Loader2 size={15} className="animate-spin" /> Verifying…</span>
+                        ) : 'Verify & complete withdrawal'}
                     </Button>
+
+                    <div className="flex items-center justify-center mt-3">
+                        {canResend ? (
+                            <button onClick={handleResendOtp} disabled={sendingOtp} className="bg-none border-none cursor-pointer text-[12.5px] font-semibold text-[#10b981] p-0 disabled:opacity-60">Resend code</button>
+                        ) : (
+                            <span className="text-[12px] text-[#94a3b8] font-medium">Resend in {resendCountdown}s</span>
+                        )}
+                    </div>
                 </DialogContent>
             </Dialog>
         </Sheet>
