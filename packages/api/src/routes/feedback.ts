@@ -10,6 +10,7 @@ const router = Router();
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const DIGEST_CURSOR_KEY = 'feedback_digest_last_run_at';
+const DIGEST_PAGE_SIZE = 500;
 
 const CreateFeedbackSchema = z.object({
     reviewer_safetag: z.string(),
@@ -156,15 +157,23 @@ router.get('/digest', requireReportToken, async (req, res) => {
             .from('platform_feedback')
             .select('rating, comment, source, platform, created_at, profile:profiles!profile_id(safetag)')
             .gt('created_at', since)
-            .order('created_at', { ascending: true });
+            .order('created_at', { ascending: true })
+            .limit(DIGEST_PAGE_SIZE);
 
         if (error) throw error;
 
+        const rows = data ?? [];
+        // If this page is full there may be more rows waiting — advance the cursor only to the
+        // last row we actually returned (not "now"), so the next call picks up the rest instead
+        // of silently dropping a backlog larger than one page.
+        const hasMore = rows.length === DIGEST_PAGE_SIZE;
+        const nextCursor = hasMore ? rows[rows.length - 1].created_at : now;
+
         await supabase
             .from('platform_settings')
-            .upsert({ key: DIGEST_CURSOR_KEY, value: now }, { onConflict: 'key' });
+            .upsert({ key: DIGEST_CURSOR_KEY, value: nextCursor }, { onConflict: 'key' });
 
-        res.json({ since, until: now, count: data?.length ?? 0, feedback: data ?? [] });
+        res.json({ since, until: nextCursor, has_more: hasMore, count: rows.length, feedback: rows });
     } catch (err: any) {
         res.status(400).json({ error: err.message });
     }

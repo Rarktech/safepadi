@@ -11,6 +11,10 @@ import { requireUser, requireSafetagOwner, requireElevation, requireUserOrBot, m
 import { requireBot, BotAuthedRequest } from '../middleware/requireBot';
 import { track, identify } from '../lib/posthog';
 
+// Badge-card composites run per-request; Sharp's default ~50MB native decode
+// cache has no eviction pressure from Node's GC, so it just inflates resting RSS.
+sharp.cache(false);
+
 // 5 name-enquiry calls per user per 10 minutes — prevents account enumeration
 const verifyBankRateLimit = rateLimit({
     windowMs: 10 * 60 * 1000,
