@@ -1,12 +1,15 @@
 import { Router } from 'express';
 import { supabase } from '@safepal/shared';
 import { z } from 'zod';
-import { routeNotification, recordNotification } from '../services/notifications';
+import { routeNotification, recordNotification, sendNotification } from '../services/notifications';
 import { FEEDBACK_HOOK_PROMPTS, pickRandom } from '@safepal/shared';
+import { requireReportToken } from '../middleware/requireReportToken';
+import { sendEmail } from '../services/email';
 
 const router = Router();
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+const DIGEST_CURSOR_KEY = 'feedback_digest_last_run_at';
 
 const CreateFeedbackSchema = z.object({
     reviewer_safetag: z.string(),
@@ -131,6 +134,100 @@ router.patch('/admin/:id', async (req, res) => {
 
         if (error) throw error;
         res.json(updated);
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// GET /api/feedback/digest — scheduled-agent read: feedback since the last digest run
+// Auth: x-report-token header (see requireReportToken), not the admin JWT.
+router.get('/digest', requireReportToken, async (req, res) => {
+    try {
+        const { data: cursorRow } = await supabase
+            .from('platform_settings')
+            .select('value')
+            .eq('key', DIGEST_CURSOR_KEY)
+            .maybeSingle();
+
+        const since = cursorRow?.value || new Date(0).toISOString();
+        const now = new Date().toISOString();
+
+        const { data, error } = await supabase
+            .from('platform_feedback')
+            .select('rating, comment, source, platform, created_at, profile:profiles!profile_id(safetag)')
+            .gt('created_at', since)
+            .order('created_at', { ascending: true });
+
+        if (error) throw error;
+
+        await supabase
+            .from('platform_settings')
+            .upsert({ key: DIGEST_CURSOR_KEY, value: now }, { onConflict: 'key' });
+
+        res.json({ since, until: now, count: data?.length ?? 0, feedback: data ?? [] });
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+const DeliverDigestSchema = z.object({
+    subject: z.string().min(1),
+    text: z.string().min(1),
+    html: z.string().optional(),
+    telegram: z.string().optional(),
+});
+
+// Telegram messages cap at 4096 chars — split on line breaks, leaving headroom for HTML tags.
+function splitTelegramMessage(text: string, maxLen = 3900): string[] {
+    if (text.length <= maxLen) return [text];
+    const lines = text.split('\n');
+    const chunks: string[] = [];
+    let current = '';
+    for (const line of lines) {
+        if (current && (current.length + line.length + 1) > maxLen) {
+            chunks.push(current);
+            current = line;
+        } else {
+            current = current ? `${current}\n${line}` : line;
+        }
+    }
+    if (current) chunks.push(current);
+    return chunks;
+}
+
+// POST /api/feedback/digest/deliver — scheduled-agent write: push the analyzed digest to ops (email + Telegram)
+router.post('/digest/deliver', requireReportToken, async (req, res) => {
+    try {
+        const data = DeliverDigestSchema.parse(req.body);
+        const opsEmail = process.env.OPS_EMAIL;
+        const opsTelegramChatId = process.env.OPS_TELEGRAM_CHAT_ID;
+
+        const result: { email: boolean; telegram: boolean } = { email: false, telegram: false };
+
+        if (opsEmail) {
+            await sendEmail({
+                to: opsEmail,
+                subject: data.subject,
+                html: data.html || `<pre style="font-family:inherit;white-space:pre-wrap">${data.text}</pre>`,
+            });
+            result.email = true;
+        }
+
+        if (opsTelegramChatId && data.telegram) {
+            const chunks = splitTelegramMessage(data.telegram);
+            let allSent = true;
+            for (const chunk of chunks) {
+                const sent = await sendNotification('telegram', opsTelegramChatId, chunk);
+                if (!sent) allSent = false;
+            }
+            result.telegram = allSent;
+        }
+
+        if (!result.email && !result.telegram) {
+            return res.status(500).json({ error: 'No delivery channel configured (set OPS_EMAIL and/or OPS_TELEGRAM_CHAT_ID)' });
+        }
+
+        res.json({ success: true, ...result });
     } catch (err: any) {
         res.status(400).json({ error: err.message });
     }
