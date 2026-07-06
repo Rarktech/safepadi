@@ -491,7 +491,8 @@ router.get('/:safetag/balance', requireUser, requireSafetagOwner, async (req, re
                 .from('withdrawals')
                 .select('amount, currency, status')
                 .eq('profile_id', profileId)
-                .neq('status', 'REJECTED'),
+                .neq('status', 'REJECTED')
+                .neq('status', 'FAILED'),
             // Buyer pending refunds: credits owed from REFUND_BUYER / SPLIT verdicts
             supabase
                 .from('buyer_refund_credits')
@@ -659,7 +660,8 @@ router.post('/bot-balance', requireBot, async (req, res) => {
                 .from('withdrawals')
                 .select('amount, currency, status')
                 .eq('profile_id', profileId)
-                .neq('status', 'REJECTED'),
+                .neq('status', 'REJECTED')
+                .neq('status', 'FAILED'),
             supabase
                 .from('buyer_refund_credits')
                 .select('amount, currency, status')

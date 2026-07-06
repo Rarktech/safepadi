@@ -550,7 +550,7 @@ router.get('/customers/:id', async (req, res) => {
         const referralEarned = commissions?.reduce((s, c) => s + Number(c.amount), 0) || 0;
 
         // Fetch Withdrawals for Balance Calculation
-        const { data: withdrawals } = await supabase.from('withdrawals').select('amount, currency, status').eq('profile_id', id).neq('status', 'REJECTED');
+        const { data: withdrawals } = await supabase.from('withdrawals').select('amount, currency, status').eq('profile_id', id).neq('status', 'REJECTED').neq('status', 'FAILED');
 
         // Calculate Balances
         const balances: Record<string, number> = {};
