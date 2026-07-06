@@ -114,7 +114,6 @@ export default function DeliveryGuidelines() {
             <a href="#" style={{ fontSize: 14, fontWeight: 500, color: "#475569", textDecoration: "none" }}>Jobs</a>
             <Link href="/guides/delivery" style={{ fontSize: 14, fontWeight: 600, color: "#10b981", textDecoration: "none" }}>Guides</Link>
           </div>
-          <Link href="/dashboard" style={{ background: "#0f172a", color: "#fff", textDecoration: "none", borderRadius: 999, padding: "10px 22px", fontWeight: 700, fontSize: 13.5 }}>Dashboard →</Link>
         </div>
       </nav>
 
@@ -410,7 +409,6 @@ export default function DeliveryGuidelines() {
             <p style={{ fontFamily: "'Inter Tight', sans-serif", fontWeight: 700, fontSize: 16, color: "#0f172a", margin: "0 0 5px", letterSpacing: "-.02em" }}>Need support with a delivery dispute?</p>
             <p style={{ fontSize: 13.5, color: "#64748b", margin: 0 }}>Contact Safeeely support through your messaging bot or visit your dashboard at any time.</p>
           </div>
-          <Link href="/dashboard" style={{ background: "#0f172a", color: "#fff", textDecoration: "none", borderRadius: 999, padding: "12px 26px", fontWeight: 700, fontSize: 13.5, whiteSpace: "nowrap", flexShrink: 0 }}>Go to Dashboard →</Link>
         </div>
 
       </div>
