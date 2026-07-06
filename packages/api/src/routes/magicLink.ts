@@ -185,8 +185,13 @@ router.post('/exchange', async (req: Request, res: Response) => {
             return res.status(401).json({ error: 'INVALID_OR_EXPIRED_TOKEN' });
         }
 
-        // Determine elevation
-        const elevatedScopes = ELEVATION_SCOPES.has(tokenRow.scope) ? [tokenRow.scope] : [];
+        // Determine elevation — a 'withdraw' link also grants 'payout_method', since
+        // saving a new payout method is a normal sub-step of confirming a withdrawal
+        // (see SheetWithdrawal.tsx's handleWithdraw) and this link already proves the
+        // same intent for both.
+        const elevatedScopes = tokenRow.scope === 'withdraw'
+            ? ['withdraw', 'payout_method']
+            : (ELEVATION_SCOPES.has(tokenRow.scope) ? [tokenRow.scope] : []);
         const elevExp = elevatedScopes.length > 0 ? Math.floor(Date.now() / 1000) + 5 * 60 : undefined;
 
         const { token, jti, expiresAt } = issueSessionJwt({

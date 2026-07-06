@@ -688,7 +688,10 @@ router.post('/withdraw-otp/verify', requireUser, async (req, res) => {
 
         const elevExp = Math.floor(Date.now() / 1000) + 5 * 60;
         const newToken = jwt.sign(
-            { ...user, elevated_scopes: ['withdraw'], elev_exp: elevExp },
+            // Also grant 'payout_method' — saving a new payout method is a normal
+            // sub-step of confirming a withdrawal (see SheetWithdrawal.tsx's
+            // handleWithdraw), and this OTP already proves the same intent for both.
+            { ...user, elevated_scopes: ['withdraw', 'payout_method'], elev_exp: elevExp },
             process.env.JWT_SECRET!,
             { algorithm: 'HS256', noTimestamp: true }
         );
