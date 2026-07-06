@@ -1,0 +1,7 @@
+{
+  "mode": "backfill",
+  "lastProcessedCommitSha": null,
+  "backfillCutoffSha": "984a83277e285a83fb7815a7e9c561621b6fceeb",
+  "fragmentIndex": 0,
+  "recap": ""
+}
