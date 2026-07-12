@@ -1,7 +1,7 @@
 {
   "mode": "backfill",
-  "lastProcessedCommitSha": "27ac9d7c0315066849384b6c7f0aeb3631b9f50e",
+  "lastProcessedCommitSha": "7fdbbfe976091bed02df029340a1de1f4062f609",
   "backfillCutoffSha": "984a83277e285a83fb7815a7e9c561621b6fceeb",
-  "fragmentIndex": 1,
-  "recap": "Day 1 covered the true start of Safeeely's visible history (June 25, 2026): Peter introduced what Safeeely is (an AI-escrow bot for DM deals - social media sales, freelance gigs, crypto - used via Telegram/Discord/WhatsApp/Instagram/Apple bots under a 'safetag' handle) and why he built it (stopping pay-first-then-ghosted DM scams). Then he found and fixed two serious money bugs in milestone (pay-in-phases) transactions on day one: completing a single phase was finalizing the entire multi-phase deal, and dispute refunds were computed against the full contract value instead of what was actually still in escrow, risking money stuck credited to no one. Both were fixed and the same protection was rolled out same-day across every platform bot. Next chapter: the self-deactivate/block-flow bug from later that same day."
+  "fragmentIndex": 2,
+  "recap": "Day 1 (June 25, 2026) introduced Safeeely - an AI-escrow bot for DM deals (social media sales, freelance gigs, crypto) used via Telegram/Discord/WhatsApp/Instagram/Apple bots under a 'safetag' handle - and covered two serious milestone (pay-in-phases) money bugs found and fixed on day one. Day 2 (June 26, 2026) covered a three-layer WhatsApp notification bug hunt: buyers stopped getting told their payment was ready to release, with each fix (a 24h-messaging-window bypass, then a phone-number-format mismatch, then a wrong Supabase count API) uncovering a deeper silent failure underneath the last. Next chapter picks up later June 26/27: a run of frontend payment-modal icon fixes and the start of the admin dashboard expansion."
 }
