@@ -1,7 +1,7 @@
 {
   "mode": "backfill",
-  "lastProcessedCommitSha": "44c1bed822adc253085893e69696353bc6192b4a",
+  "lastProcessedCommitSha": "292f1b16ffdd8bb1dbb501258c5de2da907a768f",
   "backfillCutoffSha": "984a83277e285a83fb7815a7e9c561621b6fceeb",
-  "fragmentIndex": 2,
-  "recap": "Fragment 1 covered launch week: self-service account block/reactivate + email-OTP web login, an unawaited-insert bug that instantly logged users out, PostHog analytics across the API/frontend/6 bots, and the week's biggest scare - milestone transactions finalizing the whole project on one phase's release, fixed and ported for parity across all 5 bot platforms. Fragment 2: Peter built the entire admin dashboard overnight in one sitting - 10 new pages, dispute auto-routing with workload balancing, SLA reminders, fraud queue, analytics - then immediately hit two bugs, a TypeScript build break from Supabase's promise types and a cross-domain cookie bug that locked him out of his own login. Both fixed same night. Next chapter: the admin panel gets redesigned for real (it shipped functional but ugly)."
+  "fragmentIndex": 3,
+  "recap": "Fragment 1 covered launch week: self-service account block/reactivate + email-OTP web login, an unawaited-insert bug that instantly logged users out, PostHog analytics, and milestone transactions finalizing early, fixed across all bot platforms. Fragment 2: Peter built the entire admin dashboard overnight in one sitting - 10 pages, dispute auto-routing, SLA reminders, fraud queue - then fixed two same-night bugs (TS build break, cross-domain cookie lockout). Fragment 3: a few days later he gave all 26 admin pages a real navy design system, rebuilt the dispute detail page into a 3-column layout, and quietly added his first real test suite (66 tests) in the same sitting. Next chapter: badge cards, reviews, and a run of memory-leak fixes."
 }
