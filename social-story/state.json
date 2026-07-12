@@ -1,7 +1,7 @@
 {
   "mode": "backfill",
-  "lastProcessedCommitSha": "292f1b16ffdd8bb1dbb501258c5de2da907a768f",
+  "lastProcessedCommitSha": "210575dbe1ae06e0d5ae93af07def233608f3c68",
   "backfillCutoffSha": "984a83277e285a83fb7815a7e9c561621b6fceeb",
-  "fragmentIndex": 3,
-  "recap": "Fragment 1 covered launch week: self-service account block/reactivate + email-OTP web login, an unawaited-insert bug that instantly logged users out, PostHog analytics, and milestone transactions finalizing early, fixed across all bot platforms. Fragment 2: Peter built the entire admin dashboard overnight in one sitting - 10 pages, dispute auto-routing, SLA reminders, fraud queue - then fixed two same-night bugs (TS build break, cross-domain cookie lockout). Fragment 3: a few days later he gave all 26 admin pages a real navy design system, rebuilt the dispute detail page into a 3-column layout, and quietly added his first real test suite (66 tests) in the same sitting. Next chapter: badge cards, reviews, and a run of memory-leak fixes."
+  "fragmentIndex": 4,
+  "recap": "Fragment 1 covered launch week: self-service account block/reactivate + email-OTP web login, an unawaited-insert bug that instantly logged users out, PostHog analytics, and milestone transactions finalizing early, fixed across all bot platforms. Fragment 2: Peter built the entire admin dashboard overnight in one sitting - 10 pages, dispute auto-routing, SLA reminders, fraud queue - then fixed two same-night bugs (TS build break, cross-domain cookie lockout). Fragment 3: a few days later he gave all 26 admin pages a real navy design system, rebuilt the dispute detail page into a 3-column layout, and quietly added his first real test suite (66 tests) in the same sitting. Fragment 4: same design push, he rebuilt the settings page into 7 full sections - then discovered it was only saving 10 of 44 fields with a broken percent/boolean conversion, fixed it, and rebuilt the analytics page (funnel, revenue, growth, platform tabs) the same day. Next chapter: badge cards, reviews, and a run of memory-leak fixes."
 }
