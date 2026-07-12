@@ -1,7 +1,7 @@
 {
   "mode": "backfill",
-  "lastProcessedCommitSha": null,
+  "lastProcessedCommitSha": "27ac9d7c0315066849384b6c7f0aeb3631b9f50e",
   "backfillCutoffSha": "984a83277e285a83fb7815a7e9c561621b6fceeb",
-  "fragmentIndex": 0,
-  "recap": ""
+  "fragmentIndex": 1,
+  "recap": "Day 1 covered the true start of Safeeely's visible history (June 25, 2026): Peter introduced what Safeeely is (an AI-escrow bot for DM deals - social media sales, freelance gigs, crypto - used via Telegram/Discord/WhatsApp/Instagram/Apple bots under a 'safetag' handle) and why he built it (stopping pay-first-then-ghosted DM scams). Then he found and fixed two serious money bugs in milestone (pay-in-phases) transactions on day one: completing a single phase was finalizing the entire multi-phase deal, and dispute refunds were computed against the full contract value instead of what was actually still in escrow, risking money stuck credited to no one. Both were fixed and the same protection was rolled out same-day across every platform bot. Next chapter: the self-deactivate/block-flow bug from later that same day."
 }
