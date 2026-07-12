@@ -1,7 +1,7 @@
 {
   "mode": "backfill",
-  "lastProcessedCommitSha": null,
+  "lastProcessedCommitSha": "15933f5cdd19ccac8d58c156555ffe3d04052f44",
   "backfillCutoffSha": "984a83277e285a83fb7815a7e9c561621b6fceeb",
-  "fragmentIndex": 0,
-  "recap": ""
+  "fragmentIndex": 1,
+  "recap": "Fragment 1 covered launch week: self-service account block/reactivate + email-OTP web login, a nasty unawaited-insert bug that instantly logged users out, PostHog analytics rollout across the API/frontend/6 bots, and the week's biggest scare - milestone transactions finalizing the whole project on one phase's release, fixed with a proper per-phase completion + dispute-escrow rebuild that then had to be ported for parity across WhatsApp, Instagram, Messenger, and Apple Business. Closed out with a cross-bot 'resume TXN-XXXXXX' command and real payment provider logos. Next chapter: an admin dashboard rebuild."
 }
